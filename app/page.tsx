@@ -22,12 +22,13 @@ import { type Event, type EventInsert } from "@/lib/supabase";
 import {
   getEventsByDateRange, getEventById, createEvent, updateEvent,
   softDeleteEvent, cleanupOldDeletedEvents,
-  logActivity, getUnreadActivityCount,
+  logActivity, getUnreadActivityCount, getAllEvents,
 } from "@/lib/events";
 import { getMembers, type Member } from "@/lib/members";
 import { getGroups, type MemberGroup } from "@/lib/groups";
 
 const LAST_SEEN_KEY = "calendar_activity_last_seen";
+const LAST_BACKUP_KEY = "calendar_last_backup_date";
 
 type ViewMode = "month" | "week" | "day";
 const USER_NAME_KEY = "calendar_user_name";
@@ -93,6 +94,35 @@ export default function CalendarPage() {
     cleanupOldDeletedEvents().catch(() => {});
     getMembers().then(setMembers).catch(() => {});
     getGroups().then(setGroups).catch(() => {});
+
+    // 1日1回、アプリを開いたときに自動バックアップCSVをダウンロード
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const lastBackup = localStorage.getItem(LAST_BACKUP_KEY);
+    if (lastBackup !== todayStr) {
+      getAllEvents().then((events) => {
+        const CSV_HEADERS = ["ID","タイトル","開始日","終了日","開始時刻","終了時刻","終日","用件種別","担当者","メモ","備考","住所","作成者","最終編集者","作成日時"];
+        const rows = events.map((e) => [
+          e.id, e.title, e.start_date, e.end_date,
+          e.start_time?.slice(0,5) ?? "", e.end_time?.slice(0,5) ?? "",
+          e.all_day ? "はい" : "いいえ",
+          (e.event_type ?? []).join("・"), (e.assignees ?? []).join("・"),
+          e.description ?? "", e.notes ?? "", e.location ?? "",
+          e.created_by ?? "", e.updated_by ?? "",
+          new Date(e.created_at).toLocaleString("ja-JP"),
+        ]);
+        const csv = "\uFEFF" + [CSV_HEADERS, ...rows]
+          .map((row) => row.map((c) => `"${String(c ?? "").replace(/"/g,'""')}"`).join(","))
+          .join("\n");
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `backup_${todayStr}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+        localStorage.setItem(LAST_BACKUP_KEY, todayStr);
+      }).catch(() => {});
+    }
 
     // 未読件数を取得
     const lastSeen = localStorage.getItem(LAST_SEEN_KEY);
