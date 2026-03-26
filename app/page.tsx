@@ -59,6 +59,7 @@ export default function CalendarPage() {
   const [showTrash, setShowTrash] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
   const [showMasterPin, setShowMasterPin] = useState(false);
+  const [duplicateData, setDuplicateData] = useState<EventInsert | null>(null);
 
   useEffect(() => {
     const name = localStorage.getItem(USER_NAME_KEY);
@@ -136,15 +137,14 @@ export default function CalendarPage() {
 
   async function handleSaveEvent(data: EventInsert) {
     if (editingEvent) {
-      const updated = await updateEvent(editingEvent.id, data);
-      setEvents((prev) => prev.map((e) => e.id === updated.id ? updated : e));
+      await updateEvent(editingEvent.id, data);
     } else {
-      const created = await createEvent(data);
-      setEvents((prev) => [...prev, created]);
+      await createEvent(data);
     }
     setShowAddModal(false);
     setEditingEvent(null);
     setSelectedDate(null);
+    setDuplicateData(null);
     await loadEvents();
   }
 
@@ -158,6 +158,29 @@ export default function CalendarPage() {
   function handleEditFromDetail() {
     setShowDetailModal(false);
     setEditingEvent(selectedEvent);
+    setShowAddModal(true);
+  }
+
+  function handleDuplicateFromDetail() {
+    if (!selectedEvent) return;
+    setShowDetailModal(false);
+    setSelectedEvent(null);
+    setEditingEvent(null);
+    setDuplicateData({
+      title: selectedEvent.title,
+      description: selectedEvent.description,
+      start_date: selectedEvent.start_date,
+      end_date: selectedEvent.end_date,
+      start_time: selectedEvent.start_time,
+      end_time: selectedEvent.end_time,
+      all_day: selectedEvent.all_day,
+      color: selectedEvent.color,
+      image_url: selectedEvent.image_url,
+      assignees: selectedEvent.assignees,
+      event_type: selectedEvent.event_type,
+      created_by: currentUser,
+      updated_by: currentUser,
+    });
     setShowAddModal(true);
   }
 
@@ -230,11 +253,12 @@ export default function CalendarPage() {
       {showAddModal && (
         <EventModal
           event={editingEvent}
+          initialData={duplicateData ?? undefined}
           defaultDate={selectedDate ? format(selectedDate, "yyyy-MM-dd") : undefined}
           currentUser={currentUser}
           onSave={handleSaveEvent}
           onDelete={editingEvent ? () => handleDeleteEvent(editingEvent) : undefined}
-          onClose={() => { setShowAddModal(false); setEditingEvent(null); }}
+          onClose={() => { setShowAddModal(false); setEditingEvent(null); setDuplicateData(null); }}
         />
       )}
 
@@ -244,6 +268,7 @@ export default function CalendarPage() {
           currentUser={currentUser}
           isMaster={isMaster}
           onEdit={handleEditFromDetail}
+          onDuplicate={handleDuplicateFromDetail}
           onDelete={() => handleDeleteEvent(selectedEvent)}
           onClose={() => { setShowDetailModal(false); setSelectedEvent(null); }}
         />

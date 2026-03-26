@@ -42,7 +42,8 @@ export async function getEventsByDateRange(startDate: string, endDate: string): 
     .from("events")
     .select("*")
     .is("deleted_at", null)
-    .or(`start_date.lte.${endDate},end_date.gte.${startDate}`)
+    .lte("start_date", endDate)
+    .gte("end_date", startDate)
     .order("start_date", { ascending: true });
   if (error) throw error;
   return data ?? [];

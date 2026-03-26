@@ -10,6 +10,7 @@ import { getEventTypes, type EventType } from "@/lib/event_types";
 
 type Props = {
   event?: Event | null;
+  initialData?: Partial<EventInsert>;
   defaultDate?: string;
   currentUser: string;
   onSave: (event: EventInsert) => Promise<void>;
@@ -17,19 +18,20 @@ type Props = {
   onClose: () => void;
 };
 
-export default function EventModal({ event, defaultDate, currentUser, onSave, onDelete, onClose }: Props) {
+export default function EventModal({ event, initialData, defaultDate, currentUser, onSave, onDelete, onClose }: Props) {
   const today = format(new Date(), "yyyy-MM-dd");
-  const [title, setTitle] = useState(event?.title ?? "");
-  const [description, setDescription] = useState(event?.description ?? "");
-  const [startDate, setStartDate] = useState(event?.start_date ?? defaultDate ?? today);
-  const [endDate, setEndDate] = useState(event?.end_date ?? defaultDate ?? today);
-  const [startTime, setStartTime] = useState(event?.start_time ?? "");
-  const [endTime, setEndTime] = useState(event?.end_time ?? "");
-  const [allDay, setAllDay] = useState(event?.all_day ?? true);
-  const [color, setColor] = useState(event?.color ?? "#6366f1");
-  const [imageUrl, setImageUrl] = useState(event?.image_url ?? "");
-  const [assignees, setAssignees] = useState<string[]>(event?.assignees ?? []);
-  const [eventType, setEventType] = useState<string[]>(event?.event_type ?? []);
+  const base = initialData ?? {};
+  const [title, setTitle] = useState(event?.title ?? base.title ?? "");
+  const [description, setDescription] = useState(event?.description ?? base.description ?? "");
+  const [startDate, setStartDate] = useState(event?.start_date ?? base.start_date ?? defaultDate ?? today);
+  const [endDate, setEndDate] = useState(event?.end_date ?? base.end_date ?? defaultDate ?? today);
+  const [startTime, setStartTime] = useState(event?.start_time ?? base.start_time ?? "");
+  const [endTime, setEndTime] = useState(event?.end_time ?? base.end_time ?? "");
+  const [allDay, setAllDay] = useState(event?.all_day ?? base.all_day ?? true);
+  const [color, setColor] = useState(event?.color ?? base.color ?? "#6366f1");
+  const [imageUrl, setImageUrl] = useState(event?.image_url ?? base.image_url ?? "");
+  const [assignees, setAssignees] = useState<string[]>(event?.assignees ?? base.assignees ?? []);
+  const [eventType, setEventType] = useState<string[]>(event?.event_type ?? base.event_type ?? []);
   const [members, setMembers] = useState<Member[]>([]);
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
   const [uploading, setUploading] = useState(false);

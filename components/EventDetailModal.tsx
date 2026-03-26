@@ -2,7 +2,7 @@
 
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
-import { X, Edit2, Trash2, Clock, AlignLeft, Loader2, MessageCircle, Send, User, Users, Tag } from "lucide-react";
+import { X, Edit2, Trash2, Copy, Clock, AlignLeft, Loader2, MessageCircle, Send, User, Users, Tag } from "lucide-react";
 import { useState, useEffect } from "react";
 import { type Event } from "@/lib/supabase";
 import { getComments, addComment, deleteComment, type Comment } from "@/lib/events";
@@ -12,11 +12,12 @@ type Props = {
   currentUser: string;
   isMaster?: boolean;
   onEdit: () => void;
+  onDuplicate: () => void;
   onDelete: () => Promise<void>;
   onClose: () => void;
 };
 
-export default function EventDetailModal({ event, currentUser, isMaster, onEdit, onDelete, onClose }: Props) {
+export default function EventDetailModal({ event, currentUser, isMaster, onEdit, onDuplicate, onDelete, onClose }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentText, setCommentText] = useState("");
@@ -91,10 +92,13 @@ export default function EventDetailModal({ event, currentUser, isMaster, onEdit,
             {event.title}
           </h2>
           <div className="flex gap-1 shrink-0">
-            <button onClick={onEdit} className="p-2 rounded-full hover:bg-gray-100 transition-colors text-gray-500">
+            <button onClick={onEdit} className="p-2 rounded-full hover:bg-gray-100 transition-colors text-gray-500" title="編集">
               <Edit2 size={16} />
             </button>
-            <button onClick={handleDelete} disabled={deleting} className="p-2 rounded-full hover:bg-red-50 transition-colors text-gray-400 hover:text-red-400">
+            <button onClick={onDuplicate} className="p-2 rounded-full hover:bg-indigo-50 transition-colors text-gray-400 hover:text-indigo-400" title="複製">
+              <Copy size={16} />
+            </button>
+            <button onClick={handleDelete} disabled={deleting} className="p-2 rounded-full hover:bg-red-50 transition-colors text-gray-400 hover:text-red-400" title="削除">
               {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
             </button>
             <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100 transition-colors text-gray-500">
