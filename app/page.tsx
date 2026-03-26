@@ -25,6 +25,7 @@ import {
   logActivity, getUnreadActivityCount,
 } from "@/lib/events";
 import { getMembers, type Member } from "@/lib/members";
+import { getGroups, type MemberGroup } from "@/lib/groups";
 
 const LAST_SEEN_KEY = "calendar_activity_last_seen";
 
@@ -74,7 +75,9 @@ export default function CalendarPage() {
 
   // 担当者フィルター
   const [members, setMembers] = useState<Member[]>([]);
+  const [groups, setGroups] = useState<MemberGroup[]>([]);
   const [filterMembers, setFilterMembers] = useState<string[]>([]);
+  const [filterGroups, setFilterGroups] = useState<string[]>([]);
 
   // 活動ログ・通知
   const [showActivityLog, setShowActivityLog] = useState(false);
@@ -88,6 +91,7 @@ export default function CalendarPage() {
     if (master) setIsMaster(true);
     cleanupOldDeletedEvents().catch(() => {});
     getMembers().then(setMembers).catch(() => {});
+    getGroups().then(setGroups).catch(() => {});
 
     // 未読件数を取得
     const lastSeen = localStorage.getItem(LAST_SEEN_KEY);
@@ -177,10 +181,33 @@ export default function CalendarPage() {
     );
   }
 
+  function toggleFilterGroup(id: string) {
+    setFilterGroups((prev) =>
+      prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]
+    );
+  }
+
+  function clearAllFilters() {
+    setFilterMembers([]);
+    setFilterGroups([]);
+  }
+
+  // グループフィルターが含むメンバー名の集合
+  const groupFilterNames = new Set(
+    groups
+      .filter((g) => filterGroups.includes(g.id))
+      .flatMap((g) => g.member_names)
+  );
+
   // フィルター適用後のイベント
-  const displayEvents = filterMembers.length === 0
+  const hasFilter = filterMembers.length > 0 || filterGroups.length > 0;
+  const displayEvents = !hasFilter
     ? events
-    : events.filter((e) => e.assignees.some((a) => filterMembers.includes(a)));
+    : events.filter((e) =>
+        e.assignees.some(
+          (a) => filterMembers.includes(a) || groupFilterNames.has(a)
+        )
+      );
 
   async function handleSaveEvent(data: EventInsert) {
     if (editingEvent) {
@@ -379,19 +406,37 @@ export default function CalendarPage() {
         </div>
       </header>
 
-      {/* 担当者フィルターバー */}
+      {/* 担当者・グループフィルターバー */}
       {members.length > 0 && (
         <div className="bg-white border-b border-gray-100 px-3 py-2 flex items-center gap-2 overflow-x-auto">
+          {/* 全員 */}
           <button
-            onClick={() => setFilterMembers([])}
+            onClick={clearAllFilters}
             className={`shrink-0 w-8 h-8 rounded-full text-xs font-bold transition-colors ${
-              filterMembers.length === 0
-                ? "bg-indigo-500 text-white"
-                : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+              !hasFilter ? "bg-indigo-500 text-white" : "bg-gray-100 text-gray-500 hover:bg-gray-200"
             }`}
-          >
-            全
-          </button>
+          >全</button>
+
+          {/* グループボタン */}
+          {groups.map((g) => {
+            const active = filterGroups.includes(g.id);
+            return (
+              <button
+                key={g.id}
+                onClick={() => toggleFilterGroup(g.id)}
+                className={`shrink-0 px-3 h-8 rounded-full text-xs font-semibold transition-all border whitespace-nowrap ${
+                  active
+                    ? "bg-indigo-500 text-white border-indigo-500"
+                    : "bg-white text-indigo-500 border-indigo-300 hover:bg-indigo-50"
+                }`}
+              >{g.name}</button>
+            );
+          })}
+
+          {/* 区切り */}
+          {groups.length > 0 && <div className="shrink-0 w-px h-5 bg-gray-200" />}
+
+          {/* 個人アバター */}
           {members.map((m) => {
             const active = filterMembers.includes(m.name);
             return (
@@ -406,9 +451,7 @@ export default function CalendarPage() {
                   outlineOffset: "2px",
                 }}
                 title={m.name}
-              >
-                {m.name.charAt(0)}
-              </button>
+              >{m.name.charAt(0)}</button>
             );
           })}
         </div>
@@ -487,7 +530,7 @@ export default function CalendarPage() {
 
       {showAdmin && (
         <AdminPanel
-          onClose={() => setShowAdmin(false)}
+          onClose={() => { setShowAdmin(false); getGroups().then(setGroups).catch(() => {}); }}
           onLogout={handleMasterLogout}
         />
       )}

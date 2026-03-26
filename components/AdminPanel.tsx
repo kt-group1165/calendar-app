@@ -9,8 +9,9 @@ import { getMembers, addMember, deleteMember, updateMemberColor, type Member } f
 import { getEventTypes, addEventType, deleteEventType, type EventType } from "@/lib/event_types";
 import { verifyMasterPin, updateMasterPin } from "@/lib/settings";
 import { getEventsByDateRange } from "@/lib/events";
+import { getGroups, addGroup, deleteGroup, updateGroup, type MemberGroup } from "@/lib/groups";
 
-type Tab = "members" | "types" | "csv" | "analytics" | "settings";
+type Tab = "members" | "groups" | "types" | "csv" | "analytics" | "settings";
 
 const COLORS = ["#6366f1","#ec4899","#f97316","#10b981","#3b82f6","#8b5cf6","#ef4444","#f59e0b"];
 
@@ -20,6 +21,7 @@ export default function AdminPanel({ onClose, onLogout }: Props) {
   const [tab, setTab] = useState<Tab>("members");
   const tabs = [
     { key: "members" as Tab, icon: Users, label: "メンバー" },
+    { key: "groups" as Tab, icon: Users, label: "グループ" },
     { key: "types" as Tab, icon: Tag, label: "種別" },
     { key: "csv" as Tab, icon: Download, label: "CSV" },
     { key: "analytics" as Tab, icon: BarChart2, label: "分析" },
@@ -51,6 +53,7 @@ export default function AdminPanel({ onClose, onLogout }: Props) {
 
       <div className="flex-1 overflow-y-auto">
         {tab === "members" && <MembersTab />}
+        {tab === "groups" && <GroupsTab />}
         {tab === "types" && <EventTypesTab />}
         {tab === "csv" && <CsvTab />}
         {tab === "analytics" && <AnalyticsTab />}
@@ -152,6 +155,122 @@ function MembersTab() {
             ))}
           </div>
         )}
+    </div>
+  );
+}
+
+// ── グループ管理 ──────────────────────────────
+function GroupsTab() {
+  const [groups, setGroups] = useState<MemberGroup[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [groupName, setGroupName] = useState("");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editId, setEditId] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([getGroups(), getMembers()])
+      .then(([g, m]) => { setGroups(g); setMembers(m); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  function toggleMember(name: string) {
+    setSelected((prev) => prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]);
+  }
+
+  async function handleSave() {
+    if (!groupName.trim() || selected.length === 0) return;
+    if (editId) {
+      await updateGroup(editId, groupName.trim(), selected);
+      setGroups((prev) => prev.map((g) => g.id === editId ? { ...g, name: groupName.trim(), member_names: selected } : g));
+      setEditId(null);
+    } else {
+      const g = await addGroup(groupName.trim(), selected);
+      setGroups((prev) => [...prev, g]);
+    }
+    setGroupName(""); setSelected([]);
+  }
+
+  function startEdit(g: MemberGroup) {
+    setEditId(g.id); setGroupName(g.name); setSelected([...g.member_names]);
+  }
+
+  function cancelEdit() {
+    setEditId(null); setGroupName(""); setSelected([]);
+  }
+
+  async function handleDelete(id: string) {
+    await deleteGroup(id);
+    setGroups((prev) => prev.filter((g) => g.id !== id));
+    if (editId === id) cancelEdit();
+  }
+
+  if (loading) return <div className="flex justify-center py-12"><Loader2 size={20} className="animate-spin text-gray-300" /></div>;
+
+  return (
+    <div className="p-4 space-y-4">
+      {/* グループ一覧 */}
+      {groups.length > 0 && (
+        <div className="space-y-2">
+          {groups.map((g) => (
+            <div key={g.id} className="bg-gray-50 rounded-xl p-3 flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-gray-800">{g.name}</p>
+                <p className="text-xs text-gray-400 mt-0.5">{g.member_names.join("・")}</p>
+              </div>
+              <div className="flex gap-1 shrink-0">
+                <button onClick={() => startEdit(g)}
+                  className="text-xs text-indigo-500 font-medium px-2 py-1 rounded-lg hover:bg-indigo-50">編集</button>
+                <button onClick={() => handleDelete(g.id)}
+                  className="text-xs text-red-400 font-medium px-2 py-1 rounded-lg hover:bg-red-50">削除</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 追加・編集フォーム */}
+      <div className="border border-gray-200 rounded-xl p-3 space-y-3">
+        <p className="text-xs font-semibold text-gray-500">{editId ? "グループを編集" : "新しいグループ"}</p>
+        <input
+          value={groupName} onChange={(e) => setGroupName(e.target.value)}
+          placeholder="グループ名（例：木更津エリア）"
+          className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400"
+        />
+        <div>
+          <p className="text-xs text-gray-400 mb-2">メンバーを選択</p>
+          <div className="flex flex-wrap gap-2">
+            {members.map((m) => {
+              const on = selected.includes(m.name);
+              return (
+                <button key={m.id} onClick={() => toggleMember(m.name)}
+                  className="px-3 py-1.5 rounded-full text-xs font-semibold transition-all border"
+                  style={{
+                    backgroundColor: on ? m.color : "white",
+                    color: on ? "white" : m.color,
+                    borderColor: m.color,
+                  }}>
+                  {m.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={handleSave}
+            disabled={!groupName.trim() || selected.length === 0}
+            className="flex-1 bg-indigo-500 text-white text-sm font-semibold py-2 rounded-xl disabled:opacity-40">
+            {editId ? "更新" : "追加"}
+          </button>
+          {editId && (
+            <button onClick={cancelEdit}
+              className="px-4 text-sm text-gray-500 font-medium border border-gray-200 rounded-xl">
+              キャンセル
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
