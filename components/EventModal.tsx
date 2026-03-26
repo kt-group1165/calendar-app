@@ -241,12 +241,17 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
     return desc;
   }
 
+  // タイトルから現在のプレフィックスを除去する
+  function stripTitlePrefix(t: string): string {
+    if (clientPrefix && t.startsWith(clientPrefix)) return t.slice(clientPrefix.length);
+    return t;
+  }
+
   // DBから利用者を選択（住所・情報の自動入力あり）
   function handleSelectClient(client: Client | null) {
-    // タイトルのプレフィックスを付け替え
-    let newTitle = title;
-    if (clientPrefix && newTitle.startsWith(clientPrefix)) newTitle = newTitle.slice(clientPrefix.length);
-    const newPrefix = client ? `${client.name}様 ` : "";
+    // 旧プレフィックスをタイトルから削除し、新プレフィックスを付与
+    const baseTitlePart = stripTitlePrefix(title);
+    const newPrefix = client ? `${client.name} 様 ` : "";
 
     // メモ欄から旧ブロックを除去し、新ブロックを追記
     let newDesc = stripAutoBlock(description, clientAutoBlock);
@@ -257,7 +262,7 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
       if (client.address) setLocation(client.address);
     }
 
-    setTitle(newPrefix + newTitle);
+    setTitle(newPrefix + baseTitlePart);
     setClientPrefix(newPrefix);
     setDescription(newDesc);
     setClientAutoBlock(newBlock);
@@ -267,14 +272,13 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
 
   // 利用者を手動入力（タイトルプレフィックスのみ）
   function handleManualClientName(name: string) {
-    let newTitle = title;
-    if (clientPrefix && newTitle.startsWith(clientPrefix)) newTitle = newTitle.slice(clientPrefix.length);
-    const newPrefix = name ? `${name}様 ` : "";
+    const baseTitlePart = stripTitlePrefix(title);
+    const newPrefix = name ? `${name} 様 ` : "";
 
     // 手動入力の場合はメモの自動追記なし（旧ブロックのみ除去）
     const newDesc = stripAutoBlock(description, clientAutoBlock);
 
-    setTitle(newPrefix + newTitle);
+    setTitle(newPrefix + baseTitlePart);
     setClientPrefix(newPrefix);
     setDescription(newDesc);
     setClientAutoBlock("");
