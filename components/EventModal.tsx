@@ -226,6 +226,30 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
     getClients().then(setClients).catch(() => {});
   }, []);
 
+  // 編集モード時：タイトルのプレフィックスからクライアントを特定し、clientAutoBlockを復元する
+  // （これがないと利用者変更時に古いブロックが削除されず重複する）
+  useEffect(() => {
+    if (!clients.length || !event?.title) return;
+    const match = event.title.match(/^(.+?) 様 /);
+    if (!match) return;
+    const foundClient = clients.find((c) => c.name === match[1]);
+    if (foundClient) {
+      const lines: string[] = [];
+      if (foundClient.memo) lines.push(`【メモ】${foundClient.memo}`);
+      if (foundClient.phone) lines.push(`【電話番号】${foundClient.phone}`);
+      if (foundClient.mobile) lines.push(`【携帯電話】${foundClient.mobile}`);
+      if (foundClient.benefit_rate) lines.push(`【給付率】${foundClient.benefit_rate}`);
+      if (foundClient.care_level) lines.push(`【要介護度】${foundClient.care_level}`);
+      if (foundClient.certification_end_date) lines.push(`【認定有効期限】${foundClient.certification_end_date}`);
+      if (foundClient.care_manager_org) lines.push(`【支援事業所】${foundClient.care_manager_org}`);
+      if (foundClient.care_manager) lines.push(`【担当ケアマネ】${foundClient.care_manager}`);
+      const block = lines.join("\n");
+      setSelectedClient(foundClient);
+      setClientPrefix(`${foundClient.name} 様 `);
+      setClientAutoBlock(block);
+    }
+  }, [clients]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // 利用者情報の自動追記ブロックを生成（selectedClientのみ、手動入力時は生成しない）
   function buildAutoBlock(client: Client): string {
     const lines: string[] = [];
