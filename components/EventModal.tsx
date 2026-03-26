@@ -29,7 +29,8 @@ function TimeSelect({ value, onChange, label }: { value: string; onChange: (v: s
           className="flex-1 text-sm bg-white border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-400">
           <option value="">--</option>
           {Array.from({ length: 24 }, (_, i) => {
-            const v = String(i).padStart(2, "0");
+            const h = (6 + i) % 24;
+            const v = String(h).padStart(2, "0");
             return <option key={v} value={v}>{v}</option>;
           })}
         </select>
