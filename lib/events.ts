@@ -57,43 +57,74 @@ export async function getAllEvents(): Promise<Event[]> {
   return all;
 }
 
-// CSVインポート：IDあり→UPDATE（画像・コメント保持）、IDなし→INSERT
+// CSVインポート：バッチ処理版（500件まとめてupsert）
 export async function importEventsFromCSV(
   rows: Array<{ id?: string } & Partial<EventInsert>>
 ): Promise<{ updated: number; inserted: number; errors: number }> {
+  const BATCH = 500;
   let updated = 0, inserted = 0, errors = 0;
-  for (const row of rows) {
-    const { id, ...data } = row;
-    if (id) {
-      const { error } = await supabase
-        .from("events")
-        .update(data)
-        .eq("id", id)
-        .is("deleted_at", null);
-      if (!error) updated++; else errors++;
-    } else {
-      const insertData: EventInsert = {
-        title: data.title ?? "",
-        description: data.description ?? null,
-        notes: data.notes ?? null,
-        start_date: data.start_date ?? new Date().toISOString().slice(0, 10),
-        end_date: data.end_date ?? new Date().toISOString().slice(0, 10),
-        start_time: data.start_time ?? null,
-        end_time: data.end_time ?? null,
-        all_day: data.all_day ?? false,
-        color: data.color ?? "#6366f1",
-        image_url: null,
-        image_urls: [],
-        location: data.location ?? null,
-        assignees: data.assignees ?? [],
-        event_type: data.event_type ?? [],
-        created_by: data.created_by ?? null,
-        updated_by: data.updated_by ?? null,
-      };
-      const { error } = await supabase.from("events").insert(insertData);
-      if (!error) inserted++; else errors++;
-    }
+  const today = new Date().toISOString().slice(0, 10);
+
+  // IDあり（既存更新）とIDなし（新規）に分ける
+  const toUpsert = rows
+    .filter((r) => r.id)
+    .map(({ id, ...data }) => ({
+      id,
+      title: data.title ?? "",
+      description: data.description ?? null,
+      notes: data.notes ?? null,
+      start_date: data.start_date ?? today,
+      end_date: data.end_date ?? today,
+      start_time: data.start_time ?? null,
+      end_time: data.end_time ?? null,
+      all_day: data.all_day ?? false,
+      color: data.color ?? "#6366f1",
+      location: data.location ?? null,
+      assignees: data.assignees ?? [],
+      event_type: data.event_type ?? [],
+      created_by: data.created_by ?? null,
+      updated_by: data.updated_by ?? null,
+    }));
+
+  const toInsert = rows
+    .filter((r) => !r.id)
+    .map(({ id: _id, ...data }) => ({
+      title: data.title ?? "",
+      description: data.description ?? null,
+      notes: data.notes ?? null,
+      start_date: data.start_date ?? today,
+      end_date: data.end_date ?? today,
+      start_time: data.start_time ?? null,
+      end_time: data.end_time ?? null,
+      all_day: data.all_day ?? false,
+      color: data.color ?? "#6366f1",
+      image_url: null,
+      image_urls: [] as string[],
+      location: data.location ?? null,
+      assignees: data.assignees ?? [],
+      event_type: data.event_type ?? [],
+      created_by: data.created_by ?? null,
+      updated_by: data.updated_by ?? null,
+    }));
+
+  // upsert（IDあり）をバッチ処理
+  for (let i = 0; i < toUpsert.length; i += BATCH) {
+    const batch = toUpsert.slice(i, i + BATCH);
+    const { error } = await supabase
+      .from("events")
+      .upsert(batch, { onConflict: "id" });
+    if (!error) updated += batch.length;
+    else errors += batch.length;
   }
+
+  // insert（IDなし）をバッチ処理
+  for (let i = 0; i < toInsert.length; i += BATCH) {
+    const batch = toInsert.slice(i, i + BATCH);
+    const { error } = await supabase.from("events").insert(batch);
+    if (!error) inserted += batch.length;
+    else errors += batch.length;
+  }
+
   return { updated, inserted, errors };
 }
 
