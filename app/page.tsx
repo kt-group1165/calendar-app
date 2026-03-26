@@ -289,7 +289,7 @@ export default function CalendarPage() {
           {showDatePicker && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowDatePicker(false)} />
-              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-white rounded-2xl shadow-xl border border-gray-100 p-3 z-50 w-64">
+              <div className="fixed top-14 left-1/2 -translate-x-1/2 bg-white rounded-2xl shadow-xl border border-gray-100 p-3 z-50 w-64">
                 {/* 年選択 */}
                 <div className="flex items-center justify-between mb-3">
                   <button

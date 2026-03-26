@@ -3,7 +3,7 @@
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
 import { X, Edit2, Trash2, Copy, Clock, AlignLeft, Loader2, MessageCircle, Send, User, Users, Tag, MapPin } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { type Event } from "@/lib/supabase";
 import { getComments, addComment, deleteComment, logActivity, type Comment } from "@/lib/events";
 
@@ -19,6 +19,7 @@ type Props = {
 
 export default function EventDetailModal({ event, currentUser, isMaster, onEdit, onDuplicate, onDelete, onClose }: Props) {
   const [deleting, setDeleting] = useState(false);
+  const [lightbox, setLightbox] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentText, setCommentText] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -208,10 +209,36 @@ export default function EventDetailModal({ event, currentUser, isMaster, onEdit,
 
           {/* 画像 */}
           {event.image_url && (
-            <div className="rounded-xl overflow-hidden">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={event.image_url} alt="添付画像" className="w-full max-h-64 object-cover" />
-            </div>
+            <>
+              <button
+                onClick={() => setLightbox(true)}
+                className="w-full rounded-xl overflow-hidden block"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={event.image_url} alt="添付画像" className="w-full max-h-64 object-cover" />
+              </button>
+              {/* ライトボックス */}
+              {lightbox && (
+                <div
+                  className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center"
+                  onClick={() => setLightbox(false)}
+                >
+                  <button
+                    className="absolute top-4 right-4 text-white/80 hover:text-white p-2"
+                    onClick={() => setLightbox(false)}
+                  >
+                    <X size={28} />
+                  </button>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={event.image_url}
+                    alt="添付画像"
+                    className="max-w-full max-h-full object-contain"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </div>
+              )}
+            </>
           )}
 
           {/* コメント */}
