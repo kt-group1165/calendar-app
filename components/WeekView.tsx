@@ -13,14 +13,15 @@ type Props = {
 
 const HOUR_HEIGHT = 64;   // px / hour
 const START_HOUR = 6;
-const END_HOUR = 23;
-const TOTAL_HOURS = END_HOUR - START_HOUR;
+const TOTAL_HOURS = 23;   // 6:00 〜 翌5:00
 const MIN_EVENT_HEIGHT = 22;
 const WEEKDAYS_SHORT = ["日", "月", "火", "水", "木", "金", "土"];
 
-function timeToMin(t: string): number {
+// 深夜0〜5時は翌日扱いにしてグリッド上の分数に変換
+function timeToGridMin(t: string): number {
   const [h, m] = t.split(":").map(Number);
-  return h * 60 + m;
+  const min = h * 60 + m;
+  return min < START_HOUR * 60 ? min + 24 * 60 : min;
 }
 
 type LayoutEvent = { event: Event; col: number; cols: number };
@@ -28,12 +29,12 @@ type LayoutEvent = { event: Event; col: number; cols: number };
 function layoutDayEvents(events: Event[]): LayoutEvent[] {
   const timed = events
     .filter((e) => !e.all_day && e.start_time)
-    .sort((a, b) => timeToMin(a.start_time!) - timeToMin(b.start_time!));
+    .sort((a, b) => timeToGridMin(a.start_time!) - timeToGridMin(b.start_time!));
 
   if (timed.length === 0) return [];
 
   const getEnd = (e: Event) =>
-    e.end_time ? timeToMin(e.end_time) : timeToMin(e.start_time!) + 60;
+    e.end_time ? timeToGridMin(e.end_time) : timeToGridMin(e.start_time!) + 60;
 
   // 重複グループを BFS で検出
   const visited = new Set<string>();
@@ -50,8 +51,8 @@ function layoutDayEvents(events: Event[]): LayoutEvent[] {
       for (const other of timed) {
         if (
           !visited.has(other.id) &&
-          timeToMin(cur.start_time!) < getEnd(other) &&
-          timeToMin(other.start_time!) < getEnd(cur)
+          timeToGridMin(cur.start_time!) < getEnd(other) &&
+          timeToGridMin(other.start_time!) < getEnd(cur)
         ) {
           visited.add(other.id);
           queue.push(other);
@@ -65,12 +66,12 @@ function layoutDayEvents(events: Event[]): LayoutEvent[] {
 
   for (const group of groups) {
     const sorted = [...group].sort(
-      (a, b) => timeToMin(a.start_time!) - timeToMin(b.start_time!)
+      (a, b) => timeToGridMin(a.start_time!) - timeToGridMin(b.start_time!)
     );
     const colEnds: number[] = [];
 
     for (const ev of sorted) {
-      const start = timeToMin(ev.start_time!);
+      const start = timeToGridMin(ev.start_time!);
       const end = getEnd(ev);
       let col = colEnds.findIndex((e) => e <= start);
       if (col < 0) col = colEnds.length;
@@ -89,7 +90,9 @@ function layoutDayEvents(events: Event[]): LayoutEvent[] {
 
 function CurrentTimeLine() {
   const now = new Date();
-  const top = ((now.getHours() * 60 + now.getMinutes() - START_HOUR * 60) / 60) * HOUR_HEIGHT;
+  const currentMin = now.getHours() * 60 + now.getMinutes();
+  const gridMin = currentMin < START_HOUR * 60 ? currentMin + 24 * 60 : currentMin;
+  const top = ((gridMin - START_HOUR * 60) / 60) * HOUR_HEIGHT;
   if (top < 0 || top > TOTAL_HOURS * HOUR_HEIGHT) return null;
   return (
     <div className="absolute w-full z-10 pointer-events-none" style={{ top: `${top}px` }}>
@@ -113,10 +116,9 @@ export default function WeekView({ currentDate, events, onDayClick, onEventClick
   useEffect(() => {
     if (scrollRef.current) {
       const now = new Date();
-      const top = Math.max(
-        0,
-        ((now.getHours() * 60 + now.getMinutes() - START_HOUR * 60) / 60) * HOUR_HEIGHT - 100
-      );
+      const currentMin = now.getHours() * 60 + now.getMinutes();
+      const gridMin = currentMin < START_HOUR * 60 ? currentMin + 24 * 60 : currentMin;
+      const top = Math.max(0, ((gridMin - START_HOUR * 60) / 60) * HOUR_HEIGHT - 100);
       scrollRef.current.scrollTop = top;
     }
   }, []);
@@ -191,17 +193,18 @@ export default function WeekView({ currentDate, events, onDayClick, onEventClick
 
           {/* 時刻軸 */}
           <div className="w-10 shrink-0 relative select-none">
-            {Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => (
-              <div
-                key={i}
-                className="absolute text-[9px] text-gray-400 text-right pr-1.5 w-full leading-none"
-                style={{ top: `${i * HOUR_HEIGHT - 5}px` }}
-              >
-                {i > 0 && START_HOUR + i <= 24
-                  ? `${String(START_HOUR + i).padStart(2, "0")}:00`
-                  : ""}
-              </div>
-            ))}
+            {Array.from({ length: TOTAL_HOURS + 1 }, (_, i) => {
+              const hour = (START_HOUR + i) % 24;
+              return (
+                <div
+                  key={i}
+                  className="absolute text-[9px] text-gray-400 text-right pr-1.5 w-full leading-none"
+                  style={{ top: `${i * HOUR_HEIGHT - 5}px` }}
+                >
+                  {i > 0 ? `${String(hour).padStart(2, "0")}:00` : ""}
+                </div>
+              );
+            })}
           </div>
 
           {/* 日別列 */}
@@ -237,9 +240,9 @@ export default function WeekView({ currentDate, events, onDayClick, onEventClick
 
                 {/* イベント */}
                 {laid.map(({ event, col, cols }) => {
-                  const startMin = timeToMin(event.start_time!);
+                  const startMin = timeToGridMin(event.start_time!);
                   const endMin = event.end_time
-                    ? timeToMin(event.end_time)
+                    ? timeToGridMin(event.end_time)
                     : startMin + 60;
                   const top = ((startMin - START_HOUR * 60) / 60) * HOUR_HEIGHT;
                   const height = Math.max(
