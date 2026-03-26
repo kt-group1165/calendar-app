@@ -127,16 +127,24 @@ export async function cleanupOldDeletedEvents(): Promise<void> {
   cutoff.setDate(cutoff.getDate() - 10);
   const { data } = await supabase
     .from("events")
-    .select("id, image_url")
+    .select("id, image_url, image_urls")
     .not("deleted_at", "is", null)
     .lt("deleted_at", cutoff.toISOString());
   if (data && data.length > 0) {
-    for (const event of data) {
-      if (event.image_url) {
-        try { await deleteImage(event.image_url); } catch {}
+    // まずDBレコードを削除し、成功した場合のみ画像を削除する
+    const ids = data.map((e) => e.id);
+    const { error } = await supabase.from("events").delete().in("id", ids);
+    if (!error) {
+      for (const event of data) {
+        // image_urls（複数）を優先、なければ image_url（単一）を削除
+        const urls: string[] = event.image_urls?.length
+          ? event.image_urls
+          : event.image_url ? [event.image_url] : [];
+        for (const url of urls) {
+          try { await deleteImage(url); } catch {}
+        }
       }
     }
-    await supabase.from("events").delete().in("id", data.map((e) => e.id));
   }
 }
 
