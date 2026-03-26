@@ -83,16 +83,16 @@ export default function DayView({ currentDate, events, onEventClick, onClose }: 
             <button
               key={event.id}
               onClick={() => onEventClick(event)}
-              className="w-full flex items-stretch hover:bg-gray-50 active:bg-gray-100 transition-colors px-2 group"
-              style={{ paddingTop: idx === 0 ? "10px" : "6px", paddingBottom: "6px" }}
+              className="w-full flex items-center hover:bg-gray-50 active:bg-gray-100 transition-colors px-2 group"
+              style={{ paddingTop: idx === 0 ? "10px" : "7px", paddingBottom: "7px" }}
             >
               {/* 時刻 */}
-              <div className="w-14 shrink-0 flex flex-col items-end pr-3 pt-0.5 gap-0.5">
-                <span className="text-xs font-semibold text-gray-600 leading-none tabular-nums">
+              <div className="w-14 shrink-0 flex flex-col items-end pr-3 gap-1">
+                <span className="text-xs font-bold text-gray-700 leading-none tabular-nums">
                   {event.start_time?.slice(0, 5)}
                 </span>
                 {event.end_time && (
-                  <span className="text-[10px] text-gray-400 leading-none tabular-nums">
+                  <span className="text-xs text-gray-400 leading-none tabular-nums">
                     {event.end_time.slice(0, 5)}
                   </span>
                 )}
@@ -100,8 +100,8 @@ export default function DayView({ currentDate, events, onEventClick, onClose }: 
 
               {/* カラーバー */}
               <div
-                className="w-[3px] rounded-full shrink-0 self-stretch my-0.5"
-                style={{ backgroundColor: event.color }}
+                className="w-[3px] rounded-full shrink-0"
+                style={{ backgroundColor: event.color, minHeight: "36px", height: "100%" }}
               />
 
               {/* 内容 */}
