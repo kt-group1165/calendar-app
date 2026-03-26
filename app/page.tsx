@@ -268,10 +268,10 @@ export default function CalendarPage() {
             className="p-2 rounded-xl hover:bg-gray-100 transition-colors" title="今日へ">
             <Calendar size={20} className="text-indigo-500" />
           </button>
-          <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
+          <button onClick={() => navigate(-1)} className="hidden sm:flex p-2 rounded-xl hover:bg-gray-100 transition-colors">
             <ChevronLeft size={20} className="text-gray-600" />
           </button>
-          <button onClick={() => navigate(1)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
+          <button onClick={() => navigate(1)} className="hidden sm:flex p-2 rounded-xl hover:bg-gray-100 transition-colors">
             <ChevronRight size={20} className="text-gray-600" />
           </button>
         </div>
