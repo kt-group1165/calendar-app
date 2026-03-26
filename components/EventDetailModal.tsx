@@ -208,6 +208,19 @@ export default function EventDetailModal({ event, currentUser, isMaster, onEdit,
             </div>
           )}
 
+          {/* 備考 */}
+          {event.notes && (
+            <div className="flex items-start gap-2 text-gray-600">
+              <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center shrink-0">
+                <AlignLeft size={14} className="text-amber-400" />
+              </div>
+              <div className="flex-1 pt-1">
+                <p className="text-xs text-amber-500 font-medium mb-0.5">備考</p>
+                <p className="text-sm leading-relaxed whitespace-pre-wrap">{event.notes}</p>
+              </div>
+            </div>
+          )}
+
           {/* 画像ギャラリー（複数枚対応） */}
           {(() => {
             const allImgs = [

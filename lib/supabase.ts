@@ -18,6 +18,7 @@ export type Event = {
   image_url: string | null;
   image_urls: string[];
   location: string | null;
+  notes: string | null;
   assignees: string[];
   event_type: string[];
   created_by: string | null;

@@ -276,6 +276,7 @@ export default function CalendarPage() {
       image_url: selectedEvent.image_url,
       image_urls: selectedEvent.image_urls ?? [],
       location: selectedEvent.location,
+      notes: selectedEvent.notes,
       assignees: selectedEvent.assignees,
       event_type: selectedEvent.event_type,
       created_by: currentUser,
