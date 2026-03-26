@@ -20,12 +20,13 @@ const COLORS = [
 type Props = {
   event?: Event | null;
   defaultDate?: string;
+  currentUser: string;
   onSave: (event: EventInsert) => Promise<void>;
   onDelete?: () => Promise<void>;
   onClose: () => void;
 };
 
-export default function EventModal({ event, defaultDate, onSave, onDelete, onClose }: Props) {
+export default function EventModal({ event, defaultDate, currentUser, onSave, onDelete, onClose }: Props) {
   const today = format(new Date(), "yyyy-MM-dd");
   const [title, setTitle] = useState(event?.title ?? "");
   const [description, setDescription] = useState(event?.description ?? "");
@@ -83,6 +84,8 @@ export default function EventModal({ event, defaultDate, onSave, onDelete, onClo
         all_day: allDay,
         color,
         image_url: imageUrl || null,
+        created_by: event ? event.created_by : currentUser,
+        updated_by: currentUser,
       });
     } finally {
       setSaving(false);
@@ -108,10 +111,7 @@ export default function EventModal({ event, defaultDate, onSave, onDelete, onClo
           <h2 className="text-lg font-semibold text-gray-800">
             {event ? "予定を編集" : "予定を追加"}
           </h2>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-full hover:bg-gray-100 transition-colors"
-          >
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100 transition-colors">
             <X size={20} className="text-gray-500" />
           </button>
         </div>
@@ -181,15 +181,9 @@ export default function EventModal({ event, defaultDate, onSave, onDelete, onClo
               </div>
               <button
                 onClick={() => setAllDay(!allDay)}
-                className={`w-11 h-6 rounded-full transition-colors relative ${
-                  !allDay ? "bg-indigo-500" : "bg-gray-200"
-                }`}
+                className={`w-11 h-6 rounded-full transition-colors relative ${!allDay ? "bg-indigo-500" : "bg-gray-200"}`}
               >
-                <span
-                  className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                    !allDay ? "translate-x-5" : ""
-                  }`}
-                />
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${!allDay ? "translate-x-5" : ""}`} />
               </button>
             </div>
 
@@ -245,21 +239,11 @@ export default function EventModal({ event, defaultDate, onSave, onDelete, onClo
                 disabled={uploading}
                 className="w-full flex items-center justify-center gap-2 py-3 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 hover:border-indigo-300 hover:text-indigo-400 transition-colors text-sm"
               >
-                {uploading ? (
-                  <Loader2 size={16} className="animate-spin" />
-                ) : (
-                  <ImageIcon size={16} />
-                )}
-                {uploading ? "アップロード中..." : "画像を添付"}
+                {uploading ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
+                {uploading ? "圧縮・アップロード中..." : "画像を添付"}
               </button>
             )}
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleImageUpload}
-            />
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
           </div>
         </div>
 

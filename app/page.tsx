@@ -21,6 +21,7 @@ import WeekView from "@/components/WeekView";
 import DayView from "@/components/DayView";
 import EventModal from "@/components/EventModal";
 import EventDetailModal from "@/components/EventDetailModal";
+import UserNameModal from "@/components/UserNameModal";
 import { type Event, type EventInsert } from "@/lib/supabase";
 import {
   getEventsByDateRange,
@@ -31,6 +32,8 @@ import {
 } from "@/lib/events";
 
 type ViewMode = "month" | "week" | "day";
+
+const USER_NAME_KEY = "calendar_user_name";
 
 function getDateRange(date: Date, mode: ViewMode): { start: string; end: string } {
   if (mode === "month") {
@@ -58,6 +61,18 @@ export default function CalendarPage() {
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
   const [supabaseError, setSupabaseError] = useState(false);
+  const [currentUser, setCurrentUser] = useState<string | null>(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(USER_NAME_KEY);
+    if (saved) setCurrentUser(saved);
+    else setCurrentUser("");
+  }, []);
+
+  function handleUserNameSave(name: string) {
+    localStorage.setItem(USER_NAME_KEY, name);
+    setCurrentUser(name);
+  }
 
   const loadEvents = useCallback(async () => {
     setLoading(true);
@@ -149,6 +164,12 @@ export default function CalendarPage() {
     setShowAddModal(true);
   }
 
+  // 名前未設定の場合はモーダルを表示
+  if (currentUser === null) return null;
+  if (currentUser === "") {
+    return <UserNameModal onSave={handleUserNameSave} />;
+  }
+
   return (
     <div className="flex flex-col h-dvh max-h-dvh bg-[#f8f9fa]">
       {/* トップバー */}
@@ -161,16 +182,10 @@ export default function CalendarPage() {
           >
             <Calendar size={20} className="text-indigo-500" />
           </button>
-          <button
-            onClick={() => navigate(-1)}
-            className="p-2 rounded-xl hover:bg-gray-100 transition-colors"
-          >
+          <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
             <ChevronLeft size={20} className="text-gray-600" />
           </button>
-          <button
-            onClick={() => navigate(1)}
-            className="p-2 rounded-xl hover:bg-gray-100 transition-colors"
-          >
+          <button onClick={() => navigate(1)} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
             <ChevronRight size={20} className="text-gray-600" />
           </button>
         </div>
@@ -253,6 +268,7 @@ export default function CalendarPage() {
         <EventModal
           event={editingEvent}
           defaultDate={selectedDate ? format(selectedDate, "yyyy-MM-dd") : undefined}
+          currentUser={currentUser}
           onSave={handleSaveEvent}
           onDelete={editingEvent ? () => handleDeleteEvent(editingEvent) : undefined}
           onClose={() => {
@@ -266,6 +282,7 @@ export default function CalendarPage() {
       {showDetailModal && selectedEvent && (
         <EventDetailModal
           event={selectedEvent}
+          currentUser={currentUser}
           onEdit={handleEditFromDetail}
           onDelete={() => handleDeleteEvent(selectedEvent)}
           onClose={() => {

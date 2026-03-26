@@ -16,6 +16,8 @@ export type Event = {
   color: string;
   all_day: boolean;
   image_url: string | null;
+  created_by: string | null;
+  updated_by: string | null;
   created_at: string;
   updated_at: string;
 };
