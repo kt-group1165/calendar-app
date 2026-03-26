@@ -17,6 +17,7 @@ export type Event = {
   all_day: boolean;
   image_url: string | null;
   assignees: string[];
+  event_type: string[];
   created_by: string | null;
   updated_by: string | null;
   deleted_at: string | null;

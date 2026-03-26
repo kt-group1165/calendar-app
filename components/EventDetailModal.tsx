@@ -2,7 +2,7 @@
 
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
-import { X, Edit2, Trash2, Clock, AlignLeft, Loader2, MessageCircle, Send, User, Users } from "lucide-react";
+import { X, Edit2, Trash2, Clock, AlignLeft, Loader2, MessageCircle, Send, User, Users, Tag } from "lucide-react";
 import { useState, useEffect } from "react";
 import { type Event } from "@/lib/supabase";
 import { getComments, addComment, deleteComment, type Comment } from "@/lib/events";
@@ -135,6 +135,22 @@ export default function EventDetailModal({ event, currentUser, isMaster, onEdit,
                 {event.updated_by && event.updated_by !== event.created_by && (
                   <p>最終編集：<span className="font-medium text-gray-700">{event.updated_by}</span></p>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* 用件種別 */}
+          {event.event_type && event.event_type.length > 0 && (
+            <div className="flex items-start gap-2 text-gray-600">
+              <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+                <Tag size={14} className="text-gray-400" />
+              </div>
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {event.event_type.map((t) => (
+                  <span key={t} className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs font-medium border border-indigo-100">
+                    {t}
+                  </span>
+                ))}
               </div>
             </div>
           )}

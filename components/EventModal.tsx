@@ -1,22 +1,12 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { X, Calendar, Clock, Image as ImageIcon, Trash2, Loader2, Users } from "lucide-react";
+import { X, Calendar, Clock, Image as ImageIcon, Trash2, Loader2, Users, Tag } from "lucide-react";
 import { format } from "date-fns";
 import { type Event, type EventInsert } from "@/lib/supabase";
 import { uploadImage, deleteImage } from "@/lib/events";
 import { getMembers, type Member } from "@/lib/members";
-
-const COLORS = [
-  { value: "#6366f1", label: "インディゴ" },
-  { value: "#ec4899", label: "ピンク" },
-  { value: "#f97316", label: "オレンジ" },
-  { value: "#10b981", label: "グリーン" },
-  { value: "#3b82f6", label: "ブルー" },
-  { value: "#8b5cf6", label: "パープル" },
-  { value: "#ef4444", label: "レッド" },
-  { value: "#f59e0b", label: "アンバー" },
-];
+import { getEventTypes, type EventType } from "@/lib/event_types";
 
 type Props = {
   event?: Event | null;
@@ -39,7 +29,9 @@ export default function EventModal({ event, defaultDate, currentUser, onSave, on
   const [color, setColor] = useState(event?.color ?? "#6366f1");
   const [imageUrl, setImageUrl] = useState(event?.image_url ?? "");
   const [assignees, setAssignees] = useState<string[]>(event?.assignees ?? []);
+  const [eventType, setEventType] = useState<string[]>(event?.event_type ?? []);
   const [members, setMembers] = useState<Member[]>([]);
+  const [eventTypes, setEventTypes] = useState<EventType[]>([]);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -47,11 +39,26 @@ export default function EventModal({ event, defaultDate, currentUser, onSave, on
 
   useEffect(() => {
     getMembers().then(setMembers).catch(() => {});
+    getEventTypes().then(setEventTypes).catch(() => {});
   }, []);
 
-  function toggleAssignee(name: string) {
-    setAssignees((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
+  function toggleAssignee(member: Member) {
+    setAssignees((prev) => {
+      const next = prev.includes(member.name)
+        ? prev.filter((n) => n !== member.name)
+        : [...prev, member.name];
+      // 先頭の担当者の色を自動セット
+      if (next.length > 0) {
+        const first = members.find((m) => m.name === next[0]);
+        if (first) setColor(first.color);
+      }
+      return next;
+    });
+  }
+
+  function toggleEventType(name: string) {
+    setEventType((prev) =>
+      prev.includes(name) ? prev.filter((t) => t !== name) : [...prev, name]
     );
   }
 
@@ -60,8 +67,7 @@ export default function EventModal({ event, defaultDate, currentUser, onSave, on
     if (!file) return;
     setUploading(true);
     try {
-      const url = await uploadImage(file);
-      setImageUrl(url);
+      setImageUrl(await uploadImage(file));
     } catch {
       alert("画像のアップロードに失敗しました");
     } finally {
@@ -91,6 +97,7 @@ export default function EventModal({ event, defaultDate, currentUser, onSave, on
         color,
         image_url: imageUrl || null,
         assignees,
+        event_type: eventType,
         created_by: event ? event.created_by : currentUser,
         updated_by: currentUser,
       });
@@ -112,29 +119,73 @@ export default function EventModal({ event, defaultDate, currentUser, onSave, on
       <div className="relative w-full sm:max-w-lg bg-white sm:rounded-2xl rounded-t-2xl shadow-2xl max-h-[92vh] overflow-y-auto">
         <div className="sticky top-0 bg-white flex items-center justify-between px-4 py-3 border-b border-gray-100 rounded-t-2xl">
           <h2 className="text-lg font-semibold text-gray-800">{event ? "予定を編集" : "予定を追加"}</h2>
-          <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100 transition-colors">
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100">
             <X size={20} className="text-gray-500" />
           </button>
         </div>
 
         <div className="px-4 py-4 space-y-4">
           {/* タイトル */}
-          <input
-            type="text"
-            placeholder="タイトル"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="w-full text-lg font-medium placeholder-gray-300 border-0 border-b-2 border-gray-200 focus:border-indigo-400 focus:outline-none py-1 transition-colors"
-          />
+          <input type="text" placeholder="タイトル" value={title} onChange={(e) => setTitle(e.target.value)}
+            className="w-full text-lg font-medium placeholder-gray-300 border-0 border-b-2 border-gray-200 focus:border-indigo-400 focus:outline-none py-1 transition-colors" />
 
-          {/* カラー */}
-          <div className="flex gap-2 flex-wrap">
-            {COLORS.map((c) => (
-              <button key={c.value} onClick={() => setColor(c.value)}
-                className="w-7 h-7 rounded-full transition-transform hover:scale-110"
-                style={{ backgroundColor: c.value, outline: color === c.value ? `3px solid ${c.value}` : "none", outlineOffset: "2px" }}
-                title={c.label} />
-            ))}
+          {/* 担当者（メンバーがいる場合のみ） */}
+          {members.length > 0 && (
+            <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+              <div className="flex items-center gap-2 text-gray-500">
+                <Users size={16} />
+                <span className="text-sm font-medium">担当者</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {members.map((m) => (
+                  <button key={m.id} onClick={() => toggleAssignee(m)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all"
+                    style={assignees.includes(m.name)
+                      ? { backgroundColor: m.color, color: "white" }
+                      : { backgroundColor: "white", border: `2px solid ${m.color}20`, color: "#374151" }}>
+                    <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold"
+                      style={{ backgroundColor: assignees.includes(m.name) ? "rgba(255,255,255,0.25)" : m.color + "30", color: assignees.includes(m.name) ? "white" : m.color }}>
+                      {m.name.charAt(0)}
+                    </span>
+                    {m.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 用件種別 */}
+          {eventTypes.length > 0 && (
+            <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+              <div className="flex items-center gap-2 text-gray-500">
+                <Tag size={16} />
+                <span className="text-sm font-medium">用件種別</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {eventTypes.map((t) => (
+                  <button key={t.id} onClick={() => toggleEventType(t.name)}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
+                      eventType.includes(t.name)
+                        ? "bg-indigo-500 text-white border-indigo-500"
+                        : "bg-white text-gray-600 border-gray-200 hover:border-indigo-300"
+                    }`}>
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* カラー（手動選択） */}
+          <div>
+            <p className="text-xs text-gray-400 mb-2">カラー（担当者選択で自動設定）</p>
+            <div className="flex gap-2 flex-wrap">
+              {["#6366f1","#ec4899","#f97316","#10b981","#3b82f6","#8b5cf6","#ef4444","#f59e0b"].map((c) => (
+                <button key={c} onClick={() => setColor(c)}
+                  className="w-7 h-7 rounded-full transition-transform hover:scale-110"
+                  style={{ backgroundColor: c, outline: color === c ? `3px solid ${c}` : "none", outlineOffset: "2px" }} />
+              ))}
+            </div>
           </div>
 
           {/* 日付 */}
@@ -155,6 +206,7 @@ export default function EventModal({ event, defaultDate, currentUser, onSave, on
                   className="w-full text-sm bg-white border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-400" />
               </div>
             </div>
+
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-gray-500">
                 <Clock size={16} />
@@ -165,60 +217,26 @@ export default function EventModal({ event, defaultDate, currentUser, onSave, on
                 <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${!allDay ? "translate-x-5" : ""}`} />
               </button>
             </div>
+
             {!allDay && (
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs text-gray-400 mb-1 block">開始時刻</label>
-                  <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)}
+                  <input type="time" step="300" value={startTime} onChange={(e) => setStartTime(e.target.value)}
                     className="w-full text-sm bg-white border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-400" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-400 mb-1 block">終了時刻</label>
-                  <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)}
+                  <input type="time" step="300" value={endTime} onChange={(e) => setEndTime(e.target.value)}
                     className="w-full text-sm bg-white border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-400" />
                 </div>
               </div>
             )}
           </div>
 
-          {/* 担当者 */}
-          {members.length > 0 && (
-            <div className="bg-gray-50 rounded-xl p-3 space-y-2">
-              <div className="flex items-center gap-2 text-gray-500">
-                <Users size={16} />
-                <span className="text-sm font-medium">担当者</span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {members.map((m) => (
-                  <button
-                    key={m.id}
-                    onClick={() => toggleAssignee(m.name)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                      assignees.includes(m.name)
-                        ? "bg-indigo-500 text-white"
-                        : "bg-white border border-gray-200 text-gray-600 hover:border-indigo-300"
-                    }`}
-                  >
-                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${
-                      assignees.includes(m.name) ? "bg-white/20 text-white" : "bg-gray-100 text-gray-500"
-                    }`}>
-                      {m.name.charAt(0)}
-                    </span>
-                    {m.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* メモ */}
-          <textarea
-            placeholder="メモを追加..."
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            rows={3}
-            className="w-full text-sm placeholder-gray-300 bg-gray-50 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-200 transition-all"
-          />
+          <textarea placeholder="メモを追加..." value={description} onChange={(e) => setDescription(e.target.value)}
+            rows={3} className="w-full text-sm placeholder-gray-300 bg-gray-50 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-200" />
 
           {/* 画像 */}
           <div>
@@ -227,7 +245,7 @@ export default function EventModal({ event, defaultDate, currentUser, onSave, on
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={imageUrl} alt="添付画像" className="w-full max-h-48 object-cover" />
                 <button onClick={handleRemoveImage}
-                  className="absolute top-2 right-2 bg-black/50 text-white p-1.5 rounded-full hover:bg-black/70 transition-colors">
+                  className="absolute top-2 right-2 bg-black/50 text-white p-1.5 rounded-full hover:bg-black/70">
                   <Trash2 size={14} />
                 </button>
               </div>
@@ -245,16 +263,16 @@ export default function EventModal({ event, defaultDate, currentUser, onSave, on
         <div className="sticky bottom-0 bg-white px-4 py-3 border-t border-gray-100 flex gap-2">
           {event && onDelete && (
             <button onClick={handleDelete} disabled={deleting}
-              className="p-2.5 rounded-xl border border-red-100 text-red-400 hover:bg-red-50 transition-colors">
+              className="p-2.5 rounded-xl border border-red-100 text-red-400 hover:bg-red-50">
               {deleting ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
             </button>
           )}
           <button onClick={onClose}
-            className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-500 font-medium hover:bg-gray-50 transition-colors">
+            className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-500 font-medium hover:bg-gray-50">
             キャンセル
           </button>
           <button onClick={handleSave} disabled={saving}
-            className="flex-1 py-2.5 rounded-xl bg-indigo-500 text-white font-medium hover:bg-indigo-600 transition-colors disabled:opacity-50 flex items-center justify-center gap-1">
+            className="flex-1 py-2.5 rounded-xl bg-indigo-500 text-white font-medium hover:bg-indigo-600 disabled:opacity-50 flex items-center justify-center gap-1">
             {saving ? <Loader2 size={16} className="animate-spin" /> : null}
             保存
           </button>
