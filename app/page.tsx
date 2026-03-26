@@ -19,7 +19,7 @@ import AdminPanel from "@/components/AdminPanel";
 import ActivityLogView from "@/components/ActivityLogView";
 import { type Event, type EventInsert } from "@/lib/supabase";
 import {
-  getEventsByDateRange, createEvent, updateEvent,
+  getEventsByDateRange, getEventById, createEvent, updateEvent,
   softDeleteEvent, cleanupOldDeletedEvents,
   logActivity, getUnreadActivityCount,
 } from "@/lib/events";
@@ -207,6 +207,21 @@ export default function CalendarPage() {
     localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString());
     setUnreadCount(0);
     setShowActivityLog(true);
+  }
+
+  async function handleActivityEventClick(eventId: string) {
+    const event = await getEventById(eventId);
+    if (!event) {
+      alert("この予定は完全に削除されています");
+      return;
+    }
+    if (event.deleted_at) {
+      alert("この予定はゴミ箱に移されています");
+      return;
+    }
+    setShowActivityLog(false);
+    setSelectedEvent(event);
+    setShowDetailModal(true);
   }
 
   function handleEditFromDetail() {
@@ -438,6 +453,7 @@ export default function CalendarPage() {
         <ActivityLogView
           currentUser={currentUser}
           onClose={() => setShowActivityLog(false)}
+          onEventClick={handleActivityEventClick}
         />
       )}
 

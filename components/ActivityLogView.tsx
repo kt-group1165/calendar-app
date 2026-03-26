@@ -2,12 +2,13 @@
 
 import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
-import { X, Loader2 } from "lucide-react";
+import { X, Loader2, ChevronRight } from "lucide-react";
 import { getActivityLogs, type ActivityLog } from "@/lib/events";
 
 type Props = {
   currentUser: string;
   onClose: () => void;
+  onEventClick?: (eventId: string) => void;
 };
 
 const LIMIT = 10;
@@ -37,7 +38,7 @@ function actionVerb(action: ActivityLog["action"]): string {
   }
 }
 
-export default function ActivityLogView({ currentUser, onClose }: Props) {
+export default function ActivityLogView({ currentUser, onClose, onEventClick }: Props) {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -122,7 +123,13 @@ export default function ActivityLogView({ currentUser, onClose }: Props) {
                   JSON.stringify([...log.assignees_after].sort());
 
               return (
-                <div key={log.id} className="bg-white px-4 py-3 flex items-start gap-3">
+                <div
+                  key={log.id}
+                  className={`bg-white px-4 py-3 flex items-start gap-3 ${
+                    log.event_id && onEventClick ? "cursor-pointer active:bg-gray-50" : ""
+                  }`}
+                  onClick={() => log.event_id && onEventClick?.(log.event_id)}
+                >
                   {/* アバター */}
                   <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center shrink-0 mt-0.5">
                     <span className="text-sm font-bold text-indigo-600">
@@ -131,7 +138,7 @@ export default function ActivityLogView({ currentUser, onClose }: Props) {
                   </div>
 
                   {/* 内容 */}
-                  <div className="flex-1 min-w-0">
+                  <div className="flex-1 min-w-0 overflow-hidden">
                     <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
                       <ActionBadge action={log.action} />
                       <span className="text-sm text-gray-800">
@@ -165,6 +172,11 @@ export default function ActivityLogView({ currentUser, onClose }: Props) {
                       {format(new Date(log.created_at), "M月d日 HH:mm")}
                     </p>
                   </div>
+
+                  {/* 矢印（タップ可能なら表示） */}
+                  {log.event_id && onEventClick && (
+                    <ChevronRight size={16} className="text-gray-300 shrink-0 mt-1" />
+                  )}
                 </div>
               );
             })}

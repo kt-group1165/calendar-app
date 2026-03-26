@@ -49,6 +49,17 @@ export async function getEventsByDateRange(startDate: string, endDate: string): 
   return data ?? [];
 }
 
+// 予定1件取得（削除済み含む）
+export async function getEventById(id: string): Promise<Event | null> {
+  const { data, error } = await supabase
+    .from("events")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data;
+}
+
 // 予定作成
 export async function createEvent(event: EventInsert): Promise<Event> {
   const { data, error } = await supabase
