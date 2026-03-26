@@ -29,14 +29,24 @@ function todayJST(): string {
 
 export async function GET() {
   try {
-    // 全予定を取得
-    const { data: events, error } = await supabase
-      .from("events")
-      .select("*")
-      .is("deleted_at", null)
-      .order("start_date");
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    // 全予定を取得（1000件超対応・ページネーション）
+    const PAGE = 1000;
+    const allEvents = [];
+    let from = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from("events")
+        .select("*")
+        .is("deleted_at", null)
+        .order("start_date")
+        .range(from, from + PAGE - 1);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (!data || data.length === 0) break;
+      allEvents.push(...data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    const events = allEvents;
 
     // CSV生成
     const rows = (events ?? []).map((e) => [

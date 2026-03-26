@@ -36,15 +36,25 @@ async function compressImage(file: File): Promise<File> {
   });
 }
 
-// 全予定取得（削除済み除く・全期間）
+// 全予定取得（削除済み除く・全期間・1000件超対応）
 export async function getAllEvents(): Promise<Event[]> {
-  const { data, error } = await supabase
-    .from("events")
-    .select("*")
-    .is("deleted_at", null)
-    .order("start_date", { ascending: true });
-  if (error) throw error;
-  return data ?? [];
+  const PAGE = 1000;
+  const all: Event[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("events")
+      .select("*")
+      .is("deleted_at", null)
+      .order("start_date", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < PAGE) break; // 最後のページ
+    from += PAGE;
+  }
+  return all;
 }
 
 // CSVインポート：IDあり→UPDATE（画像・コメント保持）、IDなし→INSERT
