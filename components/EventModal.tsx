@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { X, Calendar, Clock, Image as ImageIcon, Trash2, Loader2, Users, Tag } from "lucide-react";
+import { X, Calendar, Clock, Image as ImageIcon, Trash2, Loader2, Users, Tag, MapPin } from "lucide-react";
 import { format } from "date-fns";
 import { type Event, type EventInsert } from "@/lib/supabase";
 import { uploadImage, deleteImage } from "@/lib/events";
@@ -30,6 +30,7 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
   const [allDay, setAllDay] = useState(event?.all_day ?? base.all_day ?? true);
   const [color, setColor] = useState(event?.color ?? base.color ?? "#6366f1");
   const [imageUrl, setImageUrl] = useState(event?.image_url ?? base.image_url ?? "");
+  const [location, setLocation] = useState(event?.location ?? base.location ?? "");
   const [assignees, setAssignees] = useState<string[]>(event?.assignees ?? base.assignees ?? []);
   const [eventType, setEventType] = useState<string[]>(event?.event_type ?? base.event_type ?? []);
   const [members, setMembers] = useState<Member[]>([]);
@@ -98,6 +99,7 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
         all_day: allDay,
         color,
         image_url: imageUrl || null,
+        location: location.trim() || null,
         assignees,
         event_type: eventType,
         created_by: event ? event.created_by : currentUser,
@@ -234,6 +236,18 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
                 </div>
               </div>
             )}
+          </div>
+
+          {/* 場所 */}
+          <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2.5">
+            <MapPin size={16} className="text-gray-400 shrink-0" />
+            <input
+              type="text"
+              placeholder="場所を追加..."
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              className="flex-1 text-sm bg-transparent placeholder-gray-300 focus:outline-none"
+            />
           </div>
 
           {/* メモ */}

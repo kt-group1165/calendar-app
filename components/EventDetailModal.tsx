@@ -2,7 +2,7 @@
 
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
-import { X, Edit2, Trash2, Copy, Clock, AlignLeft, Loader2, MessageCircle, Send, User, Users, Tag } from "lucide-react";
+import { X, Edit2, Trash2, Copy, Clock, AlignLeft, Loader2, MessageCircle, Send, User, Users, Tag, MapPin } from "lucide-react";
 import { useState, useEffect } from "react";
 import { type Event } from "@/lib/supabase";
 import { getComments, addComment, deleteComment, logActivity, type Comment } from "@/lib/events";
@@ -176,6 +176,23 @@ export default function EventDetailModal({ event, currentUser, isMaster, onEdit,
                   </span>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* 場所 */}
+          {event.location && (
+            <div className="flex items-center gap-2 text-gray-600">
+              <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+                <MapPin size={14} className="text-gray-400" />
+              </div>
+              <a
+                href={`https://maps.google.com/?q=${encodeURIComponent(event.location)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm text-indigo-500 hover:text-indigo-700 underline underline-offset-2 break-all"
+              >
+                {event.location}
+              </a>
             </div>
           )}
 
