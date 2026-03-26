@@ -62,39 +62,29 @@ export default function DayView({ currentDate, events, onEventClick, onClose }: 
         </div>
       ) : (
         <div className="pb-8">
-          {/* 終日イベント */}
-          {allDayEvents.length > 0 && (
-            <div className="px-4 pt-3 pb-2 space-y-1.5 border-b border-gray-100">
-              {allDayEvents.map((event) => (
-                <button
-                  key={event.id}
-                  onClick={() => onEventClick(event)}
-                  className="w-full text-left px-3 py-2 rounded-xl text-sm font-medium text-white truncate"
-                  style={{ backgroundColor: event.color }}
-                >
-                  {event.title}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* 時間ありイベント（タイムライン形式） */}
-          {timedEvents.map((event, idx) => (
+          {/* 全イベントを同じ行デザインで表示（終日→時間あり順） */}
+          {[...allDayEvents, ...timedEvents].map((event, idx) => (
             <button
               key={event.id}
               onClick={() => onEventClick(event)}
               className="w-full flex items-center hover:bg-gray-50 active:bg-gray-100 transition-colors px-2 group"
               style={{ paddingTop: idx === 0 ? "10px" : "7px", paddingBottom: "7px" }}
             >
-              {/* 時刻 */}
+              {/* 時刻（終日の場合は「終日」表示） */}
               <div className="w-14 shrink-0 flex flex-col items-end pr-3 gap-1">
-                <span className="text-xs font-bold text-gray-700 leading-none tabular-nums">
-                  {event.start_time?.slice(0, 5)}
-                </span>
-                {event.end_time && (
-                  <span className="text-xs text-gray-400 leading-none tabular-nums">
-                    {event.end_time.slice(0, 5)}
-                  </span>
+                {event.all_day || !event.start_time ? (
+                  <span className="text-xs font-bold text-gray-400 leading-none">終日</span>
+                ) : (
+                  <>
+                    <span className="text-xs font-bold text-gray-700 leading-none tabular-nums">
+                      {event.start_time.slice(0, 5)}
+                    </span>
+                    {event.end_time && (
+                      <span className="text-xs text-gray-400 leading-none tabular-nums">
+                        {event.end_time.slice(0, 5)}
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
 
