@@ -67,7 +67,7 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
   const [endDate, setEndDate] = useState(event?.end_date ?? base.end_date ?? defaultDate ?? today);
   const [startTime, setStartTime] = useState(event?.start_time ?? base.start_time ?? "");
   const [endTime, setEndTime] = useState(event?.end_time ?? base.end_time ?? "");
-  const [allDay, setAllDay] = useState(event?.all_day ?? base.all_day ?? true);
+  const [allDay, setAllDay] = useState(event?.all_day ?? base.all_day ?? false);
   const [color, setColor] = useState(event?.color ?? base.color ?? "#6366f1");
   const [imageUrl, setImageUrl] = useState(event?.image_url ?? base.image_url ?? "");
   const [location, setLocation] = useState(event?.location ?? base.location ?? "");
