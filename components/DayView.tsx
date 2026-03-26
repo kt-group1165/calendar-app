@@ -2,7 +2,7 @@
 
 import { format, isToday } from "date-fns";
 import { ja } from "date-fns/locale";
-import { Image as ImageIcon, MapPin, X } from "lucide-react";
+import { Image as ImageIcon, X } from "lucide-react";
 import { type Event } from "@/lib/supabase";
 
 type Props = {
@@ -63,12 +63,12 @@ export default function DayView({ currentDate, events, onEventClick, onClose }: 
       ) : (
         <div className="pb-8">
           {/* 全イベントを同じ行デザインで表示（終日→時間あり順） */}
-          {[...allDayEvents, ...timedEvents].map((event, idx) => (
+          {[...allDayEvents, ...timedEvents].map((event) => (
             <button
               key={event.id}
               onClick={() => onEventClick(event)}
-              className="w-full flex items-center hover:bg-gray-50 active:bg-gray-100 transition-colors px-2 group"
-              style={{ paddingTop: idx === 0 ? "10px" : "7px", paddingBottom: "7px" }}
+              className="w-full flex items-center hover:bg-gray-50 active:bg-gray-100 transition-colors px-2"
+              style={{ height: "68px" }}
             >
               {/* 時刻（終日の場合は「終日」表示） */}
               <div className="w-14 shrink-0 flex flex-col items-end pr-3 gap-1">
@@ -90,33 +90,28 @@ export default function DayView({ currentDate, events, onEventClick, onClose }: 
 
               {/* カラーバー */}
               <div
-                className="w-[3px] rounded-full shrink-0"
-                style={{ backgroundColor: event.color, minHeight: "36px", height: "100%" }}
+                className="w-[3px] self-stretch rounded-full shrink-0 my-3"
+                style={{ backgroundColor: event.color }}
               />
 
-              {/* 内容 */}
-              <div className="flex-1 pl-3 text-left min-w-0 pr-1">
-                <p className="text-sm font-semibold text-gray-800 leading-snug">
+              {/* 内容（タイトル・メモ・担当者の3行固定レイアウト） */}
+              <div className="flex-1 pl-3 text-left min-w-0 pr-1 flex flex-col justify-center gap-0.5">
+                {/* 行1: タイトル */}
+                <p className="text-sm font-semibold text-gray-800 leading-snug truncate">
                   {event.title}
                 </p>
-                {event.location && (
-                  <p className="text-xs text-gray-400 flex items-center gap-0.5 mt-0.5 truncate">
-                    <MapPin size={10} className="shrink-0" />
-                    {event.location}
-                  </p>
-                )}
-                {event.description && (
-                  <p className="text-xs text-gray-400 mt-0.5 truncate">{event.description}</p>
-                )}
-                {event.assignees?.length > 0 && (
-                  <p className="text-xs text-gray-400 mt-0.5 truncate">
-                    {event.assignees.join("・")}
-                  </p>
-                )}
+                {/* 行2: メモ（空でも高さを確保） */}
+                <p className="text-xs text-gray-400 leading-none truncate h-[14px]">
+                  {event.description ?? ""}
+                </p>
+                {/* 行3: 担当者（空でも高さを確保） */}
+                <p className="text-xs text-gray-400 leading-none truncate h-[14px]">
+                  {event.assignees?.length > 0 ? event.assignees.join("・") : ""}
+                </p>
               </div>
 
               {event.image_url && (
-                <ImageIcon size={12} className="text-gray-300 shrink-0 mt-1" />
+                <ImageIcon size={12} className="text-gray-300 shrink-0" />
               )}
             </button>
           ))}
