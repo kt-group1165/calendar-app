@@ -1,14 +1,14 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { X, Users, Download, BarChart2, Settings, Plus, Trash2, Loader2, Lock, Tag, User, Upload, Search, ChevronUp, ChevronDown } from "lucide-react";
+import { X, Users, Download, BarChart2, Settings, Plus, Trash2, Loader2, Lock, Tag, User, Upload, Search, ChevronUp, ChevronDown, FileUp } from "lucide-react";
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns";
 import { ja } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
 import { getMembers, addMember, deleteMember, updateMemberColor, updateMemberOrder, type Member } from "@/lib/members";
 import { getEventTypes, addEventType, deleteEventType, type EventType } from "@/lib/event_types";
 import { verifyMasterPin, updateMasterPin } from "@/lib/settings";
-import { getEventsByDateRange } from "@/lib/events";
+import { getEventsByDateRange, getAllEvents, importEventsFromCSV } from "@/lib/events";
 import { getGroups, addGroup, deleteGroup, updateGroup, type MemberGroup } from "@/lib/groups";
 import { getClients, replaceAllClients, parseClientCSV, type Client } from "@/lib/clients";
 
@@ -538,58 +538,260 @@ function ClientsTab() {
 }
 
 // ── CSV出力 ──────────────────────────────────
+const CSV_HEADERS = ["ID","タイトル","開始日","終了日","開始時刻","終了時刻","終日","用件種別","担当者","メモ","備考","住所","作成者","最終編集者","作成日時"];
+
+function eventsToCsvRows(events: Awaited<ReturnType<typeof getAllEvents>>) {
+  return events.map((e) => [
+    e.id,
+    e.title, e.start_date, e.end_date,
+    e.start_time?.slice(0, 5) ?? "", e.end_time?.slice(0, 5) ?? "",
+    e.all_day ? "はい" : "いいえ",
+    (e.event_type ?? []).join("・"),
+    (e.assignees ?? []).join("・"),
+    e.description ?? "", e.notes ?? "", e.location ?? "",
+    e.created_by ?? "", e.updated_by ?? "",
+    format(new Date(e.created_at), "yyyy/MM/dd HH:mm"),
+  ]);
+}
+
+function buildCsvBlob(headers: string[], rows: (string | null | undefined)[][]): Blob {
+  const csv = [headers, ...rows]
+    .map((row) => row.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+  return new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// CSVテキストを行・列に分解（ダブルクォート対応）
+function parseCSV(text: string): string[][] {
+  const result: string[][] = [];
+  // BOM除去
+  const t = text.replace(/^\uFEFF/, "");
+  let row: string[] = [];
+  let field = "";
+  let inQuote = false;
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (inQuote) {
+      if (ch === '"' && t[i + 1] === '"') { field += '"'; i++; }
+      else if (ch === '"') { inQuote = false; }
+      else { field += ch; }
+    } else {
+      if (ch === '"') { inQuote = true; }
+      else if (ch === ',') { row.push(field); field = ""; }
+      else if (ch === '\n') { row.push(field); result.push(row); row = []; field = ""; }
+      else if (ch === '\r') { /* skip */ }
+      else { field += ch; }
+    }
+  }
+  if (field || row.length > 0) { row.push(field); result.push(row); }
+  return result.filter((r) => r.some((c) => c.trim()));
+}
+
 function CsvTab() {
   const now = new Date();
   const [startDate, setStartDate] = useState(format(startOfMonth(now), "yyyy-MM-dd"));
   const [endDate, setEndDate] = useState(format(now, "yyyy-MM-dd"));
   const [exporting, setExporting] = useState(false);
+  const [exportingAll, setExportingAll] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState("");
+  const [backups, setBackups] = useState<{ name: string; created_at: string }[]>([]);
+  const [loadingBackups, setLoadingBackups] = useState(false);
+  const importRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { loadBackups(); }, []);
+  async function loadBackups() {
+    setLoadingBackups(true);
+    try {
+      const { data } = await supabase.storage.from("backups").list("", { sortBy: { column: "name", order: "desc" }, limit: 30 });
+      setBackups((data ?? []).filter((f) => f.name.endsWith(".csv")).map((f) => ({ name: f.name, created_at: f.created_at ?? "" })));
+    } catch { /* バケット未作成などは無視 */ }
+    finally { setLoadingBackups(false); }
+  }
+
+  async function downloadBackup(fileName: string) {
+    const { data } = await supabase.storage.from("backups").download(fileName);
+    if (!data) return;
+    const url = URL.createObjectURL(data);
+    const a = document.createElement("a");
+    a.href = url; a.download = fileName; a.click();
+    URL.revokeObjectURL(url);
+  }
 
   async function handleExport() {
     setExporting(true);
     try {
       const events = await getEventsByDateRange(startDate, endDate);
-      const headers = ["タイトル","開始日","終了日","開始時刻","終了時刻","終日","用件種別","担当者","メモ","作成者","最終編集者","作成日時"];
-      const rows = events.map((e) => [
-        e.title, e.start_date, e.end_date,
-        e.start_time?.slice(0,5) ?? "", e.end_time?.slice(0,5) ?? "",
-        e.all_day ? "はい" : "いいえ",
-        (e.event_type ?? []).join("・"),
-        (e.assignees ?? []).join("・"),
-        e.description ?? "", e.created_by ?? "", e.updated_by ?? "",
-        format(new Date(e.created_at), "yyyy/MM/dd HH:mm"),
-      ]);
-      const csv = [headers, ...rows]
-        .map((row) => row.map((c) => `"${String(c).replace(/"/g,'""')}"`).join(","))
-        .join("\n");
-      const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url; a.download = `予定_${startDate}_${endDate}.csv`; a.click();
-      URL.revokeObjectURL(url);
+      downloadBlob(buildCsvBlob(CSV_HEADERS, eventsToCsvRows(events)), `予定_${startDate}_${endDate}.csv`);
     } finally { setExporting(false); }
   }
 
+  async function handleExportAll() {
+    setExportingAll(true);
+    try {
+      const events = await getAllEvents();
+      downloadBlob(buildCsvBlob(CSV_HEADERS, eventsToCsvRows(events)), `予定_全期間_${format(now, "yyyyMMdd")}.csv`);
+    } finally { setExportingAll(false); }
+  }
+
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setImportMsg("");
+    try {
+      const text = await file.text();
+      const rows = parseCSV(text);
+      if (rows.length < 2) { setImportMsg("❌ データが見つかりませんでした"); return; }
+
+      const headers = rows[0];
+      const idIdx       = headers.indexOf("ID");
+      const titleIdx    = headers.indexOf("タイトル");
+      const sdIdx       = headers.indexOf("開始日");
+      const edIdx       = headers.indexOf("終了日");
+      const stIdx       = headers.indexOf("開始時刻");
+      const etIdx       = headers.indexOf("終了時刻");
+      const adIdx       = headers.indexOf("終日");
+      const typeIdx     = headers.indexOf("用件種別");
+      const assnIdx     = headers.indexOf("担当者");
+      const descIdx     = headers.indexOf("メモ");
+      const notesIdx    = headers.indexOf("備考");
+      const locIdx      = headers.indexOf("住所");
+      const createdIdx  = headers.indexOf("作成者");
+      const updatedIdx  = headers.indexOf("最終編集者");
+
+      if (titleIdx < 0 || sdIdx < 0) { setImportMsg("❌ ヘッダー形式が正しくありません（タイトル・開始日が必要です）"); return; }
+
+      const dataRows = rows.slice(1).map((cols) => {
+        const get = (i: number) => (i >= 0 ? (cols[i] ?? "").trim() : "");
+        return {
+          id: idIdx >= 0 ? get(idIdx) || undefined : undefined,
+          title: get(titleIdx),
+          start_date: get(sdIdx),
+          end_date: get(edIdx) || get(sdIdx),
+          start_time: get(stIdx) || null,
+          end_time: get(etIdx) || null,
+          all_day: get(adIdx) === "はい",
+          event_type: get(typeIdx) ? get(typeIdx).split("・").filter(Boolean) : [],
+          assignees: get(assnIdx) ? get(assnIdx).split("・").filter(Boolean) : [],
+          description: get(descIdx) || null,
+          notes: notesIdx >= 0 ? (get(notesIdx) || null) : undefined,
+          location: locIdx >= 0 ? (get(locIdx) || null) : undefined,
+          created_by: createdIdx >= 0 ? (get(createdIdx) || null) : undefined,
+          updated_by: updatedIdx >= 0 ? (get(updatedIdx) || null) : undefined,
+        };
+      }).filter((r) => r.title && r.start_date);
+
+      if (!confirm(`${dataRows.length}件のデータを取り込みます。\nIDが一致する予定は更新（画像・コメントは保持）、IDなしは新規追加されます。`)) return;
+
+      const result = await importEventsFromCSV(dataRows);
+      setImportMsg(`✅ 完了：更新 ${result.updated}件、新規追加 ${result.inserted}件${result.errors > 0 ? `、エラー ${result.errors}件` : ""}`);
+    } catch (err) {
+      setImportMsg(`❌ 取り込みに失敗しました: ${(err as Error).message}`);
+    } finally {
+      setImporting(false);
+      if (importRef.current) importRef.current.value = "";
+    }
+  }
+
   return (
-    <div className="p-4 space-y-4">
+    <div className="p-4 space-y-5">
+
+      {/* ── 出力 ── */}
       <div className="space-y-3">
-        {[["開始日", startDate, setStartDate, ""], ["終了日", endDate, setEndDate, startDate]].map(([label, value, setter, min]) => (
-          <div key={String(label)}>
-            <label className="text-xs text-gray-500 font-medium mb-1.5 block">{String(label)}</label>
-            <input type="date" value={String(value)} min={String(min) || undefined}
-              onChange={(e) => (setter as (v: string) => void)(e.target.value)}
-              className="w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-400" />
+        <p className="text-sm font-semibold text-gray-700">📤 CSV出力</p>
+        <div className="space-y-2.5">
+          {(["開始日", "終了日"] as const).map((label, i) => (
+            <div key={label}>
+              <label className="text-xs text-gray-500 font-medium mb-1.5 block">{label}</label>
+              <input type="date"
+                value={i === 0 ? startDate : endDate}
+                min={i === 1 ? startDate : undefined}
+                onChange={(e) => i === 0 ? setStartDate(e.target.value) : setEndDate(e.target.value)}
+                className="w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-400" />
+            </div>
+          ))}
+        </div>
+        <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-500">
+          <p className="font-medium text-gray-700 mb-1">出力項目</p>
+          <p>ID・タイトル・日付・時刻・終日・用件種別・担当者・メモ・備考・住所・作成者・最終編集者・作成日時</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={handleExport} disabled={exporting}
+            className="flex-1 py-3 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-white font-semibold rounded-xl flex items-center justify-center gap-2 text-sm">
+            {exporting ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+            期間指定で出力
+          </button>
+          <button onClick={handleExportAll} disabled={exportingAll}
+            className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-semibold rounded-xl flex items-center justify-center gap-2 text-sm">
+            {exportingAll ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+            全期間で出力
+          </button>
+        </div>
+      </div>
+
+      <div className="border-t border-gray-100" />
+
+      {/* ── 取り込み ── */}
+      <div className="space-y-3">
+        <p className="text-sm font-semibold text-gray-700">📥 CSV取り込み</p>
+        <div className="bg-amber-50 rounded-xl p-3 text-xs text-amber-700 space-y-1">
+          <p className="font-semibold">取り込み仕様</p>
+          <p>・このアプリで出力したCSVを取り込めます</p>
+          <p>・IDが一致する予定は内容を<strong>更新</strong>（画像・コメントは保持）</p>
+          <p>・IDがない行は<strong>新規追加</strong></p>
+          <p>・CSVにない予定は削除されません</p>
+        </div>
+        <button
+          onClick={() => importRef.current?.click()}
+          disabled={importing}
+          className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold rounded-xl flex items-center justify-center gap-2 text-sm">
+          {importing ? <Loader2 size={15} className="animate-spin" /> : <FileUp size={15} />}
+          {importing ? "取り込み中..." : "CSVを取り込む"}
+        </button>
+        {importMsg && (
+          <p className={`text-xs font-medium p-2.5 rounded-xl ${importMsg.startsWith("✅") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>
+            {importMsg}
+          </p>
+        )}
+        <input ref={importRef} type="file" accept=".csv,.CSV" className="hidden" onChange={handleImport} />
+      </div>
+
+      <div className="border-t border-gray-100" />
+
+      {/* ── 自動バックアップ一覧 ── */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-semibold text-gray-700">🗂 自動バックアップ</p>
+          <button onClick={loadBackups} className="text-xs text-indigo-500 hover:text-indigo-700 flex items-center gap-1">
+            {loadingBackups ? <Loader2 size={12} className="animate-spin" /> : null}
+            更新
+          </button>
+        </div>
+        <p className="text-xs text-gray-400">毎日0時（日本時間）に自動生成されます</p>
+        {loadingBackups ? (
+          <div className="flex justify-center py-4"><Loader2 size={20} className="animate-spin text-gray-300" /></div>
+        ) : backups.length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-4">バックアップはまだありません</p>
+        ) : (
+          <div className="space-y-1.5">
+            {backups.map((b) => (
+              <button key={b.name} onClick={() => downloadBackup(b.name)}
+                className="w-full flex items-center justify-between bg-gray-50 hover:bg-indigo-50 rounded-xl px-3 py-2.5 transition-colors">
+                <span className="text-sm text-gray-700">{b.name.replace("backup_", "").replace(".csv", "")}</span>
+                <Download size={14} className="text-indigo-400" />
+              </button>
+            ))}
           </div>
-        ))}
+        )}
       </div>
-      <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-500">
-        <p className="font-medium text-gray-700 mb-1">出力項目</p>
-        <p>タイトル・日付・時刻・終日・用件種別・担当者・メモ・作成者・最終編集者・作成日時</p>
-      </div>
-      <button onClick={handleExport} disabled={exporting}
-        className="w-full py-3 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-white font-semibold rounded-xl flex items-center justify-center gap-2">
-        {exporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
-        CSVをダウンロード
-      </button>
     </div>
   );
 }

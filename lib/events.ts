@@ -36,6 +36,57 @@ async function compressImage(file: File): Promise<File> {
   });
 }
 
+// 全予定取得（削除済み除く・全期間）
+export async function getAllEvents(): Promise<Event[]> {
+  const { data, error } = await supabase
+    .from("events")
+    .select("*")
+    .is("deleted_at", null)
+    .order("start_date", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+// CSVインポート：IDあり→UPDATE（画像・コメント保持）、IDなし→INSERT
+export async function importEventsFromCSV(
+  rows: Array<{ id?: string } & Partial<EventInsert>>
+): Promise<{ updated: number; inserted: number; errors: number }> {
+  let updated = 0, inserted = 0, errors = 0;
+  for (const row of rows) {
+    const { id, ...data } = row;
+    if (id) {
+      const { error } = await supabase
+        .from("events")
+        .update(data)
+        .eq("id", id)
+        .is("deleted_at", null);
+      if (!error) updated++; else errors++;
+    } else {
+      const insertData: EventInsert = {
+        title: data.title ?? "",
+        description: data.description ?? null,
+        notes: data.notes ?? null,
+        start_date: data.start_date ?? new Date().toISOString().slice(0, 10),
+        end_date: data.end_date ?? new Date().toISOString().slice(0, 10),
+        start_time: data.start_time ?? null,
+        end_time: data.end_time ?? null,
+        all_day: data.all_day ?? false,
+        color: data.color ?? "#6366f1",
+        image_url: null,
+        image_urls: [],
+        location: data.location ?? null,
+        assignees: data.assignees ?? [],
+        event_type: data.event_type ?? [],
+        created_by: data.created_by ?? null,
+        updated_by: data.updated_by ?? null,
+      };
+      const { error } = await supabase.from("events").insert(insertData);
+      if (!error) inserted++; else errors++;
+    }
+  }
+  return { updated, inserted, errors };
+}
+
 // 予定取得（削除済み除く）
 export async function getEventsByDateRange(startDate: string, endDate: string): Promise<Event[]> {
   const { data, error } = await supabase
