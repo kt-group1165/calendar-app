@@ -16,6 +16,7 @@ export type Event = {
   color: string;
   all_day: boolean;
   image_url: string | null;
+  image_urls: string[];
   location: string | null;
   assignees: string[];
   event_type: string[];

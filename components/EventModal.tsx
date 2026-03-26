@@ -70,6 +70,7 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
   const [allDay, setAllDay] = useState(event?.all_day ?? base.all_day ?? false);
   const [color, setColor] = useState(event?.color ?? base.color ?? "#6366f1");
   const [imageUrl, setImageUrl] = useState(event?.image_url ?? base.image_url ?? "");
+  const [imageUrls, setImageUrls] = useState<string[]>(event?.image_urls ?? base.image_urls ?? []);
   const [location, setLocation] = useState(event?.location ?? base.location ?? "");
   const [assignees, setAssignees] = useState<string[]>(event?.assignees ?? base.assignees ?? []);
   const [eventType, setEventType] = useState<string[]>(event?.event_type ?? base.event_type ?? []);
@@ -106,22 +107,40 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
   }
 
   async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+    // 合計上限5枚
+    const allUrls = [...imageUrls, ...(imageUrl ? [imageUrl] : [])];
+    const remaining = 5 - allUrls.length;
+    if (remaining <= 0) { alert("画像は最大5枚です"); return; }
+    const toUpload = files.slice(0, remaining);
     setUploading(true);
     try {
-      setImageUrl(await uploadImage(file));
+      const uploaded = await Promise.all(toUpload.map((f) => uploadImage(f)));
+      setImageUrls((prev) => {
+        const combined = [...(imageUrl ? [imageUrl] : []), ...prev, ...uploaded];
+        // image_urlは先頭に残す（後方互換）
+        if (combined.length > 0) setImageUrl(combined[0]);
+        return combined.slice(1);
+      });
     } catch {
       alert("画像のアップロードに失敗しました");
     } finally {
       setUploading(false);
+      // inputをリセット
+      if (fileRef.current) fileRef.current.value = "";
     }
   }
 
-  async function handleRemoveImage() {
-    if (imageUrl) {
-      try { await deleteImage(imageUrl); } catch {}
-      setImageUrl("");
+  async function handleRemoveImage(url: string) {
+    try { await deleteImage(url); } catch {}
+    if (url === imageUrl) {
+      // 先頭画像を削除 → 次を先頭に
+      const next = imageUrls[0] ?? "";
+      setImageUrl(next);
+      setImageUrls((prev) => prev.slice(1));
+    } else {
+      setImageUrls((prev) => prev.filter((u) => u !== url));
     }
   }
 
@@ -129,6 +148,8 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
     if (!title.trim()) { alert("タイトルを入力してください"); return; }
     setSaving(true);
     try {
+      // 全画像リスト（先頭=image_url、残り=image_urls）
+      const allImages = [...(imageUrl ? [imageUrl] : []), ...imageUrls];
       await onSave({
         title: title.trim(),
         description: description.trim() || null,
@@ -138,7 +159,8 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
         end_time: allDay ? null : endTime || null,
         all_day: allDay,
         color,
-        image_url: imageUrl || null,
+        image_url: allImages[0] ?? null,
+        image_urls: allImages.slice(1),
         location: location.trim() || null,
         assignees,
         event_type: eventType,
@@ -290,25 +312,41 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
           <textarea placeholder="メモを追加..." value={description} onChange={(e) => setDescription(e.target.value)}
             rows={3} className="w-full text-sm placeholder-gray-300 bg-gray-50 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-200" />
 
-          {/* 画像 */}
-          <div>
-            {imageUrl ? (
-              <div className="relative rounded-xl overflow-hidden">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={imageUrl} alt="添付画像" className="w-full max-h-48 object-cover" />
-                <button onClick={handleRemoveImage}
-                  className="absolute top-2 right-2 bg-black/50 text-white p-1.5 rounded-full hover:bg-black/70">
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ) : (
-              <button onClick={() => fileRef.current?.click()} disabled={uploading}
-                className="w-full flex items-center justify-center gap-2 py-3 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 hover:border-indigo-300 hover:text-indigo-400 transition-colors text-sm">
+          {/* 画像（複数枚対応） */}
+          <div className="space-y-2">
+            {/* サムネイルグリッド */}
+            {(() => {
+              const allImgs = [...(imageUrl ? [imageUrl] : []), ...imageUrls];
+              if (allImgs.length === 0) return null;
+              return (
+                <div className="grid grid-cols-3 gap-2">
+                  {allImgs.map((url, i) => (
+                    <div key={url} className="relative aspect-square rounded-xl overflow-hidden bg-gray-100">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={url} alt={`画像${i + 1}`} className="w-full h-full object-cover" />
+                      <button
+                        onClick={() => handleRemoveImage(url)}
+                        className="absolute top-1 right-1 bg-black/50 text-white p-1 rounded-full hover:bg-black/70"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+            {/* 追加ボタン（5枚未満のとき） */}
+            {[...(imageUrl ? [imageUrl] : []), ...imageUrls].length < 5 && (
+              <button
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading}
+                className="w-full flex items-center justify-center gap-2 py-3 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 hover:border-indigo-300 hover:text-indigo-400 transition-colors text-sm"
+              >
                 {uploading ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
-                {uploading ? "圧縮・アップロード中..." : "画像を添付"}
+                {uploading ? "圧縮・アップロード中..." : "画像を添付（最大5枚）"}
               </button>
             )}
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+            <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageUpload} />
           </div>
         </div>
 

@@ -274,6 +274,7 @@ export default function CalendarPage() {
       all_day: selectedEvent.all_day,
       color: selectedEvent.color,
       image_url: selectedEvent.image_url,
+      image_urls: selectedEvent.image_urls ?? [],
       location: selectedEvent.location,
       assignees: selectedEvent.assignees,
       event_type: selectedEvent.event_type,

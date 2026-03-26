@@ -3,7 +3,7 @@
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
 import { X, Edit2, Trash2, Copy, Clock, AlignLeft, Loader2, MessageCircle, Send, User, Users, Tag, MapPin } from "lucide-react";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { type Event } from "@/lib/supabase";
 import { getComments, addComment, deleteComment, logActivity, type Comment } from "@/lib/events";
@@ -20,7 +20,7 @@ type Props = {
 
 export default function EventDetailModal({ event, currentUser, isMaster, onEdit, onDuplicate, onDelete, onClose }: Props) {
   const [deleting, setDeleting] = useState(false);
-  const [lightbox, setLightbox] = useState(false);
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentText, setCommentText] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -208,42 +208,93 @@ export default function EventDetailModal({ event, currentUser, isMaster, onEdit,
             </div>
           )}
 
-          {/* 画像 */}
-          {event.image_url && (
-            <>
-              <button
-                onClick={() => setLightbox(true)}
-                className="w-full rounded-xl overflow-hidden block"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={event.image_url} alt="添付画像" className="w-full max-h-64 object-cover" />
-              </button>
-              {/* ライトボックス（Android対応: portalでbody直下に描画） */}
-              {lightbox && createPortal(
-                <div
-                  className="fixed inset-0 bg-black/90 flex items-center justify-center"
-                  style={{ zIndex: 9999 }}
-                  onClick={() => setLightbox(false)}
-                >
-                  <button
-                    className="absolute top-4 right-4 text-white/80 p-2"
-                    style={{ zIndex: 10000 }}
-                    onClick={() => setLightbox(false)}
+          {/* 画像ギャラリー（複数枚対応） */}
+          {(() => {
+            const allImgs = [
+              ...(event.image_url ? [event.image_url] : []),
+              ...(event.image_urls ?? []),
+            ];
+            if (allImgs.length === 0) return null;
+            return (
+              <>
+                <div className={`grid gap-2 ${allImgs.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+                  {allImgs.map((url, i) => (
+                    <button
+                      key={url}
+                      onTouchEnd={(e) => { e.preventDefault(); setLightboxIdx(i); }}
+                      onClick={() => setLightboxIdx(i)}
+                      className="rounded-xl overflow-hidden block w-full"
+                      style={{ touchAction: "manipulation" }}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={url}
+                        alt={`添付画像${i + 1}`}
+                        className="w-full object-cover pointer-events-none"
+                        style={{ maxHeight: allImgs.length === 1 ? "16rem" : "8rem" }}
+                      />
+                    </button>
+                  ))}
+                </div>
+                {/* ライトボックス（Android対応: portalでbody直下に描画） */}
+                {lightboxIdx !== null && createPortal(
+                  <div
+                    className="fixed inset-0 bg-black/95 flex items-center justify-center"
+                    style={{ zIndex: 9999, touchAction: "manipulation" }}
+                    onTouchEnd={(e) => { e.preventDefault(); setLightboxIdx(null); }}
+                    onClick={() => setLightboxIdx(null)}
                   >
-                    <X size={28} />
-                  </button>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={event.image_url!}
-                    alt="添付画像"
-                    className="max-w-full max-h-full object-contain"
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                </div>,
-                document.body
-              )}
-            </>
-          )}
+                    {/* 閉じるボタン */}
+                    <button
+                      className="absolute top-4 right-4 text-white/80 p-3 bg-black/30 rounded-full"
+                      style={{ zIndex: 10000, touchAction: "manipulation" }}
+                      onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); setLightboxIdx(null); }}
+                      onClick={(e) => { e.stopPropagation(); setLightboxIdx(null); }}
+                    >
+                      <X size={24} />
+                    </button>
+                    {/* 前/次ボタン（複数枚のとき） */}
+                    {allImgs.length > 1 && (
+                      <>
+                        <button
+                          className="absolute left-3 text-white/80 p-3 bg-black/30 rounded-full"
+                          style={{ zIndex: 10000, touchAction: "manipulation" }}
+                          onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); setLightboxIdx((lightboxIdx - 1 + allImgs.length) % allImgs.length); }}
+                          onClick={(e) => { e.stopPropagation(); setLightboxIdx((lightboxIdx - 1 + allImgs.length) % allImgs.length); }}
+                        >
+                          ‹
+                        </button>
+                        <button
+                          className="absolute right-14 text-white/80 p-3 bg-black/30 rounded-full"
+                          style={{ zIndex: 10000, touchAction: "manipulation" }}
+                          onTouchEnd={(e) => { e.stopPropagation(); e.preventDefault(); setLightboxIdx((lightboxIdx + 1) % allImgs.length); }}
+                          onClick={(e) => { e.stopPropagation(); setLightboxIdx((lightboxIdx + 1) % allImgs.length); }}
+                        >
+                          ›
+                        </button>
+                      </>
+                    )}
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={allImgs[lightboxIdx]}
+                      alt="添付画像"
+                      className="max-w-full max-h-full object-contain pointer-events-none select-none"
+                      style={{ zIndex: 9998 }}
+                    />
+                    {/* 枚数インジケーター */}
+                    {allImgs.length > 1 && (
+                      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-1.5" style={{ zIndex: 10000 }}>
+                        {allImgs.map((_, idx) => (
+                          <span key={idx} className={`w-2 h-2 rounded-full ${idx === lightboxIdx ? "bg-white" : "bg-white/40"}`} />
+                        ))}
+                      </div>
+                    )}
+                  </div>,
+                  document.body
+                )}
+              </>
+            );
+          })()}
 
           {/* コメント */}
           <div className="border-t border-gray-100 pt-3">
