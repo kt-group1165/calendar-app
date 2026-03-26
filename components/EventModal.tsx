@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { X, Calendar, Clock, Image as ImageIcon, Trash2, Loader2, Users, Tag, MapPin } from "lucide-react";
+import { useState, useRef, useEffect, useMemo } from "react";
+import { X, Calendar, Clock, Image as ImageIcon, Trash2, Loader2, Users, Tag, MapPin, User } from "lucide-react";
+import { createPortal } from "react-dom";
 import { format } from "date-fns";
 import { type Event, type EventInsert } from "@/lib/supabase";
 import { uploadImage, deleteImage } from "@/lib/events";
 import { getMembers, type Member } from "@/lib/members";
 import { getEventTypes, type EventType } from "@/lib/event_types";
+import { getClients, type Client } from "@/lib/clients";
 
 function TimeSelect({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
   const parts = value ? value.split(":") : ["", ""];
@@ -48,6 +50,98 @@ function TimeSelect({ value, onChange, label }: { value: string; onChange: (v: s
   );
 }
 
+// ── 利用者選択コンポーネント ──────────────────────
+function ClientSelector({ clients, selected, onSelect }: {
+  clients: Client[];
+  selected: Client | null;
+  onSelect: (c: Client | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = query.trim();
+    if (!q) return clients.slice(0, 30);
+    return clients.filter((c) =>
+      c.name.includes(q) || (c.furigana ?? "").includes(q)
+    ).slice(0, 50);
+  }, [clients, query]);
+
+  return (
+    <>
+      <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2.5">
+        <User size={16} className="text-gray-400 shrink-0" />
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="flex-1 text-left text-sm"
+        >
+          {selected
+            ? <span className="text-gray-700">{selected.name}</span>
+            : <span className="text-gray-300">利用者を選択（任意）</span>
+          }
+        </button>
+        {selected && (
+          <button type="button" onClick={() => onSelect(null)}
+            className="text-gray-300 hover:text-red-400 p-0.5 shrink-0">
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      {open && createPortal(
+        <div className="fixed inset-0 z-[100] flex flex-col bg-white">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-100 shrink-0">
+            <button type="button" onClick={() => { setOpen(false); setQuery(""); }}
+              className="p-1.5 rounded-xl hover:bg-gray-100">
+              <X size={20} className="text-gray-500" />
+            </button>
+            <input
+              autoFocus
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="名前・フリガナで検索..."
+              className="flex-1 text-sm bg-gray-50 rounded-xl px-3 py-2 placeholder-gray-300 focus:outline-none"
+            />
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {filtered.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => { onSelect(c); setOpen(false); setQuery(""); }}
+                className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-50"
+              >
+                <div className="w-9 h-9 bg-indigo-100 rounded-full flex items-center justify-center shrink-0">
+                  <span className="text-sm font-bold text-indigo-600">{c.name.charAt(0)}</span>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-800">{c.name}</p>
+                  <p className="text-xs text-gray-400 truncate">
+                    {c.furigana}{c.address ? `　${c.address}` : ""}
+                  </p>
+                </div>
+                {c.care_level && (
+                  <span className="shrink-0 text-xs text-indigo-500 font-medium">{c.care_level}</span>
+                )}
+              </button>
+            ))}
+            {filtered.length === 0 && (
+              <p className="text-sm text-gray-400 text-center py-12">見つかりません</p>
+            )}
+            {!query.trim() && clients.length > 30 && (
+              <p className="text-xs text-gray-400 text-center py-3">
+                名前で絞り込んでください（全{clients.length}件）
+              </p>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
 type Props = {
   event?: Event | null;
   initialData?: Partial<EventInsert>;
@@ -76,6 +170,9 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
   const [eventType, setEventType] = useState<string[]>(event?.event_type ?? base.event_type ?? []);
   const [members, setMembers] = useState<Member[]>([]);
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [clientBlock, setClientBlock] = useState<string>("");
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -84,7 +181,51 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
   useEffect(() => {
     getMembers().then(setMembers).catch(() => {});
     getEventTypes().then(setEventTypes).catch(() => {});
+    getClients().then(setClients).catch(() => {});
   }, []);
+
+  function buildClientBlock(client: Client): string {
+    const lines: string[] = [];
+    if (client.memo) lines.push(`【メモ】${client.memo}`);
+    if (client.phone) lines.push(`【電話番号】${client.phone}`);
+    if (client.mobile) lines.push(`【携帯電話】${client.mobile}`);
+    if (client.benefit_rate) lines.push(`【給付率】${client.benefit_rate}`);
+    if (client.care_level) lines.push(`【要介護度】${client.care_level}`);
+    if (client.care_manager_org) lines.push(`【支援事業所】${client.care_manager_org}`);
+    if (client.care_manager) lines.push(`【担当ケアマネ】${client.care_manager}`);
+    if (client.certification_end_date) lines.push(`【認定有効期限】${client.certification_end_date}`);
+    return lines.join("\n");
+  }
+
+  function applyClient(client: Client | null) {
+    let newTitle = title;
+    let newDesc = description;
+
+    // 旧クライアントのデータを除去
+    if (selectedClient) {
+      const oldPrefix = selectedClient.name + "様 ";
+      if (newTitle.startsWith(oldPrefix)) newTitle = newTitle.slice(oldPrefix.length);
+      if (clientBlock) {
+        const sep = "\n\n" + clientBlock;
+        if (newDesc.endsWith(sep)) newDesc = newDesc.slice(0, newDesc.length - sep.length);
+        else newDesc = newDesc.replace(sep, "");
+      }
+    }
+
+    // 新クライアントのデータを追加
+    let newBlock = "";
+    if (client) {
+      newTitle = client.name + "様 " + newTitle;
+      setLocation(client.address ?? "");
+      newBlock = buildClientBlock(client);
+      if (newBlock) newDesc = newDesc ? newDesc + "\n\n" + newBlock : newBlock;
+    }
+
+    setTitle(newTitle);
+    setDescription(newDesc);
+    setClientBlock(newBlock);
+    setSelectedClient(client);
+  }
 
   function toggleAssignee(member: Member) {
     setAssignees((prev) => {
@@ -194,6 +335,15 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
           {/* タイトル */}
           <input type="text" placeholder="タイトル" value={title} onChange={(e) => setTitle(e.target.value)}
             className="w-full text-lg font-medium placeholder-gray-300 border-0 border-b-2 border-gray-200 focus:border-indigo-400 focus:outline-none py-1 transition-colors" />
+
+          {/* 利用者選択 */}
+          {clients.length > 0 && (
+            <ClientSelector
+              clients={clients}
+              selected={selectedClient}
+              onSelect={applyClient}
+            />
+          )}
 
           {/* 担当者（メンバーがいる場合のみ） */}
           {members.length > 0 && (

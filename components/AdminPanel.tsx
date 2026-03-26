@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { X, Users, Download, BarChart2, Settings, Plus, Trash2, Loader2, Lock, Tag } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { X, Users, Download, BarChart2, Settings, Plus, Trash2, Loader2, Lock, Tag, User, Upload, Search } from "lucide-react";
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns";
 import { ja } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
@@ -10,8 +10,9 @@ import { getEventTypes, addEventType, deleteEventType, type EventType } from "@/
 import { verifyMasterPin, updateMasterPin } from "@/lib/settings";
 import { getEventsByDateRange } from "@/lib/events";
 import { getGroups, addGroup, deleteGroup, updateGroup, type MemberGroup } from "@/lib/groups";
+import { getClients, replaceAllClients, parseClientCSV, type Client } from "@/lib/clients";
 
-type Tab = "members" | "groups" | "types" | "csv" | "analytics" | "settings";
+type Tab = "members" | "groups" | "types" | "clients" | "csv" | "analytics" | "settings";
 
 const COLORS = ["#6366f1","#ec4899","#f97316","#10b981","#3b82f6","#8b5cf6","#ef4444","#f59e0b"];
 
@@ -23,6 +24,7 @@ export default function AdminPanel({ onClose, onLogout }: Props) {
     { key: "members" as Tab, icon: Users, label: "メンバー" },
     { key: "groups" as Tab, icon: Users, label: "グループ" },
     { key: "types" as Tab, icon: Tag, label: "種別" },
+    { key: "clients" as Tab, icon: User, label: "利用者" },
     { key: "csv" as Tab, icon: Download, label: "CSV" },
     { key: "analytics" as Tab, icon: BarChart2, label: "分析" },
     { key: "settings" as Tab, icon: Settings, label: "設定" },
@@ -40,10 +42,10 @@ export default function AdminPanel({ onClose, onLogout }: Props) {
         <button onClick={onClose} className="p-2 rounded-xl hover:bg-gray-100"><X size={20} className="text-gray-500" /></button>
       </header>
 
-      <div className="flex border-b border-gray-100 shrink-0">
+      <div className="flex border-b border-gray-100 shrink-0 overflow-x-auto">
         {tabs.map(({ key, icon: Icon, label }) => (
           <button key={key} onClick={() => setTab(key)}
-            className={`flex-1 flex flex-col items-center gap-0.5 py-2 text-xs font-medium transition-colors ${
+            className={`shrink-0 flex flex-col items-center gap-0.5 py-2 px-3 text-xs font-medium transition-colors ${
               tab === key ? "text-indigo-600 border-b-2 border-indigo-500" : "text-gray-400 hover:text-gray-600"
             }`}>
             <Icon size={15} />{label}
@@ -55,6 +57,7 @@ export default function AdminPanel({ onClose, onLogout }: Props) {
         {tab === "members" && <MembersTab />}
         {tab === "groups" && <GroupsTab />}
         {tab === "types" && <EventTypesTab />}
+        {tab === "clients" && <ClientsTab />}
         {tab === "csv" && <CsvTab />}
         {tab === "analytics" && <AnalyticsTab />}
         {tab === "settings" && <SettingsTab onLogout={onLogout} />}
@@ -335,6 +338,139 @@ function EventTypesTab() {
             ))}
           </div>
         )}
+    </div>
+  );
+}
+
+// ── 利用者管理 ────────────────────────────────
+function ClientsTab() {
+  const [clients, setClients] = useState<Client[]>([]);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { load(); }, []);
+  async function load() {
+    setLoading(true);
+    try { setClients(await getClients()); } finally { setLoading(false); }
+  }
+
+  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setImportMsg("");
+    try {
+      const parsed = await parseClientCSV(file);
+      if (!confirm(`${parsed.length}件の利用者データを取り込みます。\n既存データはすべて上書きされます。よろしいですか？`)) return;
+      await replaceAllClients(parsed);
+      const updated = await getClients();
+      setClients(updated);
+      setImportMsg(`✅ ${parsed.length}件の取り込みが完了しました`);
+    } catch (err) {
+      setImportMsg(`❌ 取り込みに失敗しました: ${(err as Error).message}`);
+    } finally {
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  const filtered = search.trim()
+    ? clients.filter((c) => c.name.includes(search) || (c.furigana ?? "").includes(search))
+    : clients;
+
+  return (
+    <div className="p-4 space-y-4">
+      {/* CSV取り込み */}
+      <div className="bg-indigo-50 rounded-xl p-3 space-y-2.5">
+        <p className="text-xs font-semibold text-indigo-700">CSVファイル取り込み</p>
+        <p className="text-xs text-indigo-500">
+          保険.CSV（Shift-JIS形式）を選択してください。<br />
+          同一利用者番号は最新の認定有効期間で上書き、全件置換されます。
+        </p>
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={importing}
+          className="w-full py-2.5 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-white font-semibold rounded-xl flex items-center justify-center gap-2 text-sm"
+        >
+          {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+          {importing ? "取り込み中..." : "CSVを取り込む"}
+        </button>
+        {importMsg && (
+          <p className={`text-xs font-medium ${importMsg.startsWith("✅") ? "text-green-600" : "text-red-500"}`}>
+            {importMsg}
+          </p>
+        )}
+        <input ref={fileRef} type="file" accept=".csv,.CSV" className="hidden" onChange={handleImport} />
+      </div>
+
+      {/* 検索 */}
+      <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
+        <Search size={14} className="text-gray-400 shrink-0" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="名前・フリガナで検索..."
+          className="flex-1 text-sm bg-transparent placeholder-gray-300 focus:outline-none"
+        />
+        {search && (
+          <button onClick={() => setSearch("")} className="text-gray-300 hover:text-gray-500">
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      {/* 件数 */}
+      {!loading && clients.length > 0 && (
+        <p className="text-xs text-gray-400">
+          {clients.length}件中 {filtered.length}件表示
+        </p>
+      )}
+
+      {/* 一覧 */}
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <Loader2 size={24} className="animate-spin text-gray-300" />
+        </div>
+      ) : clients.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-8">
+          利用者データがありません<br />
+          <span className="text-xs">CSVを取り込んでください</span>
+        </p>
+      ) : filtered.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-6">見つかりません</p>
+      ) : (
+        <div className="space-y-2">
+          {filtered.slice(0, 100).map((c) => (
+            <div key={c.id} className="bg-gray-50 rounded-xl px-3 py-2.5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center shrink-0">
+                  <span className="text-xs font-bold text-indigo-600">{c.name.charAt(0)}</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-800">{c.name}</p>
+                  <p className="text-xs text-gray-400">{c.furigana}</p>
+                </div>
+                <div className="text-right text-xs shrink-0 space-y-0.5">
+                  {c.care_level && <p className="text-indigo-500 font-medium">{c.care_level}</p>}
+                  {c.phone && <p className="text-gray-400">{c.phone}</p>}
+                  {!c.phone && c.mobile && <p className="text-gray-400">{c.mobile}</p>}
+                </div>
+              </div>
+              {c.address && (
+                <p className="text-xs text-gray-400 mt-1 ml-10 truncate">{c.address}</p>
+              )}
+            </div>
+          ))}
+          {filtered.length > 100 && (
+            <p className="text-xs text-gray-400 text-center py-2">
+              さらに {filtered.length - 100} 件あります（名前で絞り込んでください）
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
