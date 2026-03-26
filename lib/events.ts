@@ -1,5 +1,6 @@
 import { supabase, type Event, type EventInsert, type EventUpdate } from "./supabase";
 
+// 画像圧縮（1280px・85%・WebP）
 async function compressImage(file: File): Promise<File> {
   return new Promise((resolve) => {
     const img = new Image();
@@ -30,51 +31,35 @@ async function compressImage(file: File): Promise<File> {
         0.85
       );
     };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve(file);
-    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
     img.src = url;
   });
 }
 
-export async function getEvents(year: number, month: number): Promise<Event[]> {
-  const startDate = `${year}-${String(month).padStart(2, "0")}-01`;
-  const lastDay = new Date(year, month, 0).getDate();
-  const endDate = `${year}-${String(month).padStart(2, "0")}-${lastDay}`;
-
-  const { data, error } = await supabase
-    .from("events")
-    .select("*")
-    .or(`start_date.lte.${endDate},end_date.gte.${startDate}`)
-    .order("start_date", { ascending: true });
-
-  if (error) throw error;
-  return data ?? [];
-}
-
+// 予定取得（削除済み除く）
 export async function getEventsByDateRange(startDate: string, endDate: string): Promise<Event[]> {
   const { data, error } = await supabase
     .from("events")
     .select("*")
+    .is("deleted_at", null)
     .or(`start_date.lte.${endDate},end_date.gte.${startDate}`)
     .order("start_date", { ascending: true });
-
   if (error) throw error;
   return data ?? [];
 }
 
+// 予定作成
 export async function createEvent(event: EventInsert): Promise<Event> {
   const { data, error } = await supabase
     .from("events")
     .insert(event)
     .select()
     .single();
-
   if (error) throw error;
   return data;
 }
 
+// 予定更新
 export async function updateEvent(id: string, event: EventUpdate): Promise<Event> {
   const { data, error } = await supabase
     .from("events")
@@ -82,41 +67,87 @@ export async function updateEvent(id: string, event: EventUpdate): Promise<Event
     .eq("id", id)
     .select()
     .single();
-
   if (error) throw error;
   return data;
 }
 
-export async function deleteEvent(id: string): Promise<void> {
+// ソフトデリート（ゴミ箱へ）
+export async function softDeleteEvent(id: string): Promise<void> {
+  const { error } = await supabase
+    .from("events")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+// 復元
+export async function restoreEvent(id: string): Promise<void> {
+  const { error } = await supabase
+    .from("events")
+    .update({ deleted_at: null })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+// 完全削除
+export async function permanentDeleteEvent(id: string, imageUrl: string | null): Promise<void> {
+  if (imageUrl) {
+    try { await deleteImage(imageUrl); } catch {}
+  }
   const { error } = await supabase.from("events").delete().eq("id", id);
   if (error) throw error;
 }
 
+// ゴミ箱内の予定取得
+export async function getDeletedEvents(): Promise<Event[]> {
+  const { data, error } = await supabase
+    .from("events")
+    .select("*")
+    .not("deleted_at", "is", null)
+    .order("deleted_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+// 10日以上経過した削除済みを自動完全削除
+export async function cleanupOldDeletedEvents(): Promise<void> {
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 10);
+  const { data } = await supabase
+    .from("events")
+    .select("id, image_url")
+    .not("deleted_at", "is", null)
+    .lt("deleted_at", cutoff.toISOString());
+  if (data && data.length > 0) {
+    for (const event of data) {
+      if (event.image_url) {
+        try { await deleteImage(event.image_url); } catch {}
+      }
+    }
+    await supabase.from("events").delete().in("id", data.map((e) => e.id));
+  }
+}
+
+// 画像アップロード
 export async function uploadImage(file: File): Promise<string> {
   const compressed = await compressImage(file);
   const fileName = `${Date.now()}-${Math.random().toString(36).slice(2)}.webp`;
-
   const { error } = await supabase.storage
     .from("event-images")
     .upload(fileName, compressed, { contentType: "image/webp" });
-
   if (error) throw error;
-
-  const { data } = supabase.storage
-    .from("event-images")
-    .getPublicUrl(fileName);
-
+  const { data } = supabase.storage.from("event-images").getPublicUrl(fileName);
   return data.publicUrl;
 }
 
+// 画像削除
 export async function deleteImage(url: string): Promise<void> {
   const fileName = url.split("/").pop();
   if (!fileName) return;
-
   await supabase.storage.from("event-images").remove([fileName]);
 }
 
-// コメント機能
+// コメント
 export type Comment = {
   id: string;
   event_id: string;
@@ -131,7 +162,6 @@ export async function getComments(eventId: string): Promise<Comment[]> {
     .select("*")
     .eq("event_id", eventId)
     .order("created_at", { ascending: true });
-
   if (error) throw error;
   return data ?? [];
 }
@@ -142,7 +172,6 @@ export async function addComment(eventId: string, author: string, body: string):
     .insert({ event_id: eventId, author, body })
     .select()
     .single();
-
   if (error) throw error;
   return data;
 }

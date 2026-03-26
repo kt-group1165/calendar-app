@@ -2,7 +2,7 @@
 
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
-import { X, Edit2, Trash2, Clock, AlignLeft, Image as ImageIcon, Loader2, MessageCircle, Send, User } from "lucide-react";
+import { X, Edit2, Trash2, Clock, AlignLeft, Loader2, MessageCircle, Send, User, Users } from "lucide-react";
 import { useState, useEffect } from "react";
 import { type Event } from "@/lib/supabase";
 import { getComments, addComment, deleteComment, type Comment } from "@/lib/events";
@@ -10,12 +10,13 @@ import { getComments, addComment, deleteComment, type Comment } from "@/lib/even
 type Props = {
   event: Event;
   currentUser: string;
+  isMaster?: boolean;
   onEdit: () => void;
   onDelete: () => Promise<void>;
   onClose: () => void;
 };
 
-export default function EventDetailModal({ event, currentUser, onEdit, onDelete, onClose }: Props) {
+export default function EventDetailModal({ event, currentUser, isMaster, onEdit, onDelete, onClose }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentText, setCommentText] = useState("");
@@ -134,6 +135,25 @@ export default function EventDetailModal({ event, currentUser, onEdit, onDelete,
                 {event.updated_by && event.updated_by !== event.created_by && (
                   <p>最終編集：<span className="font-medium text-gray-700">{event.updated_by}</span></p>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* 担当者 */}
+          {event.assignees && event.assignees.length > 0 && (
+            <div className="flex items-start gap-2 text-gray-600">
+              <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+                <Users size={14} className="text-gray-400" />
+              </div>
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {event.assignees.map((name) => (
+                  <span key={name} className="flex items-center gap-1 px-2 py-1 bg-indigo-50 text-indigo-600 rounded-full text-xs font-medium">
+                    <span className="w-4 h-4 bg-indigo-200 rounded-full flex items-center justify-center text-xs font-bold">
+                      {name.charAt(0)}
+                    </span>
+                    {name}
+                  </span>
+                ))}
               </div>
             </div>
           )}

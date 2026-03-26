@@ -16,11 +16,13 @@ export type Event = {
   color: string;
   all_day: boolean;
   image_url: string | null;
+  assignees: string[];
   created_by: string | null;
   updated_by: string | null;
+  deleted_at: string | null;
   created_at: string;
   updated_at: string;
 };
 
-export type EventInsert = Omit<Event, "id" | "created_at" | "updated_at">;
+export type EventInsert = Omit<Event, "id" | "created_at" | "updated_at" | "deleted_at">;
 export type EventUpdate = Partial<EventInsert>;
