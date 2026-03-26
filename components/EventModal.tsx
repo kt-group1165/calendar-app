@@ -205,6 +205,8 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
   const [manualClientName, setManualClientName] = useState<string>("");
   // タイトルに付与したプレフィックス（変更時に除去するために保持）
   const [clientPrefix, setClientPrefix] = useState<string>("");
+  // メモ欄に追記したブロック（変更時に正確に除去するために保持）
+  const [clientAutoBlock, setClientAutoBlock] = useState<string>("");
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -230,32 +232,54 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
     return lines.join("\n");
   }
 
-  // タイトルのプレフィックスを付け替える共通処理
-  function applyTitlePrefix(newPrefix: string) {
-    setTitle((prev) => {
-      const base = clientPrefix && prev.startsWith(clientPrefix)
-        ? prev.slice(clientPrefix.length)
-        : prev;
-      return newPrefix + base;
-    });
-    setClientPrefix(newPrefix);
+  // メモ欄から以前追記したブロックを除去する
+  function stripAutoBlock(desc: string, block: string): string {
+    if (!block) return desc;
+    const withSep = "\n\n" + block;
+    if (desc.endsWith(withSep)) return desc.slice(0, desc.length - withSep.length);
+    if (desc === block) return "";
+    return desc;
   }
 
   // DBから利用者を選択（住所・情報の自動入力あり）
   function handleSelectClient(client: Client | null) {
+    // タイトルのプレフィックスを付け替え
+    let newTitle = title;
+    if (clientPrefix && newTitle.startsWith(clientPrefix)) newTitle = newTitle.slice(clientPrefix.length);
     const newPrefix = client ? `${client.name}様 ` : "";
-    applyTitlePrefix(newPrefix);
-    if (client?.address) setLocation(client.address);
+
+    // メモ欄から旧ブロックを除去し、新ブロックを追記
+    let newDesc = stripAutoBlock(description, clientAutoBlock);
+    let newBlock = "";
+    if (client) {
+      newBlock = buildAutoBlock(client);
+      if (newBlock) newDesc = newDesc ? newDesc + "\n\n" + newBlock : newBlock;
+      if (client.address) setLocation(client.address);
+    }
+
+    setTitle(newPrefix + newTitle);
+    setClientPrefix(newPrefix);
+    setDescription(newDesc);
+    setClientAutoBlock(newBlock);
     setSelectedClient(client);
     setManualClientName("");
   }
 
   // 利用者を手動入力（タイトルプレフィックスのみ）
   function handleManualClientName(name: string) {
+    let newTitle = title;
+    if (clientPrefix && newTitle.startsWith(clientPrefix)) newTitle = newTitle.slice(clientPrefix.length);
     const newPrefix = name ? `${name}様 ` : "";
-    applyTitlePrefix(newPrefix);
-    setManualClientName(name);
+
+    // 手動入力の場合はメモの自動追記なし（旧ブロックのみ除去）
+    const newDesc = stripAutoBlock(description, clientAutoBlock);
+
+    setTitle(newPrefix + newTitle);
+    setClientPrefix(newPrefix);
+    setDescription(newDesc);
+    setClientAutoBlock("");
     setSelectedClient(null);
+    setManualClientName(name);
   }
 
   function toggleAssignee(member: Member) {
@@ -281,8 +305,8 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
     const allUrls = [...imageUrls, ...(imageUrl ? [imageUrl] : [])];
-    const remaining = 5 - allUrls.length;
-    if (remaining <= 0) { alert("画像は最大5枚です"); return; }
+    const remaining = 10 - allUrls.length;
+    if (remaining <= 0) { alert("画像は最大10枚です"); return; }
     const toUpload = files.slice(0, remaining);
     setUploading(true);
     try {
@@ -315,14 +339,10 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
     if (!title.trim()) { alert("タイトルを入力してください"); return; }
     setSaving(true);
     try {
-      // descriptionとauto-blockをsave時に合成
-      const autoBlock = selectedClient ? buildAutoBlock(selectedClient) : "";
-      const fullDesc = [description.trim(), autoBlock].filter(Boolean).join("\n\n");
-
       const allImages = [...(imageUrl ? [imageUrl] : []), ...imageUrls];
       await onSave({
         title: title.trim(),
-        description: fullDesc || null,
+        description: description.trim() || null,
         notes: notes.trim() || null,
         start_date: startDate,
         end_date: endDate < startDate ? startDate : endDate,
@@ -349,8 +369,6 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
     try { await onDelete?.(); }
     finally { setDeleting(false); }
   }
-
-  const autoBlock = selectedClient ? buildAutoBlock(selectedClient) : "";
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
@@ -495,15 +513,6 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
             <p className="text-xs text-gray-400 px-1">メモ</p>
             <textarea placeholder="メモを追加..." value={description} onChange={(e) => setDescription(e.target.value)}
               rows={3} className="w-full text-sm placeholder-gray-300 bg-gray-50 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-200" />
-            {/* 利用者情報の自動追記プレビュー */}
-            {autoBlock && (
-              <div className="bg-indigo-50 rounded-xl px-3 py-2.5 text-xs text-indigo-700 space-y-0.5">
-                <p className="text-indigo-400 mb-1 font-medium">↓ 保存時に自動追記（利用者情報）</p>
-                {autoBlock.split("\n").map((line, i) => (
-                  <p key={i}>{line}</p>
-                ))}
-              </div>
-            )}
           </div>
 
           {/* 備考 */}
@@ -535,14 +544,14 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
                 </div>
               );
             })()}
-            {[...(imageUrl ? [imageUrl] : []), ...imageUrls].length < 5 && (
+            {[...(imageUrl ? [imageUrl] : []), ...imageUrls].length < 10 && (
               <button
                 onClick={() => fileRef.current?.click()}
                 disabled={uploading}
                 className="w-full flex items-center justify-center gap-2 py-3 border-2 border-dashed border-gray-200 rounded-xl text-gray-400 hover:border-indigo-300 hover:text-indigo-400 transition-colors text-sm"
               >
                 {uploading ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
-                {uploading ? "圧縮・アップロード中..." : "画像を添付（最大5枚）"}
+                {uploading ? "圧縮・アップロード中..." : "画像を添付（最大10枚）"}
               </button>
             )}
             <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageUpload} />
