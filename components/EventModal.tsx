@@ -241,7 +241,11 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs text-gray-400 mb-1 block">開始</label>
-                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
+                <input type="date" value={startDate} onChange={(e) => {
+                  const v = e.target.value;
+                  setStartDate(v);
+                  if (endDate < v) setEndDate(v);
+                }}
                   className="w-full text-sm bg-white border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-400" />
               </div>
               <div>
