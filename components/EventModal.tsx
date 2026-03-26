@@ -91,7 +91,7 @@ function ClientSelector({ clients, selected, manualName, onSelect, onManualName 
           }
         </button>
         {displayName && (
-          <button type="button" onClick={() => { onSelect(null); onManualName(""); }}
+          <button type="button" onClick={() => { onSelect(null); }}
             className="text-gray-300 hover:text-red-400 p-0.5 shrink-0">
             <X size={14} />
           </button>
@@ -134,7 +134,7 @@ function ClientSelector({ clients, selected, manualName, onSelect, onManualName 
               <button
                 key={c.id}
                 type="button"
-                onClick={() => { onSelect(c); onManualName(""); handleClose(); }}
+                onClick={() => { onSelect(c); handleClose(); }}
                 className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-50"
               >
                 <div className="w-9 h-9 bg-indigo-100 rounded-full flex items-center justify-center shrink-0">
