@@ -470,19 +470,22 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
                 <span className="text-sm font-medium">担当者</span>
               </div>
               <div className="flex flex-wrap gap-2">
-                {members.map((m) => (
+                {members.map((m) => {
+                  const active = assignees.includes(m.name);
+                  return (
                   <button key={m.id} onClick={() => toggleAssignee(m)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all"
-                    style={assignees.includes(m.name)
-                      ? { backgroundColor: m.color, color: "white" }
-                      : { backgroundColor: "white", border: `2px solid ${m.color}20`, color: "#374151" }}>
-                    <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold"
-                      style={{ backgroundColor: assignees.includes(m.name) ? "rgba(255,255,255,0.25)" : m.color + "30", color: assignees.includes(m.name) ? "white" : m.color }}>
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors"
+                    style={active
+                      ? { backgroundColor: m.color, color: "white", border: "2px solid transparent" }
+                      : { backgroundColor: "white", border: `2px solid ${m.color}30`, color: "#374151" }}>
+                    <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                      style={{ backgroundColor: active ? "rgba(255,255,255,0.25)" : m.color + "30", color: active ? "white" : m.color }}>
                       {m.name.charAt(0)}
                     </span>
                     {m.name}
                   </button>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

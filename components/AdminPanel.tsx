@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { X, Users, Download, BarChart2, Settings, Plus, Trash2, Loader2, Lock, Tag, User, Upload, Search } from "lucide-react";
+import { X, Users, Download, BarChart2, Settings, Plus, Trash2, Loader2, Lock, Tag, User, Upload, Search, ChevronUp, ChevronDown } from "lucide-react";
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns";
 import { ja } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
-import { getMembers, addMember, deleteMember, updateMemberColor, type Member } from "@/lib/members";
+import { getMembers, addMember, deleteMember, updateMemberColor, updateMemberOrder, type Member } from "@/lib/members";
 import { getEventTypes, addEventType, deleteEventType, type EventType } from "@/lib/event_types";
 import { verifyMasterPin, updateMasterPin } from "@/lib/settings";
 import { getEventsByDateRange } from "@/lib/events";
@@ -110,6 +110,28 @@ function MembersTab() {
     } catch {}
   }
 
+  async function handleMoveUp(index: number) {
+    if (index === 0) return;
+    const updated = [...members];
+    const a = updated[index - 1];
+    const b = updated[index];
+    // sort_order を交換
+    const orderA = a.sort_order ?? index;
+    const orderB = b.sort_order ?? index + 1;
+    try {
+      await updateMemberOrder(a.id, orderB);
+      await updateMemberOrder(b.id, orderA);
+      updated[index - 1] = { ...b, sort_order: orderB };
+      updated[index] = { ...a, sort_order: orderA };
+      setMembers(updated);
+    } catch {}
+  }
+
+  async function handleMoveDown(index: number) {
+    if (index === members.length - 1) return;
+    await handleMoveUp(index + 1);
+  }
+
   async function handleDelete(id: string, name: string) {
     if (!confirm(`「${name}」を削除しますか？`)) return;
     try {
@@ -153,11 +175,22 @@ function MembersTab() {
         : members.length === 0 ? <p className="text-sm text-gray-400 text-center py-8">メンバーがいません</p>
         : (
           <div className="space-y-2">
-            {members.map((m) => (
+            {members.map((m, index) => (
               <div key={m.id} className="bg-gray-50 rounded-xl px-3 py-2.5">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: m.color }}>
+                    {/* 並び替えボタン */}
+                    <div className="flex flex-col gap-0">
+                      <button onClick={() => handleMoveUp(index)} disabled={index === 0}
+                        className="p-0.5 text-gray-300 hover:text-gray-500 disabled:opacity-20 disabled:cursor-not-allowed transition-colors">
+                        <ChevronUp size={14} />
+                      </button>
+                      <button onClick={() => handleMoveDown(index)} disabled={index === members.length - 1}
+                        className="p-0.5 text-gray-300 hover:text-gray-500 disabled:opacity-20 disabled:cursor-not-allowed transition-colors">
+                        <ChevronDown size={14} />
+                      </button>
+                    </div>
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0" style={{ backgroundColor: m.color }}>
                       <span className="text-xs font-bold text-white">{m.name.charAt(0)}</span>
                     </div>
                     <span className="text-sm font-medium text-gray-700">{m.name}</span>
@@ -167,7 +200,7 @@ function MembersTab() {
                     <Trash2 size={15} />
                   </button>
                 </div>
-                <div className="flex gap-1.5 flex-wrap ml-10">
+                <div className="flex gap-1.5 flex-wrap ml-14">
                   {COLORS.map((c) => {
                     const selected = m.color === c;
                     return (
