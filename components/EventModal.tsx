@@ -8,6 +8,45 @@ import { uploadImage, deleteImage } from "@/lib/events";
 import { getMembers, type Member } from "@/lib/members";
 import { getEventTypes, type EventType } from "@/lib/event_types";
 
+function TimeSelect({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
+  const parts = value ? value.split(":") : ["", ""];
+  const hh = parts[0] || "";
+  const mm = (parts[1] || "").slice(0, 2);
+  const MINUTES = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
+
+  function handleHour(h: string) {
+    onChange(h ? `${h}:${mm || "00"}` : "");
+  }
+  function handleMinute(m: string) {
+    onChange(m !== "" ? `${hh || "00"}:${m}` : "");
+  }
+
+  return (
+    <div>
+      <label className="text-xs text-gray-400 mb-1 block">{label}</label>
+      <div className="flex items-center gap-1">
+        <select value={hh} onChange={(e) => handleHour(e.target.value)}
+          className="flex-1 text-sm bg-white border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-400">
+          <option value="">--</option>
+          {Array.from({ length: 24 }, (_, i) => {
+            const v = String(i).padStart(2, "0");
+            return <option key={v} value={v}>{v}</option>;
+          })}
+        </select>
+        <span className="text-gray-400 text-sm font-bold">:</span>
+        <select value={MINUTES.includes(Number(mm)) ? mm : ""} onChange={(e) => handleMinute(e.target.value)}
+          className="flex-1 text-sm bg-white border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-400">
+          <option value="">--</option>
+          {MINUTES.map((m) => {
+            const v = String(m).padStart(2, "0");
+            return <option key={v} value={v}>{v}</option>;
+          })}
+        </select>
+      </div>
+    </div>
+  );
+}
+
 type Props = {
   event?: Event | null;
   initialData?: Partial<EventInsert>;
@@ -224,16 +263,8 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
 
             {!allDay && (
               <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-xs text-gray-400 mb-1 block">開始時刻</label>
-                  <input type="time" step="300" value={startTime} onChange={(e) => setStartTime(e.target.value)}
-                    className="w-full text-sm bg-white border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-400" />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400 mb-1 block">終了時刻</label>
-                  <input type="time" step="300" value={endTime} onChange={(e) => setEndTime(e.target.value)}
-                    className="w-full text-sm bg-white border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-400" />
-                </div>
+                <TimeSelect label="開始時刻" value={startTime} onChange={setStartTime} />
+                <TimeSelect label="終了時刻" value={endTime} onChange={setEndTime} />
               </div>
             )}
           </div>
