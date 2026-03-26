@@ -50,6 +50,11 @@ function TimeSelect({ value, onChange, label }: { value: string; onChange: (v: s
   );
 }
 
+// カタカナをひらがなに変換（検索正規化用）
+function toHiragana(str: string): string {
+  return str.replace(/[\u30A1-\u30F6]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+}
+
 // ── 利用者選択コンポーネント（DB選択 + 直接入力）──────────
 function ClientSelector({ clients, selected, manualName, onSelect, onManualName }: {
   clients: Client[];
@@ -64,9 +69,12 @@ function ClientSelector({ clients, selected, manualName, onSelect, onManualName 
   const filtered = useMemo(() => {
     const q = query.trim();
     if (!q) return clients.slice(0, 30);
-    return clients.filter((c) =>
-      c.name.includes(q) || (c.furigana ?? "").includes(q)
-    ).slice(0, 50);
+    const qH = toHiragana(q);
+    return clients.filter((c) => {
+      const nameH = toHiragana(c.name);
+      const furiH = toHiragana(c.furigana ?? "");
+      return nameH.includes(qH) || furiH.includes(qH);
+    }).slice(0, 50);
   }, [clients, query]);
 
   const displayName = selected?.name ?? manualName;

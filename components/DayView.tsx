@@ -10,9 +10,10 @@ type Props = {
   events: Event[];
   onEventClick: (event: Event) => void;
   onClose?: () => void;
+  onDateHeaderClick?: () => void;
 };
 
-export default function DayView({ currentDate, events, onEventClick, onClose }: Props) {
+export default function DayView({ currentDate, events, onEventClick, onClose, onDateHeaderClick }: Props) {
   const dateStr = format(currentDate, "yyyy-MM-dd");
   const dayEvents = events.filter(
     (e) => e.start_date <= dateStr && e.end_date >= dateStr
@@ -39,7 +40,10 @@ export default function DayView({ currentDate, events, onEventClick, onClose }: 
           <span className="text-xl leading-none">{format(currentDate, "d")}</span>
         </div>
         <div className="flex-1">
-          <p className="text-base font-semibold text-gray-800">
+          <p
+            className={`text-base font-semibold text-gray-800 ${onDateHeaderClick ? "cursor-pointer hover:text-indigo-600 transition-colors" : ""}`}
+            onClick={onDateHeaderClick}
+          >
             {format(currentDate, "yyyy年M月d日(E)", { locale: ja })}
           </p>
           <p className="text-xs text-gray-400">{dayEvents.length}件の予定</p>
@@ -94,15 +98,15 @@ export default function DayView({ currentDate, events, onEventClick, onClose }: 
                 style={{ backgroundColor: event.color }}
               />
 
-              {/* 内容（タイトル・メモ・担当者の3行固定レイアウト） */}
+              {/* 内容（タイトル・住所・担当者の3行固定レイアウト） */}
               <div className="flex-1 pl-3 text-left min-w-0 pr-1 flex flex-col justify-center gap-0.5">
                 {/* 行1: タイトル */}
                 <p className="text-sm font-semibold text-gray-800 leading-snug truncate">
                   {event.title}
                 </p>
-                {/* 行2: メモ（空でも高さを確保） */}
+                {/* 行2: 住所（空でも高さを確保） */}
                 <p className="text-xs text-gray-400 leading-none truncate h-[14px]">
-                  {event.description ?? ""}
+                  {event.location ?? ""}
                 </p>
                 {/* 行3: 担当者（空でも高さを確保） */}
                 <p className="text-xs text-gray-400 leading-none truncate h-[14px]">

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   format, addMonths, subMonths, addWeeks, subWeeks, addDays, subDays,
-  startOfMonth, endOfMonth, startOfWeek, endOfWeek,
+  startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameDay, isSameMonth, isToday,
 } from "date-fns";
 import { ja } from "date-fns/locale";
 import { ChevronLeft, ChevronRight, ChevronDown, Plus, Calendar, RefreshCw, Trash2, Settings, Bell, Search } from "lucide-react";
@@ -72,6 +72,7 @@ export default function CalendarPage() {
   // 年月ピッカー
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [pickerYear, setPickerYear] = useState(new Date().getFullYear());
+  const [pickerMonth, setPickerMonth] = useState(new Date().getMonth());
 
   // 担当者フィルター
   const [members, setMembers] = useState<Member[]>([]);
@@ -148,11 +149,7 @@ export default function CalendarPage() {
 
   function getHeaderTitle() {
     if (viewMode === "month") return format(currentDate, "yyyy年M月", { locale: ja });
-    if (viewMode === "week") {
-      const s = startOfWeek(currentDate, { weekStartsOn: 0 });
-      const e = endOfWeek(currentDate, { weekStartsOn: 0 });
-      return `${format(s, "M/d")} 〜 ${format(e, "M/d")}`;
-    }
+    if (viewMode === "week") return format(currentDate, "yyyy年M月", { locale: ja });
     return format(currentDate, "M月d日(E)", { locale: ja });
   }
 
@@ -308,7 +305,7 @@ export default function CalendarPage() {
         {/* 年月タイトル（タップでピッカー） */}
         <div className="relative">
           <button
-            onClick={() => { setPickerYear(currentDate.getFullYear()); setShowDatePicker(!showDatePicker); }}
+            onClick={() => { setPickerYear(currentDate.getFullYear()); setPickerMonth(currentDate.getMonth()); setShowDatePicker(!showDatePicker); }}
             className="flex items-center gap-1 text-base font-bold text-gray-800 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors"
           >
             {getHeaderTitle()}
@@ -318,48 +315,94 @@ export default function CalendarPage() {
           {showDatePicker && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowDatePicker(false)} />
-              <div className="fixed top-14 left-1/2 -translate-x-1/2 bg-white rounded-2xl shadow-xl border border-gray-100 p-3 z-50 w-64">
-                {/* 年選択 */}
-                <div className="flex items-center justify-between mb-3">
-                  <button
-                    onClick={() => setPickerYear((y) => y - 1)}
-                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"
-                  >
-                    <ChevronLeft size={16} />
-                  </button>
-                  <span className="text-sm font-bold text-gray-800">{pickerYear}年</span>
-                  <button
-                    onClick={() => setPickerYear((y) => y + 1)}
-                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                </div>
-                {/* 月選択 */}
-                <div className="grid grid-cols-4 gap-1">
-                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => {
-                    const isSelected =
-                      pickerYear === currentDate.getFullYear() &&
-                      m === currentDate.getMonth() + 1;
-                    return (
+              <div className={`fixed top-14 left-1/2 -translate-x-1/2 bg-white rounded-2xl shadow-xl border border-gray-100 p-3 z-50 ${viewMode === "day" ? "w-72" : "w-64"}`}>
+
+                {viewMode === "month" ? (
+                  <>
+                    {/* 月モード：年ナビ＋12ヶ月グリッド */}
+                    <div className="flex items-center justify-between mb-3">
+                      <button onClick={() => setPickerYear((y) => y - 1)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"><ChevronLeft size={16} /></button>
+                      <span className="text-sm font-bold text-gray-800">{pickerYear}年</span>
+                      <button onClick={() => setPickerYear((y) => y + 1)} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"><ChevronRight size={16} /></button>
+                    </div>
+                    <div className="grid grid-cols-4 gap-1">
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => {
+                        const sel = pickerYear === currentDate.getFullYear() && m === currentDate.getMonth() + 1;
+                        return (
+                          <button key={m} onClick={() => { setCurrentDate(new Date(pickerYear, m - 1, 1)); setShowDatePicker(false); }}
+                            className={`py-2 text-sm rounded-xl font-medium transition-colors ${sel ? "bg-indigo-500 text-white" : "hover:bg-indigo-50 text-gray-700"}`}>
+                            {m}月
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {/* 週・日モード：年月ナビ */}
+                    <div className="flex items-center justify-between mb-3">
                       <button
-                        key={m}
-                        onClick={() => {
-                          setCurrentDate(new Date(pickerYear, m - 1, 1));
-                          if (viewMode === "day") setViewMode("month");
-                          setShowDatePicker(false);
-                        }}
-                        className={`py-2 text-sm rounded-xl font-medium transition-colors ${
-                          isSelected
-                            ? "bg-indigo-500 text-white"
-                            : "hover:bg-indigo-50 text-gray-700"
-                        }`}
-                      >
-                        {m}月
-                      </button>
-                    );
-                  })}
-                </div>
+                        onClick={() => { const d = new Date(pickerYear, pickerMonth - 1, 1); setPickerYear(d.getFullYear()); setPickerMonth(d.getMonth()); }}
+                        className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"
+                      ><ChevronLeft size={16} /></button>
+                      <span className="text-sm font-bold text-gray-800">{pickerYear}年{pickerMonth + 1}月</span>
+                      <button
+                        onClick={() => { const d = new Date(pickerYear, pickerMonth + 1, 1); setPickerYear(d.getFullYear()); setPickerMonth(d.getMonth()); }}
+                        className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"
+                      ><ChevronRight size={16} /></button>
+                    </div>
+
+                    {viewMode === "day" ? (
+                      /* 日モード：ミニカレンダー */
+                      <>
+                        <div className="grid grid-cols-7 mb-1">
+                          {["日","月","火","水","木","金","土"].map((d, i) => (
+                            <div key={i} className={`text-center text-[10px] font-medium py-0.5 ${i===0?"text-red-400":i===6?"text-blue-400":"text-gray-400"}`}>{d}</div>
+                          ))}
+                        </div>
+                        <div className="grid grid-cols-7 gap-y-0.5">
+                          {(() => {
+                            const mStart = startOfMonth(new Date(pickerYear, pickerMonth));
+                            const calStart = startOfWeek(mStart, { weekStartsOn: 0 });
+                            return Array.from({ length: 42 }, (_, i) => addDays(calStart, i)).map((d, i) => {
+                              const inMonth = isSameMonth(d, mStart);
+                              const sel = isSameDay(d, currentDate);
+                              const tod = isToday(d);
+                              return (
+                                <button key={i} onClick={() => { setCurrentDate(d); setShowDatePicker(false); }}
+                                  className={`w-8 h-8 mx-auto text-xs rounded-full flex items-center justify-center font-medium transition-colors
+                                    ${sel ? "bg-indigo-500 text-white" : tod ? "bg-indigo-100 text-indigo-600" : !inMonth ? "text-gray-300" : "text-gray-700 hover:bg-gray-100"}`}>
+                                  {format(d, "d")}
+                                </button>
+                              );
+                            });
+                          })()}
+                        </div>
+                      </>
+                    ) : (
+                      /* 週モード：週一覧 */
+                      <div className="space-y-1">
+                        {(() => {
+                          const mStart = startOfMonth(new Date(pickerYear, pickerMonth));
+                          const mEnd = endOfMonth(new Date(pickerYear, pickerMonth));
+                          const weeks: Date[] = [];
+                          let w = startOfWeek(mStart, { weekStartsOn: 0 });
+                          while (w <= mEnd) { weeks.push(w); w = addDays(w, 7); }
+                          const curWeekStart = startOfWeek(currentDate, { weekStartsOn: 0 });
+                          return weeks.map((wk, i) => {
+                            const sel = isSameDay(wk, curWeekStart);
+                            return (
+                              <button key={i} onClick={() => { setCurrentDate(wk); setShowDatePicker(false); }}
+                                className={`w-full text-left px-3 py-2 text-sm rounded-xl transition-colors ${sel ? "bg-indigo-500 text-white" : "hover:bg-gray-100 text-gray-700"}`}>
+                                {format(wk, "M/d(E)", { locale: ja })} 〜 {format(addDays(wk, 6), "M/d(E)", { locale: ja })}
+                              </button>
+                            );
+                          });
+                        })()}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </>
           )}
@@ -468,7 +511,7 @@ export default function CalendarPage() {
       <main className="flex-1 overflow-hidden flex flex-col bg-white">
         {viewMode === "month" && <MonthView currentDate={currentDate} events={displayEvents} onDayClick={handleDayClick} onEventClick={handleEventClick} />}
         {viewMode === "week" && <WeekView currentDate={currentDate} events={displayEvents} onDayClick={handleDayClick} onEventClick={handleEventClick} />}
-        {viewMode === "day" && <DayView currentDate={currentDate} events={displayEvents} onEventClick={handleEventClick} onClose={handleCloseDayView} />}
+        {viewMode === "day" && <DayView currentDate={currentDate} events={displayEvents} onEventClick={handleEventClick} onClose={handleCloseDayView} onDateHeaderClick={() => { setPickerYear(currentDate.getFullYear()); setPickerMonth(currentDate.getMonth()); setShowDatePicker(true); }} />}
       </main>
 
       <button
