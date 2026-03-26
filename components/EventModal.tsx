@@ -226,27 +226,20 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
     getClients().then(setClients).catch(() => {});
   }, []);
 
-  // 編集モード時：タイトルのプレフィックスからクライアントを特定し、clientAutoBlockを復元する
-  // （これがないと利用者変更時に古いブロックが削除されず重複する）
+  // 編集モード時：タイトルのプレフィックスからクライアントを特定し、prefix/autoBlockを復元する
   useEffect(() => {
     if (!clients.length || !event?.title) return;
     const match = event.title.match(/^(.+?) 様 /);
     if (!match) return;
     const foundClient = clients.find((c) => c.name === match[1]);
     if (foundClient) {
-      const lines: string[] = [];
-      if (foundClient.memo) lines.push(`【メモ】${foundClient.memo}`);
-      if (foundClient.phone) lines.push(`【電話番号】${foundClient.phone}`);
-      if (foundClient.mobile) lines.push(`【携帯電話】${foundClient.mobile}`);
-      if (foundClient.benefit_rate) lines.push(`【給付率】${foundClient.benefit_rate}`);
-      if (foundClient.care_level) lines.push(`【要介護度】${foundClient.care_level}`);
-      if (foundClient.certification_end_date) lines.push(`【認定有効期限】${foundClient.certification_end_date}`);
-      if (foundClient.care_manager_org) lines.push(`【支援事業所】${foundClient.care_manager_org}`);
-      if (foundClient.care_manager) lines.push(`【担当ケアマネ】${foundClient.care_manager}`);
-      const block = lines.join("\n");
       setSelectedClient(foundClient);
       setClientPrefix(`${foundClient.name} 様 `);
-      setClientAutoBlock(block);
+      // descriptionから実際に保存されたautoBlockを抽出（再構築ではなく既存内容を使う）
+      // → クライアントデータがDB更新されていても正確に除去できる
+      const desc = event.description ?? "";
+      const extracted = extractAutoBlockFromDesc(desc);
+      setClientAutoBlock(extracted);
     }
   }, [clients]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -264,28 +257,67 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
     return lines.join("\n");
   }
 
-  // メモ欄から以前追記したブロックを除去する
+  // descriptionの末尾にある【keyword】value形式のブロックを抽出する
+  function extractAutoBlockFromDesc(desc: string): string {
+    if (!desc) return "";
+    // "\n\n【" で始まる末尾ブロックを検出
+    const sepIdx = desc.lastIndexOf("\n\n【");
+    if (sepIdx >= 0) {
+      const tail = desc.slice(sepIdx + 2);
+      if (tail.split("\n").every((l) => !l || /^【[^】\n]+】/.test(l))) {
+        return tail.trimEnd();
+      }
+    }
+    // description全体が【...】ブロックの場合
+    if (desc.trim() && desc.split("\n").every((l) => !l || /^【[^】\n]+】/.test(l))) {
+      return desc.trimEnd();
+    }
+    return "";
+  }
+
+  // メモ欄から以前追記したブロックを除去する（完全一致 + パターンフォールバック）
   function stripAutoBlock(desc: string, block: string): string {
-    if (!block) return desc;
-    const withSep = "\n\n" + block;
-    if (desc.endsWith(withSep)) return desc.slice(0, desc.length - withSep.length);
-    if (desc === block) return "";
+    if (!desc) return desc;
+    // ① 完全一致チェック
+    if (block) {
+      const withSep = "\n\n" + block;
+      if (desc.endsWith(withSep)) return desc.slice(0, desc.length - withSep.length);
+      if (desc === block) return "";
+    }
+    // ② フォールバック: 末尾の【...】パターンブロックを検出して除去
+    //    （保存後にクライアントデータが更新されて完全一致しない場合に対応）
+    const sepIdx = desc.lastIndexOf("\n\n【");
+    if (sepIdx >= 0) {
+      const tail = desc.slice(sepIdx + 2);
+      if (tail.split("\n").every((l) => !l || /^【[^】\n]+】/.test(l))) {
+        return desc.slice(0, sepIdx);
+      }
+    }
+    if (desc.trim() && desc.split("\n").every((l) => !l || /^【[^】\n]+】/.test(l))) {
+      return "";
+    }
     return desc;
   }
 
-  // タイトルから現在のプレフィックスを除去する
+  // タイトルから「xxx 様 」プレフィックスを除去する
+  // clientPrefix優先、なければselectedClientから復元、それもなければパターン検出
   function stripTitlePrefix(t: string): string {
     if (clientPrefix && t.startsWith(clientPrefix)) return t.slice(clientPrefix.length);
+    if (selectedClient) {
+      const p = `${selectedClient.name} 様 `;
+      if (t.startsWith(p)) return t.slice(p.length);
+    }
+    // フォールバック: "xxx 様 " パターンを先頭から除去
+    const m = t.match(/^.+? 様 /);
+    if (m) return t.slice(m[0].length);
     return t;
   }
 
   // DBから利用者を選択（住所・情報の自動入力あり）
   function handleSelectClient(client: Client | null) {
-    // 旧プレフィックスをタイトルから削除し、新プレフィックスを付与
     const baseTitlePart = stripTitlePrefix(title);
     const newPrefix = client ? `${client.name} 様 ` : "";
 
-    // メモ欄から旧ブロックを除去し、新ブロックを追記
     let newDesc = stripAutoBlock(description, clientAutoBlock);
     let newBlock = "";
     if (client) {
@@ -307,7 +339,6 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
     const baseTitlePart = stripTitlePrefix(title);
     const newPrefix = name ? `${name} 様 ` : "";
 
-    // 手動入力の場合はメモの自動追記なし（旧ブロックのみ除去）
     const newDesc = stripAutoBlock(description, clientAutoBlock);
 
     setTitle(newPrefix + baseTitlePart);

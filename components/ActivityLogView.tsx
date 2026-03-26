@@ -30,11 +30,11 @@ function ActionBadge({ action }: { action: ActivityLog["action"] }) {
 
 function actionVerb(action: ActivityLog["action"]): string {
   switch (action) {
-    case "created":       return "を追加しました";
-    case "updated":       return "を編集しました";
-    case "deleted":       return "を削除しました";
-    case "comment_added": return "にコメントしました";
-    default:              return "を操作しました";
+    case "created":       return "が追加しました";
+    case "updated":       return "が編集しました";
+    case "deleted":       return "が削除しました";
+    case "comment_added": return "がコメントしました";
+    default:              return "が操作しました";
   }
 }
 

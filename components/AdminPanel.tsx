@@ -14,7 +14,11 @@ import { getClients, replaceAllClients, parseClientCSV, type Client } from "@/li
 
 type Tab = "members" | "groups" | "types" | "clients" | "csv" | "analytics" | "settings";
 
-const COLORS = ["#6366f1","#ec4899","#f97316","#10b981","#3b82f6","#8b5cf6","#ef4444","#f59e0b"];
+const COLORS = [
+  "#6366f1","#ec4899","#f97316","#10b981","#3b82f6","#8b5cf6","#ef4444","#f59e0b",
+  "#06b6d4","#84cc16","#f43f5e","#a855f7","#14b8a6","#fb923c","#64748b","#d946ef",
+  "#0ea5e9","#22c55e","#e11d48","#7c3aed","#0d9488","#ea580c","#475569","#c026d3",
+];
 
 type Props = { onClose: () => void; onLogout: () => void };
 
@@ -80,6 +84,13 @@ function MembersTab() {
     try { setMembers(await getMembers()); } finally { setLoading(false); }
   }
 
+  // メンバーが読み込まれたら未使用の色を自動選択
+  useEffect(() => {
+    const usedColors = new Set(members.map((m) => m.color));
+    const unused = COLORS.find((c) => !usedColors.has(c));
+    if (unused) setNewColor(unused);
+  }, [members]);
+
   async function handleAdd() {
     const name = newName.trim();
     if (!name) return;
@@ -119,13 +130,22 @@ function MembersTab() {
             {adding ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}追加
           </button>
         </div>
-        <div className="flex gap-1.5 items-center">
+        <div className="flex gap-1.5 flex-wrap items-center">
           <span className="text-xs text-gray-400">カラー：</span>
-          {COLORS.map((c) => (
-            <button key={c} onClick={() => setNewColor(c)}
-              className="w-6 h-6 rounded-full transition-transform hover:scale-110"
-              style={{ backgroundColor: c, outline: newColor === c ? `3px solid ${c}` : "none", outlineOffset: "2px" }} />
-          ))}
+          {COLORS.map((c) => {
+            const selected = newColor === c;
+            return (
+              <button key={c} onClick={() => setNewColor(c)}
+                className="w-6 h-6 rounded-full transition-all hover:scale-110 hover:opacity-100"
+                style={{
+                  backgroundColor: c,
+                  opacity: selected ? 1 : 0.3,
+                  outline: selected ? `3px solid ${c}` : "none",
+                  outlineOffset: "2px",
+                  transform: selected ? "scale(1.15)" : undefined,
+                }} />
+            );
+          })}
         </div>
       </div>
 
@@ -147,12 +167,21 @@ function MembersTab() {
                     <Trash2 size={15} />
                   </button>
                 </div>
-                <div className="flex gap-1.5 ml-10">
-                  {COLORS.map((c) => (
-                    <button key={c} onClick={() => handleColorChange(m.id, c)}
-                      className="w-5 h-5 rounded-full transition-transform hover:scale-110"
-                      style={{ backgroundColor: c, outline: m.color === c ? `2px solid ${c}` : "none", outlineOffset: "2px" }} />
-                  ))}
+                <div className="flex gap-1.5 flex-wrap ml-10">
+                  {COLORS.map((c) => {
+                    const selected = m.color === c;
+                    return (
+                      <button key={c} onClick={() => handleColorChange(m.id, c)}
+                        className="w-5 h-5 rounded-full transition-all hover:scale-110 hover:opacity-100"
+                        style={{
+                          backgroundColor: c,
+                          opacity: selected ? 1 : 0.3,
+                          outline: selected ? `2px solid ${c}` : "none",
+                          outlineOffset: "2px",
+                          transform: selected ? "scale(1.15)" : undefined,
+                        }} />
+                    );
+                  })}
                 </div>
               </div>
             ))}
