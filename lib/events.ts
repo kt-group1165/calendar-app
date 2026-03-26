@@ -181,3 +181,69 @@ export async function deleteComment(id: string): Promise<void> {
   const { error } = await supabase.from("comments").delete().eq("id", id);
   if (error) throw error;
 }
+
+// ─── 活動ログ ───────────────────────────────────────────
+
+export type ActivityLog = {
+  id: string;
+  event_id: string | null;
+  event_title: string;
+  action: "created" | "updated" | "deleted" | "comment_added";
+  actor: string;
+  assignees_before: string[];
+  assignees_after: string[];
+  created_at: string;
+};
+
+export async function logActivity(
+  eventId: string,
+  eventTitle: string,
+  action: ActivityLog["action"],
+  actor: string,
+  assigneesBefore: string[] = [],
+  assigneesAfter: string[] = []
+): Promise<void> {
+  try {
+    await supabase.from("activity_logs").insert({
+      event_id: eventId,
+      event_title: eventTitle,
+      action,
+      actor,
+      assignees_before: assigneesBefore,
+      assignees_after: assigneesAfter,
+    });
+  } catch {
+    // ログ失敗はサイレントに無視
+  }
+}
+
+export async function getActivityLogs(
+  limit: number,
+  offset: number,
+  userFilter?: string
+): Promise<ActivityLog[]> {
+  let query = supabase
+    .from("activity_logs")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (userFilter) {
+    query = query.or(
+      `assignees_after.cs.{"${userFilter}"},assignees_before.cs.{"${userFilter}"}`
+    );
+  }
+
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data ?? []) as ActivityLog[];
+}
+
+export async function getUnreadActivityCount(since: string): Promise<number> {
+  const { count, error } = await supabase
+    .from("activity_logs")
+    .select("*", { count: "exact", head: true })
+    .gt("created_at", since);
+  if (error) return 0;
+  return count ?? 0;
+}

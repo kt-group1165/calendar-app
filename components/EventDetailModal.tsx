@@ -5,7 +5,7 @@ import { ja } from "date-fns/locale";
 import { X, Edit2, Trash2, Copy, Clock, AlignLeft, Loader2, MessageCircle, Send, User, Users, Tag } from "lucide-react";
 import { useState, useEffect } from "react";
 import { type Event } from "@/lib/supabase";
-import { getComments, addComment, deleteComment, type Comment } from "@/lib/events";
+import { getComments, addComment, deleteComment, logActivity, type Comment } from "@/lib/events";
 
 type Props = {
   event: Event;
@@ -58,6 +58,7 @@ export default function EventDetailModal({ event, currentUser, isMaster, onEdit,
       const newComment = await addComment(event.id, currentUser, trimmed);
       setComments((prev) => [...prev, newComment]);
       setCommentText("");
+      logActivity(event.id, event.title, "comment_added", currentUser, event.assignees, event.assignees).catch(() => {});
     } catch {
       alert("コメントの送信に失敗しました");
     } finally {

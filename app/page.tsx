@@ -6,7 +6,7 @@ import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek,
 } from "date-fns";
 import { ja } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, ChevronDown, Plus, Calendar, RefreshCw, Trash2, Settings } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Plus, Calendar, RefreshCw, Trash2, Settings, Bell } from "lucide-react";
 import MonthView from "@/components/MonthView";
 import WeekView from "@/components/WeekView";
 import DayView from "@/components/DayView";
@@ -16,12 +16,16 @@ import UserNameModal from "@/components/UserNameModal";
 import MasterPinModal from "@/components/MasterPinModal";
 import TrashView from "@/components/TrashView";
 import AdminPanel from "@/components/AdminPanel";
+import ActivityLogView from "@/components/ActivityLogView";
 import { type Event, type EventInsert } from "@/lib/supabase";
 import {
   getEventsByDateRange, createEvent, updateEvent,
   softDeleteEvent, cleanupOldDeletedEvents,
+  logActivity, getUnreadActivityCount,
 } from "@/lib/events";
 import { getMembers, type Member } from "@/lib/members";
+
+const LAST_SEEN_KEY = "calendar_activity_last_seen";
 
 type ViewMode = "month" | "week" | "day";
 const USER_NAME_KEY = "calendar_user_name";
@@ -71,6 +75,10 @@ export default function CalendarPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [filterMembers, setFilterMembers] = useState<string[]>([]);
 
+  // 活動ログ・通知
+  const [showActivityLog, setShowActivityLog] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+
   useEffect(() => {
     const name = localStorage.getItem(USER_NAME_KEY);
     const master = localStorage.getItem(IS_MASTER_KEY) === "true";
@@ -78,6 +86,14 @@ export default function CalendarPage() {
     if (master) setIsMaster(true);
     cleanupOldDeletedEvents().catch(() => {});
     getMembers().then(setMembers).catch(() => {});
+
+    // 未読件数を取得
+    const lastSeen = localStorage.getItem(LAST_SEEN_KEY);
+    if (!lastSeen) {
+      localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString());
+    } else {
+      getUnreadActivityCount(lastSeen).then(setUnreadCount).catch(() => {});
+    }
   }, []);
 
   function handleUserNameSave(name: string, master: boolean) {
@@ -167,8 +183,10 @@ export default function CalendarPage() {
   async function handleSaveEvent(data: EventInsert) {
     if (editingEvent) {
       await updateEvent(editingEvent.id, data);
+      logActivity(editingEvent.id, data.title, "updated", currentUser ?? "", editingEvent.assignees, data.assignees).catch(() => {});
     } else {
-      await createEvent(data);
+      const created = await createEvent(data);
+      logActivity(created.id, data.title, "created", currentUser ?? "", [], data.assignees).catch(() => {});
     }
     setShowAddModal(false);
     setEditingEvent(null);
@@ -179,9 +197,16 @@ export default function CalendarPage() {
 
   async function handleDeleteEvent(event: Event) {
     await softDeleteEvent(event.id);
+    logActivity(event.id, event.title, "deleted", currentUser ?? "", event.assignees, event.assignees).catch(() => {});
     setEvents((prev) => prev.filter((e) => e.id !== event.id));
     setShowDetailModal(false);
     setSelectedEvent(null);
+  }
+
+  function handleOpenActivityLog() {
+    localStorage.setItem(LAST_SEEN_KEY, new Date().toISOString());
+    setUnreadCount(0);
+    setShowActivityLog(true);
   }
 
   function handleEditFromDetail() {
@@ -305,8 +330,20 @@ export default function CalendarPage() {
               </button>
             ))}
           </div>
+          <button
+            onClick={handleOpenActivityLog}
+            className="p-2 rounded-xl hover:bg-gray-100 transition-colors ml-0.5 relative"
+            title="更新履歴"
+          >
+            <Bell size={18} className={unreadCount > 0 ? "text-indigo-500" : "text-gray-400"} />
+            {unreadCount > 0 && (
+              <span className="absolute top-1 right-1 min-w-[14px] h-[14px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            )}
+          </button>
           <button onClick={() => setShowTrash(true)}
-            className="p-2 rounded-xl hover:bg-gray-100 transition-colors ml-0.5" title="ゴミ箱">
+            className="p-2 rounded-xl hover:bg-gray-100 transition-colors" title="ゴミ箱">
             <Trash2 size={18} className="text-gray-400" />
           </button>
           <button
@@ -393,6 +430,13 @@ export default function CalendarPage() {
           onDuplicate={handleDuplicateFromDetail}
           onDelete={() => handleDeleteEvent(selectedEvent)}
           onClose={() => { setShowDetailModal(false); setSelectedEvent(null); }}
+        />
+      )}
+
+      {showActivityLog && (
+        <ActivityLogView
+          currentUser={currentUser}
+          onClose={() => setShowActivityLog(false)}
         />
       )}
 
