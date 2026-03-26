@@ -1,16 +1,17 @@
 "use client";
 
 import { format, isToday } from "date-fns";
-import { Clock, Image as ImageIcon } from "lucide-react";
+import { Clock, Image as ImageIcon, X } from "lucide-react";
 import { type Event } from "@/lib/supabase";
 
 type Props = {
   currentDate: Date;
   events: Event[];
   onEventClick: (event: Event) => void;
+  onClose?: () => void;
 };
 
-export default function DayView({ currentDate, events, onEventClick }: Props) {
+export default function DayView({ currentDate, events, onEventClick, onClose }: Props) {
   const dateStr = format(currentDate, "yyyy-MM-dd");
   const dayEvents = events.filter(
     (e) => e.start_date <= dateStr && e.end_date >= dateStr
@@ -22,7 +23,7 @@ export default function DayView({ currentDate, events, onEventClick }: Props) {
       {/* 日付ヘッダー */}
       <div className="flex items-center gap-3 mb-4">
         <div
-          className={`w-14 h-14 rounded-2xl flex flex-col items-center justify-center font-bold shadow-sm ${
+          className={`w-14 h-14 rounded-2xl flex flex-col items-center justify-center font-bold shadow-sm shrink-0 ${
             today ? "bg-indigo-500 text-white" : "bg-white text-gray-700"
           }`}
         >
@@ -31,12 +32,21 @@ export default function DayView({ currentDate, events, onEventClick }: Props) {
           </span>
           <span className="text-2xl leading-none">{format(currentDate, "d")}</span>
         </div>
-        <div>
+        <div className="flex-1">
           <p className="text-lg font-semibold text-gray-800">
             {format(currentDate, "yyyy年M月d日")}
           </p>
           <p className="text-sm text-gray-400">{dayEvents.length}件の予定</p>
         </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="p-2 rounded-full hover:bg-gray-100 transition-colors text-gray-400"
+            title="閉じる"
+          >
+            <X size={20} />
+          </button>
+        )}
       </div>
 
       {/* イベントリスト */}

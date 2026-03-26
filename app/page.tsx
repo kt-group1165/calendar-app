@@ -6,7 +6,7 @@ import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek,
 } from "date-fns";
 import { ja } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, Plus, Calendar, RefreshCw, Trash2, Settings } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Plus, Calendar, RefreshCw, Trash2, Settings } from "lucide-react";
 import MonthView from "@/components/MonthView";
 import WeekView from "@/components/WeekView";
 import DayView from "@/components/DayView";
@@ -21,6 +21,7 @@ import {
   getEventsByDateRange, createEvent, updateEvent,
   softDeleteEvent, cleanupOldDeletedEvents,
 } from "@/lib/events";
+import { getMembers, type Member } from "@/lib/members";
 
 type ViewMode = "month" | "week" | "day";
 const USER_NAME_KEY = "calendar_user_name";
@@ -46,6 +47,7 @@ function getDateRange(date: Date, mode: ViewMode) {
 export default function CalendarPage() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>("month");
+  const [previousViewMode, setPreviousViewMode] = useState<ViewMode>("month");
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -61,12 +63,21 @@ export default function CalendarPage() {
   const [showMasterPin, setShowMasterPin] = useState(false);
   const [duplicateData, setDuplicateData] = useState<EventInsert | null>(null);
 
+  // 年月ピッカー
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [pickerYear, setPickerYear] = useState(new Date().getFullYear());
+
+  // 担当者フィルター
+  const [members, setMembers] = useState<Member[]>([]);
+  const [filterMembers, setFilterMembers] = useState<string[]>([]);
+
   useEffect(() => {
     const name = localStorage.getItem(USER_NAME_KEY);
     const master = localStorage.getItem(IS_MASTER_KEY) === "true";
     setCurrentUser(name ?? "");
     if (master) setIsMaster(true);
     cleanupOldDeletedEvents().catch(() => {});
+    getMembers().then(setMembers).catch(() => {});
   }, []);
 
   function handleUserNameSave(name: string, master: boolean) {
@@ -125,15 +136,33 @@ export default function CalendarPage() {
 
   function handleDayClick(date: Date) {
     if (viewMode === "month" || viewMode === "week") {
-      setCurrentDate(date); setViewMode("day");
+      setPreviousViewMode(viewMode);
+      setCurrentDate(date);
+      setViewMode("day");
     } else {
-      setSelectedDate(date); setShowAddModal(true);
+      setSelectedDate(date);
+      setShowAddModal(true);
     }
+  }
+
+  function handleCloseDayView() {
+    setViewMode(previousViewMode);
   }
 
   function handleEventClick(event: Event) {
     setSelectedEvent(event); setShowDetailModal(true);
   }
+
+  function toggleFilterMember(name: string) {
+    setFilterMembers((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
+    );
+  }
+
+  // フィルター適用後のイベント
+  const displayEvents = filterMembers.length === 0
+    ? events
+    : events.filter((e) => e.assignees.some((a) => filterMembers.includes(a)));
 
   async function handleSaveEvent(data: EventInsert) {
     if (editingEvent) {
@@ -204,7 +233,65 @@ export default function CalendarPage() {
           </button>
         </div>
 
-        <h1 className="text-base font-bold text-gray-800 select-none">{getHeaderTitle()}</h1>
+        {/* 年月タイトル（タップでピッカー） */}
+        <div className="relative">
+          <button
+            onClick={() => { setPickerYear(currentDate.getFullYear()); setShowDatePicker(!showDatePicker); }}
+            className="flex items-center gap-1 text-base font-bold text-gray-800 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors"
+          >
+            {getHeaderTitle()}
+            <ChevronDown size={14} className="text-gray-400" />
+          </button>
+
+          {showDatePicker && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowDatePicker(false)} />
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 bg-white rounded-2xl shadow-xl border border-gray-100 p-3 z-50 w-64">
+                {/* 年選択 */}
+                <div className="flex items-center justify-between mb-3">
+                  <button
+                    onClick={() => setPickerYear((y) => y - 1)}
+                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span className="text-sm font-bold text-gray-800">{pickerYear}年</span>
+                  <button
+                    onClick={() => setPickerYear((y) => y + 1)}
+                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+                {/* 月選択 */}
+                <div className="grid grid-cols-4 gap-1">
+                  {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => {
+                    const isSelected =
+                      pickerYear === currentDate.getFullYear() &&
+                      m === currentDate.getMonth() + 1;
+                    return (
+                      <button
+                        key={m}
+                        onClick={() => {
+                          setCurrentDate(new Date(pickerYear, m - 1, 1));
+                          if (viewMode === "day") setViewMode("month");
+                          setShowDatePicker(false);
+                        }}
+                        className={`py-2 text-sm rounded-xl font-medium transition-colors ${
+                          isSelected
+                            ? "bg-indigo-500 text-white"
+                            : "hover:bg-indigo-50 text-gray-700"
+                        }`}
+                      >
+                        {m}月
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
 
         <div className="flex items-center gap-0.5">
           {loading && <RefreshCw size={14} className="text-indigo-400 animate-spin mr-1" />}
@@ -230,6 +317,41 @@ export default function CalendarPage() {
         </div>
       </header>
 
+      {/* 担当者フィルターバー */}
+      {members.length > 0 && (
+        <div className="bg-white border-b border-gray-100 px-3 py-2 flex items-center gap-2 overflow-x-auto">
+          <button
+            onClick={() => setFilterMembers([])}
+            className={`shrink-0 w-8 h-8 rounded-full text-xs font-bold transition-colors ${
+              filterMembers.length === 0
+                ? "bg-indigo-500 text-white"
+                : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+            }`}
+          >
+            全
+          </button>
+          {members.map((m) => {
+            const active = filterMembers.includes(m.name);
+            return (
+              <button
+                key={m.id}
+                onClick={() => toggleFilterMember(m.name)}
+                className="shrink-0 w-8 h-8 rounded-full text-xs font-bold transition-all"
+                style={{
+                  backgroundColor: active ? m.color : m.color + "25",
+                  color: active ? "white" : m.color,
+                  outline: active ? `2px solid ${m.color}` : "none",
+                  outlineOffset: "2px",
+                }}
+                title={m.name}
+              >
+                {m.name.charAt(0)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {supabaseError && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-700">
           ⚠️ 接続エラーが発生しました。ページを再読み込みしてください。
@@ -237,9 +359,9 @@ export default function CalendarPage() {
       )}
 
       <main className="flex-1 overflow-hidden flex flex-col bg-white">
-        {viewMode === "month" && <MonthView currentDate={currentDate} events={events} onDayClick={handleDayClick} onEventClick={handleEventClick} />}
-        {viewMode === "week" && <WeekView currentDate={currentDate} events={events} onDayClick={handleDayClick} onEventClick={handleEventClick} />}
-        {viewMode === "day" && <DayView currentDate={currentDate} events={events} onEventClick={handleEventClick} />}
+        {viewMode === "month" && <MonthView currentDate={currentDate} events={displayEvents} onDayClick={handleDayClick} onEventClick={handleEventClick} />}
+        {viewMode === "week" && <WeekView currentDate={currentDate} events={displayEvents} onDayClick={handleDayClick} onEventClick={handleEventClick} />}
+        {viewMode === "day" && <DayView currentDate={currentDate} events={displayEvents} onEventClick={handleEventClick} onClose={handleCloseDayView} />}
       </main>
 
       <button

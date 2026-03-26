@@ -95,7 +95,7 @@ export default function MonthView({ currentDate, events, onDayClick, onEventClic
                     key={event.id}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onEventClick(event);
+                      onDayClick(day);
                     }}
                     className="truncate text-[10px] leading-4 px-1 rounded font-medium text-white"
                     style={{ backgroundColor: event.color }}
