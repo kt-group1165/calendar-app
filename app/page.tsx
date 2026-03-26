@@ -6,7 +6,7 @@ import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek,
 } from "date-fns";
 import { ja } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, ChevronDown, Plus, Calendar, RefreshCw, Trash2, Settings, Bell } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Plus, Calendar, RefreshCw, Trash2, Settings, Bell, Search } from "lucide-react";
 import MonthView from "@/components/MonthView";
 import WeekView from "@/components/WeekView";
 import DayView from "@/components/DayView";
@@ -17,6 +17,7 @@ import MasterPinModal from "@/components/MasterPinModal";
 import TrashView from "@/components/TrashView";
 import AdminPanel from "@/components/AdminPanel";
 import ActivityLogView from "@/components/ActivityLogView";
+import SearchView from "@/components/SearchView";
 import { type Event, type EventInsert } from "@/lib/supabase";
 import {
   getEventsByDateRange, getEventById, createEvent, updateEvent,
@@ -77,6 +78,7 @@ export default function CalendarPage() {
 
   // 活動ログ・通知
   const [showActivityLog, setShowActivityLog] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
@@ -347,6 +349,13 @@ export default function CalendarPage() {
             ))}
           </div>
           <button
+            onClick={() => setShowSearch(true)}
+            className="p-2 rounded-xl hover:bg-gray-100 transition-colors ml-0.5"
+            title="検索"
+          >
+            <Search size={18} className="text-gray-400" />
+          </button>
+          <button
             onClick={handleOpenActivityLog}
             className="p-2 rounded-xl hover:bg-gray-100 transition-colors ml-0.5 relative"
             title="更新履歴"
@@ -454,6 +463,17 @@ export default function CalendarPage() {
           currentUser={currentUser}
           onClose={() => setShowActivityLog(false)}
           onEventClick={handleActivityEventClick}
+        />
+      )}
+
+      {showSearch && (
+        <SearchView
+          onEventClick={(event) => {
+            setShowSearch(false);
+            setSelectedEvent(event);
+            setShowDetailModal(true);
+          }}
+          onClose={() => setShowSearch(false)}
         />
       )}
 

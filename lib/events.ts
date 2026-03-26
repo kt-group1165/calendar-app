@@ -258,3 +258,15 @@ export async function getUnreadActivityCount(since: string): Promise<number> {
   if (error) return 0;
   return count ?? 0;
 }
+
+export async function searchEventsByTitle(query: string): Promise<Event[]> {
+  const { data, error } = await supabase
+    .from("events")
+    .select("*")
+    .ilike("title", `%${query}%`)
+    .is("deleted_at", null)
+    .order("start_date", { ascending: false })
+    .limit(50);
+  if (error) throw error;
+  return data ?? [];
+}
