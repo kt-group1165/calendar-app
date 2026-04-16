@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { X, Calendar, Clock, Image as ImageIcon, Trash2, Loader2, Users, Tag, MapPin, User } from "lucide-react";
+import { X, Calendar, Clock, Image as ImageIcon, Trash2, Loader2, Users, Tag, MapPin, User, StickyNote } from "lucide-react";
 import { createPortal } from "react-dom";
 import { format } from "date-fns";
 import { type Event, type EventInsert } from "@/lib/supabase";
@@ -50,9 +50,47 @@ function TimeSelect({ value, onChange, label }: { value: string; onChange: (v: s
   );
 }
 
-// カタカナをひらがなに変換（検索正規化用）
+// 半角カタカナ→全角カタカナ変換マップ
+const HAN_TO_ZEN: Record<string, string> = {
+  'ｦ':'ヲ','ｧ':'ァ','ｨ':'ィ','ｩ':'ゥ','ｪ':'ェ','ｫ':'ォ','ｬ':'ャ','ｭ':'ュ','ｮ':'ョ','ｯ':'ッ',
+  'ｰ':'ー','ｱ':'ア','ｲ':'イ','ｳ':'ウ','ｴ':'エ','ｵ':'オ','ｶ':'カ','ｷ':'キ','ｸ':'ク','ｹ':'ケ',
+  'ｺ':'コ','ｻ':'サ','ｼ':'シ','ｽ':'ス','ｾ':'セ','ｿ':'ソ','ﾀ':'タ','ﾁ':'チ','ﾂ':'ツ','ﾃ':'テ',
+  'ﾄ':'ト','ﾅ':'ナ','ﾆ':'ニ','ﾇ':'ヌ','ﾈ':'ネ','ﾉ':'ノ','ﾊ':'ハ','ﾋ':'ヒ','ﾌ':'フ','ﾍ':'ヘ',
+  'ﾎ':'ホ','ﾏ':'マ','ﾐ':'ミ','ﾑ':'ム','ﾒ':'メ','ﾓ':'モ','ﾔ':'ヤ','ﾕ':'ユ','ﾖ':'ヨ','ﾗ':'ラ',
+  'ﾘ':'リ','ﾙ':'ル','ﾚ':'レ','ﾛ':'ロ','ﾜ':'ワ','ﾝ':'ン',
+};
+const DAKUTEN: Record<string, string> = {
+  'カ':'ガ','キ':'ギ','ク':'グ','ケ':'ゲ','コ':'ゴ','サ':'ザ','シ':'ジ','ス':'ズ','セ':'ゼ','ソ':'ゾ',
+  'タ':'ダ','チ':'ヂ','ツ':'ヅ','テ':'デ','ト':'ド','ハ':'バ','ヒ':'ビ','フ':'ブ','ヘ':'ベ','ホ':'ボ','ウ':'ヴ',
+};
+const HANDAKUTEN: Record<string, string> = { 'ハ':'パ','ヒ':'ピ','フ':'プ','ヘ':'ペ','ホ':'ポ' };
+
+// 半角カタカナ→全角カタカナ（濁点・半濁点も結合）
+function hankakuToZenkaku(str: string): string {
+  let result = '';
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i];
+    const next = str[i + 1];
+    const full = HAN_TO_ZEN[ch];
+    if (full) {
+      if (next === 'ﾞ') { result += DAKUTEN[full] ?? full; i++; }
+      else if (next === 'ﾟ') { result += HANDAKUTEN[full] ?? full; i++; }
+      else { result += full; }
+    } else {
+      result += ch;
+    }
+  }
+  return result;
+}
+
+// 全角カタカナをひらがなに変換
 function toHiragana(str: string): string {
   return str.replace(/[\u30A1-\u30F6]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60));
+}
+
+// 検索用正規化：半角カナ→全角カナ→ひらがな
+function normalizeKana(str: string): string {
+  return toHiragana(hankakuToZenkaku(str));
 }
 
 // ── 利用者選択コンポーネント（DB選択 + 直接入力）──────────
@@ -69,10 +107,10 @@ function ClientSelector({ clients, selected, manualName, onSelect, onManualName 
   const filtered = useMemo(() => {
     const q = query.trim();
     if (!q) return clients.slice(0, 30);
-    const qH = toHiragana(q);
+    const qH = normalizeKana(q);
     return clients.filter((c) => {
-      const nameH = toHiragana(c.name);
-      const furiH = toHiragana(c.furigana ?? "");
+      const nameH = normalizeKana(c.name);
+      const furiH = normalizeKana(c.furigana ?? "");
       return nameH.includes(qH) || furiH.includes(qH);
     }).slice(0, 50);
   }, [clients, query]);
@@ -179,16 +217,18 @@ function ClientSelector({ clients, selected, manualName, onSelect, onManualName 
 }
 
 type Props = {
+  tenantId: string;
   event?: Event | null;
   initialData?: Partial<EventInsert>;
   defaultDate?: string;
   currentUser: string;
+  clientSelectionEnabled?: boolean;
   onSave: (event: EventInsert) => Promise<void>;
   onDelete?: () => Promise<void>;
   onClose: () => void;
 };
 
-export default function EventModal({ event, initialData, defaultDate, currentUser, onSave, onDelete, onClose }: Props) {
+export default function EventModal({ tenantId, event, initialData, defaultDate, currentUser, clientSelectionEnabled = true, onSave, onDelete, onClose }: Props) {
   const today = format(new Date(), "yyyy-MM-dd");
   const base = initialData ?? {};
   const [title, setTitle] = useState(event?.title ?? base.title ?? "");
@@ -199,6 +239,7 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
   const [startTime, setStartTime] = useState(event?.start_time ?? base.start_time ?? "");
   const [endTime, setEndTime] = useState(event?.end_time ?? base.end_time ?? "");
   const [allDay, setAllDay] = useState(event?.all_day ?? base.all_day ?? false);
+  const [isMemo, setIsMemo] = useState(event?.is_memo ?? base.is_memo ?? false);
   const [color, setColor] = useState(event?.color ?? base.color ?? "#6366f1");
   const [imageUrl, setImageUrl] = useState(event?.image_url ?? base.image_url ?? "");
   const [imageUrls, setImageUrls] = useState<string[]>(event?.image_urls ?? base.image_urls ?? []);
@@ -221,10 +262,10 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    getMembers().then(setMembers).catch(() => {});
-    getEventTypes().then(setEventTypes).catch(() => {});
-    getClients().then(setClients).catch(() => {});
-  }, []);
+    getMembers(tenantId).then(setMembers).catch(() => {});
+    getEventTypes(tenantId).then(setEventTypes).catch(() => {});
+    getClients(tenantId).then(setClients).catch(() => {});
+  }, [tenantId]);
 
   // 編集モード時：タイトルのプレフィックスからクライアントを特定し、prefix/autoBlockを復元する
   useEffect(() => {
@@ -407,15 +448,17 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
     setSaving(true);
     try {
       const allImages = [...(imageUrl ? [imageUrl] : []), ...imageUrls];
+      const today = format(new Date(), "yyyy-MM-dd");
       await onSave({
         title: title.trim(),
         description: description.trim() || null,
         notes: notes.trim() || null,
-        start_date: startDate,
-        end_date: endDate < startDate ? startDate : endDate,
-        start_time: allDay ? null : startTime || null,
-        end_time: allDay ? null : endTime || null,
-        all_day: allDay,
+        start_date: isMemo ? today : startDate,
+        end_date: isMemo ? today : (endDate < startDate ? startDate : endDate),
+        start_time: (isMemo || allDay) ? null : startTime || null,
+        end_time: (isMemo || allDay) ? null : endTime || null,
+        all_day: isMemo ? false : allDay,
+        is_memo: isMemo,
         color,
         image_url: allImages[0] ?? null,
         image_urls: allImages.slice(1),
@@ -454,13 +497,13 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
             className="w-full text-lg font-medium placeholder-gray-300 border-0 border-b-2 border-gray-200 focus:border-indigo-400 focus:outline-none py-1 transition-colors" />
 
           {/* 利用者選択 */}
-          <ClientSelector
+          {clientSelectionEnabled && <ClientSelector
             clients={clients}
             selected={selectedClient}
             manualName={manualClientName}
             onSelect={handleSelectClient}
             onManualName={handleManualClientName}
-          />
+          />}
 
           {/* 担当者（メンバーがいる場合のみ） */}
           {members.length > 0 && (
@@ -526,45 +569,66 @@ export default function EventModal({ event, initialData, defaultDate, currentUse
 
           {/* 日付 */}
           <div className="bg-gray-50 rounded-xl p-3 space-y-3">
-            <div className="flex items-center gap-2 text-gray-500">
-              <Calendar size={16} />
-              <span className="text-sm font-medium">日付</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-gray-400 mb-1 block">開始</label>
-                <input type="date" value={startDate} onChange={(e) => {
-                  const v = e.target.value;
-                  setStartDate(v);
-                  if (endDate < v) setEndDate(v);
-                }}
-                  className="w-full text-sm bg-white border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-400" />
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 mb-1 block">終了</label>
-                <input type="date" value={endDate} min={startDate} onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full text-sm bg-white border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-400" />
-              </div>
-            </div>
-
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-gray-500">
-                <Clock size={16} />
-                <span className="text-sm font-medium">時間を指定</span>
+                <Calendar size={16} />
+                <span className="text-sm font-medium">日付</span>
               </div>
-              <button onClick={() => setAllDay(!allDay)}
-                className={`w-11 h-6 rounded-full transition-colors relative ${!allDay ? "bg-indigo-500" : "bg-gray-200"}`}>
-                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${!allDay ? "translate-x-5" : ""}`} />
+              <button
+                type="button"
+                onClick={() => setIsMemo(!isMemo)}
+                className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors font-medium ${
+                  isMemo
+                    ? "bg-amber-100 text-amber-700 border-amber-300"
+                    : "bg-white text-gray-400 border-gray-200 hover:border-amber-300 hover:text-amber-600"
+                }`}
+              >
+                <StickyNote size={12} />
+                日付未定（メモ）
               </button>
             </div>
-
-            {!allDay && (
-              <div className="grid grid-cols-2 gap-2">
-                <TimeSelect label="開始時刻" value={startTime} onChange={setStartTime} />
-                <TimeSelect label="終了時刻" value={endTime} onChange={setEndTime} />
-              </div>
+            {isMemo ? (
+              <p className="text-sm text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+                📝 日付未定のメモとして保存されます。後から日付を設定するとカレンダーに表示されます。
+              </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">開始</label>
+                    <input type="date" value={startDate} onChange={(e) => {
+                      const v = e.target.value;
+                      setStartDate(v);
+                      if (endDate < v) setEndDate(v);
+                    }}
+                      className="w-full text-sm bg-white border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-400" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">終了</label>
+                    <input type="date" value={endDate} min={startDate} onChange={(e) => setEndDate(e.target.value)}
+                      className="w-full text-sm bg-white border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-400" />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-gray-500">
+                    <Clock size={16} />
+                    <span className="text-sm font-medium">時間を指定</span>
+                  </div>
+                  <button onClick={() => setAllDay(!allDay)}
+                    className={`w-11 h-6 rounded-full transition-colors relative ${!allDay ? "bg-indigo-500" : "bg-gray-200"}`}>
+                    <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${!allDay ? "translate-x-5" : ""}`} />
+                  </button>
+                </div>
+                {!allDay && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <TimeSelect label="開始時刻" value={startTime} onChange={setStartTime} />
+                    <TimeSelect label="終了時刻" value={endTime} onChange={setEndTime} />
+                  </div>
+                )}
+              </>
             )}
           </div>
+
 
           {/* 場所 */}
           <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2.5">

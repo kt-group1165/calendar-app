@@ -39,3 +39,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+.vercel
+
+# 個人情報を含むデータファイル（絶対にコミットしない）
+*.CSV
+*.csv
+dummy-data-*.sql
+insert-dummy-data.sql

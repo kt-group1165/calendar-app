@@ -8,12 +8,13 @@ import { type Event } from "@/lib/supabase";
 import { getDeletedEvents, restoreEvent, permanentDeleteEvent } from "@/lib/events";
 
 type Props = {
+  tenantId: string;
   isMaster: boolean;
   onClose: () => void;
   onRestored: () => void;
 };
 
-export default function TrashView({ isMaster, onClose, onRestored }: Props) {
+export default function TrashView({ tenantId, isMaster, onClose, onRestored }: Props) {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState<string | null>(null);
@@ -23,7 +24,7 @@ export default function TrashView({ isMaster, onClose, onRestored }: Props) {
   async function load() {
     setLoading(true);
     try {
-      const data = await getDeletedEvents();
+      const data = await getDeletedEvents(tenantId);
       setEvents(data);
     } finally {
       setLoading(false);

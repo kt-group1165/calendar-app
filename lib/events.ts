@@ -37,7 +37,29 @@ async function compressImage(file: File): Promise<File> {
 }
 
 // 全予定取得（削除済み除く・全期間・1000件超対応）
-export async function getAllEvents(): Promise<Event[]> {
+export async function getAllEvents(tenantId: string): Promise<Event[]> {
+  const PAGE = 1000;
+  const all: Event[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("events")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .is("deleted_at", null)
+      .order("start_date", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return all;
+}
+
+// 全テナントの全予定取得（バックアップ用）
+export async function getAllEventsAllTenants(): Promise<Event[]> {
   const PAGE = 1000;
   const all: Event[] = [];
   let from = 0;
@@ -51,7 +73,7 @@ export async function getAllEvents(): Promise<Event[]> {
     if (error) throw error;
     if (!data || data.length === 0) break;
     all.push(...data);
-    if (data.length < PAGE) break; // 最後のページ
+    if (data.length < PAGE) break;
     from += PAGE;
   }
   return all;
@@ -59,17 +81,21 @@ export async function getAllEvents(): Promise<Event[]> {
 
 // CSVインポート：バッチ処理版（500件まとめてupsert）
 export async function importEventsFromCSV(
-  rows: Array<{ id?: string } & Partial<EventInsert>>
+  rows: Array<{ id?: string } & Partial<EventInsert>>,
+  tenantId: string,
+  onProgress?: (done: number, total: number) => void
 ): Promise<{ updated: number; inserted: number; errors: number }> {
   const BATCH = 500;
   let updated = 0, inserted = 0, errors = 0;
   const today = new Date().toISOString().slice(0, 10);
+  const total = rows.length;
 
   // IDあり（既存更新）とIDなし（新規）に分ける
   const toUpsert = rows
     .filter((r) => r.id)
     .map(({ id, ...data }) => ({
       id,
+      tenant_id: tenantId,
       title: data.title ?? "",
       description: data.description ?? null,
       notes: data.notes ?? null,
@@ -89,6 +115,7 @@ export async function importEventsFromCSV(
   const toInsert = rows
     .filter((r) => !r.id)
     .map(({ id: _id, ...data }) => ({
+      tenant_id: tenantId,
       title: data.title ?? "",
       description: data.description ?? null,
       notes: data.notes ?? null,
@@ -115,6 +142,7 @@ export async function importEventsFromCSV(
       .upsert(batch, { onConflict: "id" });
     if (!error) updated += batch.length;
     else errors += batch.length;
+    onProgress?.(updated + inserted + errors, total);
   }
 
   // insert（IDなし）をバッチ処理
@@ -123,20 +151,36 @@ export async function importEventsFromCSV(
     const { error } = await supabase.from("events").insert(batch);
     if (!error) inserted += batch.length;
     else errors += batch.length;
+    onProgress?.(updated + inserted + errors, total);
   }
 
   return { updated, inserted, errors };
 }
 
-// 予定取得（削除済み除く）
-export async function getEventsByDateRange(startDate: string, endDate: string): Promise<Event[]> {
+// 予定取得（削除済み・メモ除く）
+export async function getEventsByDateRange(startDate: string, endDate: string, tenantId: string): Promise<Event[]> {
   const { data, error } = await supabase
     .from("events")
     .select("*")
+    .eq("tenant_id", tenantId)
     .is("deleted_at", null)
+    .eq("is_memo", false)
     .lte("start_date", endDate)
     .gte("end_date", startDate)
     .order("start_date", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+// メモ一覧取得（日付未定の予定）
+export async function getMemoEvents(tenantId: string): Promise<Event[]> {
+  const { data, error } = await supabase
+    .from("events")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .is("deleted_at", null)
+    .eq("is_memo", true)
+    .order("created_at", { ascending: false });
   if (error) throw error;
   return data ?? [];
 }
@@ -153,10 +197,10 @@ export async function getEventById(id: string): Promise<Event | null> {
 }
 
 // 予定作成
-export async function createEvent(event: EventInsert): Promise<Event> {
+export async function createEvent(event: EventInsert, tenantId: string): Promise<Event> {
   const { data, error } = await supabase
     .from("events")
-    .insert(event)
+    .insert({ ...event, tenant_id: tenantId })
     .select()
     .single();
   if (error) throw error;
@@ -203,10 +247,11 @@ export async function permanentDeleteEvent(id: string, imageUrl: string | null):
 }
 
 // ゴミ箱内の予定取得
-export async function getDeletedEvents(): Promise<Event[]> {
+export async function getDeletedEvents(tenantId: string): Promise<Event[]> {
   const { data, error } = await supabase
     .from("events")
     .select("*")
+    .eq("tenant_id", tenantId)
     .not("deleted_at", "is", null)
     .order("deleted_at", { ascending: false });
   if (error) throw error;
@@ -214,21 +259,20 @@ export async function getDeletedEvents(): Promise<Event[]> {
 }
 
 // 10日以上経過した削除済みを自動完全削除
-export async function cleanupOldDeletedEvents(): Promise<void> {
+export async function cleanupOldDeletedEvents(tenantId: string): Promise<void> {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 10);
   const { data } = await supabase
     .from("events")
     .select("id, image_url, image_urls")
+    .eq("tenant_id", tenantId)
     .not("deleted_at", "is", null)
     .lt("deleted_at", cutoff.toISOString());
   if (data && data.length > 0) {
-    // まずDBレコードを削除し、成功した場合のみ画像を削除する
     const ids = data.map((e) => e.id);
     const { error } = await supabase.from("events").delete().in("id", ids);
     if (!error) {
       for (const event of data) {
-        // image_urls（複数）を優先、なければ image_url（単一）を削除
         const urls: string[] = event.image_urls?.length
           ? event.image_urls
           : event.image_url ? [event.image_url] : [];
@@ -312,7 +356,8 @@ export async function logActivity(
   action: ActivityLog["action"],
   actor: string,
   assigneesBefore: string[] = [],
-  assigneesAfter: string[] = []
+  assigneesAfter: string[] = [],
+  tenantId: string = "default"
 ): Promise<void> {
   try {
     await supabase.from("activity_logs").insert({
@@ -322,6 +367,7 @@ export async function logActivity(
       actor,
       assignees_before: assigneesBefore,
       assignees_after: assigneesAfter,
+      tenant_id: tenantId,
     });
   } catch {
     // ログ失敗はサイレントに無視
@@ -331,11 +377,13 @@ export async function logActivity(
 export async function getActivityLogs(
   limit: number,
   offset: number,
-  userFilter?: string
+  userFilter?: string,
+  tenantId: string = "default"
 ): Promise<ActivityLog[]> {
   let query = supabase
     .from("activity_logs")
     .select("*")
+    .eq("tenant_id", tenantId)
     .order("created_at", { ascending: false })
     .range(offset, offset + limit - 1);
 
@@ -350,19 +398,21 @@ export async function getActivityLogs(
   return (data ?? []) as ActivityLog[];
 }
 
-export async function getUnreadActivityCount(since: string): Promise<number> {
+export async function getUnreadActivityCount(since: string, tenantId: string = "default"): Promise<number> {
   const { count, error } = await supabase
     .from("activity_logs")
     .select("*", { count: "exact", head: true })
+    .eq("tenant_id", tenantId)
     .gt("created_at", since);
   if (error) return 0;
   return count ?? 0;
 }
 
-export async function searchEventsByTitle(query: string): Promise<Event[]> {
+export async function searchEventsByTitle(query: string, tenantId: string): Promise<Event[]> {
   const { data, error } = await supabase
     .from("events")
     .select("*")
+    .eq("tenant_id", tenantId)
     .ilike("title", `%${query}%`)
     .is("deleted_at", null)
     .order("start_date", { ascending: false })

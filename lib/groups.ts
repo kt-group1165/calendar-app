@@ -7,19 +7,20 @@ export type MemberGroup = {
   created_at: string;
 };
 
-export async function getGroups(): Promise<MemberGroup[]> {
+export async function getGroups(tenantId: string): Promise<MemberGroup[]> {
   const { data, error } = await supabase
     .from("member_groups")
     .select("*")
+    .eq("tenant_id", tenantId)
     .order("created_at", { ascending: true });
   if (error) throw error;
   return data ?? [];
 }
 
-export async function addGroup(name: string, memberNames: string[]): Promise<MemberGroup> {
+export async function addGroup(name: string, memberNames: string[], tenantId: string): Promise<MemberGroup> {
   const { data, error } = await supabase
     .from("member_groups")
-    .insert({ name, member_names: memberNames })
+    .insert({ name, member_names: memberNames, tenant_id: tenantId })
     .select()
     .single();
   if (error) throw error;

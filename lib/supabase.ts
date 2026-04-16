@@ -15,6 +15,7 @@ export type Event = {
   end_time: string | null;
   color: string;
   all_day: boolean;
+  is_memo: boolean;
   image_url: string | null;
   image_urls: string[];
   location: string | null;

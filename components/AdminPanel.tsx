@@ -7,7 +7,7 @@ import { ja } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
 import { getMembers, addMember, deleteMember, updateMemberColor, updateMemberOrder, type Member } from "@/lib/members";
 import { getEventTypes, addEventType, deleteEventType, type EventType } from "@/lib/event_types";
-import { verifyMasterPin, updateMasterPin } from "@/lib/settings";
+import { verifyMasterPin, updateMasterPin, getOrderEmailSettings, updateOrderEmailSettings, getClientSelectionEnabled, updateClientSelectionEnabled } from "@/lib/settings";
 import { getEventsByDateRange, getAllEvents, importEventsFromCSV } from "@/lib/events";
 import { getGroups, addGroup, deleteGroup, updateGroup, type MemberGroup } from "@/lib/groups";
 import { getClients, replaceAllClients, parseClientCSV, type Client } from "@/lib/clients";
@@ -20,9 +20,9 @@ const COLORS = [
   "#0ea5e9","#22c55e","#e11d48","#7c3aed","#0d9488","#ea580c","#475569","#c026d3",
 ];
 
-type Props = { onClose: () => void; onLogout: () => void };
+type Props = { tenantId: string; onClose: () => void; onLogout: () => void };
 
-export default function AdminPanel({ onClose, onLogout }: Props) {
+export default function AdminPanel({ tenantId, onClose, onLogout }: Props) {
   const [tab, setTab] = useState<Tab>("members");
   const tabs = [
     { key: "members" as Tab, icon: Users, label: "メンバー" },
@@ -58,20 +58,20 @@ export default function AdminPanel({ onClose, onLogout }: Props) {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {tab === "members" && <MembersTab />}
-        {tab === "groups" && <GroupsTab />}
-        {tab === "types" && <EventTypesTab />}
-        {tab === "clients" && <ClientsTab />}
-        {tab === "csv" && <CsvTab />}
-        {tab === "analytics" && <AnalyticsTab />}
-        {tab === "settings" && <SettingsTab onLogout={onLogout} />}
+        {tab === "members" && <MembersTab tenantId={tenantId} />}
+        {tab === "groups" && <GroupsTab tenantId={tenantId} />}
+        {tab === "types" && <EventTypesTab tenantId={tenantId} />}
+        {tab === "clients" && <ClientsTab tenantId={tenantId} />}
+        {tab === "csv" && <CsvTab tenantId={tenantId} />}
+        {tab === "analytics" && <AnalyticsTab tenantId={tenantId} />}
+        {tab === "settings" && <SettingsTab tenantId={tenantId} onLogout={onLogout} />}
       </div>
     </div>
   );
 }
 
 // ── メンバー管理 ──────────────────────────────
-function MembersTab() {
+function MembersTab({ tenantId }: { tenantId: string }) {
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
@@ -81,7 +81,7 @@ function MembersTab() {
   useEffect(() => { load(); }, []);
   async function load() {
     setLoading(true);
-    try { setMembers(await getMembers()); } finally { setLoading(false); }
+    try { setMembers(await getMembers(tenantId)); } finally { setLoading(false); }
   }
 
   // メンバーが読み込まれたら未使用の色を自動選択
@@ -96,7 +96,7 @@ function MembersTab() {
     if (!name) return;
     setAdding(true);
     try {
-      const m = await addMember(name, newColor);
+      const m = await addMember(name, newColor, tenantId);
       setMembers((prev) => [...prev, m].sort((a, b) => a.name.localeCompare(b.name, "ja")));
       setNewName("");
     } catch { alert("追加に失敗しました（同名のメンバーが既に存在する可能性があります）"); }
@@ -225,7 +225,7 @@ function MembersTab() {
 }
 
 // ── グループ管理 ──────────────────────────────
-function GroupsTab() {
+function GroupsTab({ tenantId }: { tenantId: string }) {
   const [groups, setGroups] = useState<MemberGroup[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [groupName, setGroupName] = useState("");
@@ -234,7 +234,7 @@ function GroupsTab() {
   const [editId, setEditId] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([getGroups(), getMembers()])
+    Promise.all([getGroups(tenantId), getMembers(tenantId)])
       .then(([g, m]) => { setGroups(g); setMembers(m); })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -251,7 +251,7 @@ function GroupsTab() {
       setGroups((prev) => prev.map((g) => g.id === editId ? { ...g, name: groupName.trim(), member_names: selected } : g));
       setEditId(null);
     } else {
-      const g = await addGroup(groupName.trim(), selected);
+      const g = await addGroup(groupName.trim(), selected, tenantId);
       setGroups((prev) => [...prev, g]);
     }
     setGroupName(""); setSelected([]);
@@ -341,7 +341,7 @@ function GroupsTab() {
 }
 
 // ── 用件種別管理 ──────────────────────────────
-function EventTypesTab() {
+function EventTypesTab({ tenantId }: { tenantId: string }) {
   const [types, setTypes] = useState<EventType[]>([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
@@ -350,7 +350,7 @@ function EventTypesTab() {
   useEffect(() => { load(); }, []);
   async function load() {
     setLoading(true);
-    try { setTypes(await getEventTypes()); } finally { setLoading(false); }
+    try { setTypes(await getEventTypes(tenantId)); } finally { setLoading(false); }
   }
 
   async function handleAdd() {
@@ -358,7 +358,7 @@ function EventTypesTab() {
     if (!name) return;
     setAdding(true);
     try {
-      const t = await addEventType(name);
+      const t = await addEventType(name, tenantId);
       setTypes((prev) => [...prev, t]);
       setNewName("");
     } catch { alert("追加に失敗しました（同名の種別が既に存在する可能性があります）"); }
@@ -405,7 +405,7 @@ function EventTypesTab() {
 }
 
 // ── 利用者管理 ────────────────────────────────
-function ClientsTab() {
+function ClientsTab({ tenantId }: { tenantId: string }) {
   const [clients, setClients] = useState<Client[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -416,7 +416,7 @@ function ClientsTab() {
   useEffect(() => { load(); }, []);
   async function load() {
     setLoading(true);
-    try { setClients(await getClients()); } finally { setLoading(false); }
+    try { setClients(await getClients(tenantId)); } finally { setLoading(false); }
   }
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
@@ -427,8 +427,8 @@ function ClientsTab() {
     try {
       const parsed = await parseClientCSV(file);
       if (!confirm(`${parsed.length}件の利用者データを取り込みます。\n既存データはすべて上書きされます。よろしいですか？`)) return;
-      await replaceAllClients(parsed);
-      const updated = await getClients();
+      await replaceAllClients(parsed, tenantId);
+      const updated = await getClients(tenantId);
       setClients(updated);
       setImportMsg(`✅ ${parsed.length}件の取り込みが完了しました`);
     } catch (err) {
@@ -538,7 +538,7 @@ function ClientsTab() {
 }
 
 // ── CSV出力 ──────────────────────────────────
-const CSV_HEADERS = ["ID","タイトル","開始日","終了日","開始時刻","終了時刻","終日","用件種別","担当者","メモ","備考","住所","作成者","最終編集者","作成日時"];
+const CSV_HEADERS = ["ID","タイトル","開始日","終了日","開始時刻","終了時刻","終日","用件種別","担当者","メモ","備考","住所","カラー","作成者","最終編集者","作成日時"];
 
 function eventsToCsvRows(events: Awaited<ReturnType<typeof getAllEvents>>) {
   return events.map((e) => [
@@ -549,6 +549,7 @@ function eventsToCsvRows(events: Awaited<ReturnType<typeof getAllEvents>>) {
     (e.event_type ?? []).join("・"),
     (e.assignees ?? []).join("・"),
     e.description ?? "", e.notes ?? "", e.location ?? "",
+    e.color ?? "#6366f1",
     e.created_by ?? "", e.updated_by ?? "",
     format(new Date(e.created_at), "yyyy/MM/dd HH:mm"),
   ]);
@@ -594,7 +595,7 @@ function parseCSV(text: string): string[][] {
   return result.filter((r) => r.some((c) => c.trim()));
 }
 
-function CsvTab() {
+function CsvTab({ tenantId }: { tenantId: string }) {
   const now = new Date();
   const [startDate, setStartDate] = useState(format(startOfMonth(now), "yyyy-MM-dd"));
   const [endDate, setEndDate] = useState(format(now, "yyyy-MM-dd"));
@@ -602,6 +603,7 @@ function CsvTab() {
   const [exportingAll, setExportingAll] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState("");
+  const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null);
   const [backups, setBackups] = useState<{ name: string; created_at: string }[]>([]);
   const [loadingBackups, setLoadingBackups] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
@@ -628,7 +630,7 @@ function CsvTab() {
   async function handleExport() {
     setExporting(true);
     try {
-      const events = await getEventsByDateRange(startDate, endDate);
+      const events = await getEventsByDateRange(startDate, endDate, tenantId);
       downloadBlob(buildCsvBlob(CSV_HEADERS, eventsToCsvRows(events)), `予定_${startDate}_${endDate}.csv`);
     } finally { setExporting(false); }
   }
@@ -636,7 +638,7 @@ function CsvTab() {
   async function handleExportAll() {
     setExportingAll(true);
     try {
-      const events = await getAllEvents();
+      const events = await getAllEvents(tenantId);
       downloadBlob(buildCsvBlob(CSV_HEADERS, eventsToCsvRows(events)), `予定_全期間_${format(now, "yyyyMMdd")}.csv`);
     } finally { setExportingAll(false); }
   }
@@ -664,6 +666,7 @@ function CsvTab() {
       const descIdx     = headers.indexOf("メモ");
       const notesIdx    = headers.indexOf("備考");
       const locIdx      = headers.indexOf("住所");
+      const colorIdx    = headers.indexOf("カラー");
       const createdIdx  = headers.indexOf("作成者");
       const updatedIdx  = headers.indexOf("最終編集者");
 
@@ -684,6 +687,7 @@ function CsvTab() {
           description: get(descIdx) || null,
           notes: notesIdx >= 0 ? (get(notesIdx) || null) : undefined,
           location: locIdx >= 0 ? (get(locIdx) || null) : undefined,
+          color: colorIdx >= 0 ? (get(colorIdx) || undefined) : undefined,
           created_by: createdIdx >= 0 ? (get(createdIdx) || null) : undefined,
           updated_by: updatedIdx >= 0 ? (get(updatedIdx) || null) : undefined,
         };
@@ -691,12 +695,18 @@ function CsvTab() {
 
       if (!confirm(`${dataRows.length}件のデータを取り込みます。\nIDが一致する予定は更新（画像・コメントは保持）、IDなしは新規追加されます。`)) return;
 
-      const result = await importEventsFromCSV(dataRows);
+      setImportProgress({ done: 0, total: dataRows.length });
+      const result = await importEventsFromCSV(dataRows, tenantId, (done, total) => {
+        setImportProgress({ done, total });
+      });
+      setImportProgress(null);
       setImportMsg(`✅ 完了：更新 ${result.updated}件、新規追加 ${result.inserted}件${result.errors > 0 ? `、エラー ${result.errors}件` : ""}`);
     } catch (err) {
+      setImportProgress(null);
       setImportMsg(`❌ 取り込みに失敗しました: ${(err as Error).message}`);
     } finally {
       setImporting(false);
+      setImportProgress(null);
       if (importRef.current) importRef.current.value = "";
     }
   }
@@ -721,7 +731,7 @@ function CsvTab() {
         </div>
         <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-500">
           <p className="font-medium text-gray-700 mb-1">出力項目</p>
-          <p>ID・タイトル・日付・時刻・終日・用件種別・担当者・メモ・備考・住所・作成者・最終編集者・作成日時</p>
+          <p>ID・タイトル・日付・時刻・終日・用件種別・担当者・メモ・備考・住所・カラー・作成者・最終編集者・作成日時</p>
         </div>
         <div className="flex gap-2">
           <button onClick={handleExport} disabled={exporting}
@@ -754,8 +764,25 @@ function CsvTab() {
           disabled={importing}
           className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold rounded-xl flex items-center justify-center gap-2 text-sm">
           {importing ? <Loader2 size={15} className="animate-spin" /> : <FileUp size={15} />}
-          {importing ? "取り込み中..." : "CSVを取り込む"}
+          {importing
+            ? importProgress
+              ? `取り込み中... ${importProgress.done.toLocaleString()} / ${importProgress.total.toLocaleString()}件`
+              : "取り込み中..."
+            : "CSVを取り込む"}
         </button>
+        {importing && importProgress && importProgress.total > 0 && (
+          <div className="space-y-1">
+            <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">
+              <div
+                className="bg-orange-500 h-2.5 rounded-full transition-all duration-300"
+                style={{ width: `${Math.round((importProgress.done / importProgress.total) * 100)}%` }}
+              />
+            </div>
+            <p className="text-xs text-gray-500 text-right">
+              {Math.round((importProgress.done / importProgress.total) * 100)}%
+            </p>
+          </div>
+        )}
         {importMsg && (
           <p className={`text-xs font-medium p-2.5 rounded-xl ${importMsg.startsWith("✅") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"}`}>
             {importMsg}
@@ -797,7 +824,7 @@ function CsvTab() {
 }
 
 // ── 分析 ─────────────────────────────────────
-function AnalyticsTab() {
+function AnalyticsTab({ tenantId }: { tenantId: string }) {
   const [month, setMonth] = useState(new Date());
   const [loading, setLoading] = useState(false);
   const [assigneeCounts, setAssigneeCounts] = useState<[string, number][]>([]);
@@ -811,7 +838,7 @@ function AnalyticsTab() {
     try {
       const start = format(startOfMonth(month), "yyyy-MM-dd");
       const end = format(endOfMonth(month), "yyyy-MM-dd");
-      const events = await getEventsByDateRange(start, end);
+      const events = await getEventsByDateRange(start, end, tenantId);
       setTotal(events.length);
 
       const ac: Record<string, number> = {};
@@ -890,7 +917,7 @@ function AnalyticsTab() {
 }
 
 // ── 設定 ─────────────────────────────────────
-function SettingsTab({ onLogout }: { onLogout: () => void }) {
+function SettingsTab({ tenantId, onLogout }: { tenantId: string; onLogout: () => void }) {
   const [currentPin, setCurrentPin] = useState("");
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
@@ -898,11 +925,47 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
   const [message, setMessage] = useState("");
   const [stats, setStats] = useState<{ events: number; comments: number; members: number } | null>(null);
 
+  // 利用者選択機能
+  const [clientSelectionEnabled, setClientSelectionEnabled] = useState(true);
+
+  useEffect(() => {
+    getClientSelectionEnabled(tenantId).then(setClientSelectionEnabled).catch(() => {});
+  }, [tenantId]);
+
+  async function handleToggleClientSelection(val: boolean) {
+    setClientSelectionEnabled(val);
+    await updateClientSelectionEnabled(tenantId, val).catch(() => {});
+  }
+
+  // 発注メール設定
+  const [orderEnabled, setOrderEnabled] = useState(false);
+  const [orderTo, setOrderTo] = useState("");
+  const [orderFrom, setOrderFrom] = useState("onboarding@resend.dev");
+  const [orderSaving, setOrderSaving] = useState(false);
+  const [orderMessage, setOrderMessage] = useState("");
+
+  useEffect(() => {
+    getOrderEmailSettings(tenantId).then((s) => {
+      setOrderEnabled(s.enabled);
+      setOrderTo(s.to);
+      setOrderFrom(s.from || "onboarding@resend.dev");
+    }).catch(() => {});
+  }, [tenantId]);
+
+  async function handleSaveOrderEmail() {
+    setOrderSaving(true); setOrderMessage("");
+    try {
+      await updateOrderEmailSettings(tenantId, { enabled: orderEnabled, to: orderTo, from: orderFrom });
+      setOrderMessage("✅ 保存しました");
+    } catch { setOrderMessage("保存に失敗しました"); }
+    finally { setOrderSaving(false); }
+  }
+
   useEffect(() => {
     Promise.all([
-      supabase.from("events").select("*", { count: "exact", head: true }).is("deleted_at", null),
+      supabase.from("events").select("*", { count: "exact", head: true }).eq("tenant_id", tenantId).is("deleted_at", null),
       supabase.from("comments").select("*", { count: "exact", head: true }),
-      supabase.from("members").select("*", { count: "exact", head: true }),
+      supabase.from("members").select("*", { count: "exact", head: true }).eq("tenant_id", tenantId),
     ]).then(([{count: e}, {count: c}, {count: m}]) => {
       setStats({ events: e ?? 0, comments: c ?? 0, members: m ?? 0 });
     }).catch(() => {});
@@ -914,8 +977,8 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
     if (newPin.length < 4) { setMessage("PINは4文字以上にしてください"); return; }
     setSaving(true); setMessage("");
     try {
-      if (!await verifyMasterPin(currentPin)) { setMessage("現在のPINが正しくありません"); return; }
-      await updateMasterPin(newPin);
+      if (!await verifyMasterPin(currentPin, tenantId)) { setMessage("現在のPINが正しくありません"); return; }
+      await updateMasterPin(newPin, tenantId);
       setMessage("✅ PINを変更しました");
       setCurrentPin(""); setNewPin(""); setConfirmPin("");
     } catch { setMessage("変更に失敗しました"); }
@@ -954,6 +1017,66 @@ function SettingsTab({ onLogout }: { onLogout: () => void }) {
         <button onClick={handleChangePin} disabled={saving}
           className="w-full py-2.5 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-white font-medium rounded-xl flex items-center justify-center gap-2 text-sm">
           {saving && <Loader2 size={14} className="animate-spin" />}PINを変更
+        </button>
+      </div>
+
+      {/* 利用者選択機能 */}
+      <div className="border-t border-gray-100 pt-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">利用者選択機能</h3>
+            <p className="text-xs text-gray-400 mt-0.5">予定入力時の利用者選択欄を表示する</p>
+          </div>
+          <button
+            onClick={() => handleToggleClientSelection(!clientSelectionEnabled)}
+            className={`w-11 h-6 rounded-full transition-colors relative ${clientSelectionEnabled ? "bg-indigo-500" : "bg-gray-200"}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${clientSelectionEnabled ? "translate-x-5" : ""}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* 発注メール設定 */}
+      <div className="border-t border-gray-100 pt-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-700">発注メール機能</h3>
+          <button
+            onClick={() => setOrderEnabled(!orderEnabled)}
+            className={`w-11 h-6 rounded-full transition-colors relative ${orderEnabled ? "bg-indigo-500" : "bg-gray-200"}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${orderEnabled ? "translate-x-5" : ""}`} />
+          </button>
+        </div>
+        {orderEnabled && (
+          <div className="space-y-2">
+            <input
+              type="email"
+              placeholder="送信先メールアドレス"
+              value={orderTo}
+              onChange={(e) => setOrderTo(e.target.value)}
+              className="w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-400"
+            />
+            <input
+              type="email"
+              placeholder="送信元メールアドレス（例：noreply@your-domain.com）"
+              value={orderFrom}
+              onChange={(e) => setOrderFrom(e.target.value)}
+              className="w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-400"
+            />
+            <p className="text-xs text-gray-400">
+              送信元はResendで認証済みのドメインが必要です。未設定の場合は <code>onboarding@resend.dev</code> を使用してください。
+            </p>
+          </div>
+        )}
+        {orderMessage && (
+          <p className={`text-xs ${orderMessage.includes("✅") ? "text-green-600" : "text-red-500"}`}>{orderMessage}</p>
+        )}
+        <button
+          onClick={handleSaveOrderEmail}
+          disabled={orderSaving}
+          className="w-full py-2.5 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-white font-medium rounded-xl flex items-center justify-center gap-2 text-sm"
+        >
+          {orderSaving && <Loader2 size={14} className="animate-spin" />}発注メール設定を保存
         </button>
       </div>
 

@@ -2,13 +2,16 @@
 
 import { format } from "date-fns";
 import { ja } from "date-fns/locale";
-import { X, Edit2, Trash2, Copy, Clock, AlignLeft, Loader2, MessageCircle, Send, User, Users, Tag, MapPin } from "lucide-react";
+import { X, Edit2, Trash2, Copy, Clock, AlignLeft, Loader2, MessageCircle, Send, User, Users, Tag, MapPin, Mail } from "lucide-react";
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { type Event } from "@/lib/supabase";
 import { getComments, addComment, deleteComment, logActivity, type Comment } from "@/lib/events";
+import { getOrderEmailSettings, type OrderEmailSettings } from "@/lib/settings";
+import OrderEmailModal from "@/components/OrderEmailModal";
 
 type Props = {
+  tenantId: string;
   event: Event;
   currentUser: string;
   isMaster?: boolean;
@@ -18,17 +21,22 @@ type Props = {
   onClose: () => void;
 };
 
-export default function EventDetailModal({ event, currentUser, isMaster, onEdit, onDuplicate, onDelete, onClose }: Props) {
+export default function EventDetailModal({ tenantId, event, currentUser, isMaster, onEdit, onDuplicate, onDelete, onClose }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentText, setCommentText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [loadingComments, setLoadingComments] = useState(true);
+  const [orderEmailSettings, setOrderEmailSettings] = useState<OrderEmailSettings | null>(null);
+  const [showOrderEmail, setShowOrderEmail] = useState(false);
 
   useEffect(() => {
     loadComments();
-  }, [event.id]);
+    getOrderEmailSettings(tenantId).then((s) => {
+      if (s.enabled) setOrderEmailSettings(s);
+    }).catch(() => {});
+  }, [event.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadComments() {
     setLoadingComments(true);
@@ -60,7 +68,7 @@ export default function EventDetailModal({ event, currentUser, isMaster, onEdit,
       const newComment = await addComment(event.id, currentUser, trimmed);
       setComments((prev) => [...prev, newComment]);
       setCommentText("");
-      logActivity(event.id, event.title, "comment_added", currentUser, event.assignees, event.assignees).catch(() => {});
+      logActivity(event.id, event.title, "comment_added", currentUser, event.assignees, event.assignees, tenantId).catch(() => {});
     } catch {
       alert("コメントの送信に失敗しました");
     } finally {
@@ -83,6 +91,7 @@ export default function EventDetailModal({ event, currentUser, isMaster, onEdit,
   const isSameDay = event.start_date === event.end_date;
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative w-full sm:max-w-lg bg-white sm:rounded-2xl rounded-t-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
@@ -95,6 +104,11 @@ export default function EventDetailModal({ event, currentUser, isMaster, onEdit,
             {event.title}
           </h2>
           <div className="flex gap-1 shrink-0">
+            {orderEmailSettings && (
+              <button onClick={() => setShowOrderEmail(true)} className="p-2 rounded-full hover:bg-indigo-50 transition-colors text-indigo-400" title="発注メール送信">
+                <Mail size={16} />
+              </button>
+            )}
             <button onClick={onEdit} className="p-2 rounded-full hover:bg-gray-100 transition-colors text-gray-500" title="編集">
               <Edit2 size={16} />
             </button>
@@ -397,5 +411,15 @@ export default function EventDetailModal({ event, currentUser, isMaster, onEdit,
         </div>
       </div>
     </div>
+
+    {showOrderEmail && orderEmailSettings && (
+      <OrderEmailModal
+        event={event}
+        settings={orderEmailSettings}
+        currentUser={currentUser}
+        onClose={() => setShowOrderEmail(false)}
+      />
+    )}
+    </>
   );
 }

@@ -26,7 +26,12 @@ const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
 function getEventsForDay(events: Event[], date: Date): Event[] {
   const dateStr = format(date, "yyyy-MM-dd");
-  return events.filter((e) => e.start_date <= dateStr && e.end_date >= dateStr);
+  return events
+    .filter((e) => e.start_date <= dateStr && e.end_date >= dateStr)
+    .sort((a, b) => {
+      if (a.all_day !== b.all_day) return a.all_day ? -1 : 1;
+      return (a.start_time ?? "99:99").localeCompare(b.start_time ?? "99:99");
+    });
 }
 
 export default function MonthView({ currentDate, events, onDayClick, onEventClick }: Props) {
@@ -66,6 +71,7 @@ export default function MonthView({ currentDate, events, onDayClick, onEventClic
               onClick={() => onDayClick(day)}
               className={`
                 relative border-b border-r border-gray-100 p-1 text-left transition-colors min-h-[72px]
+                flex flex-col justify-start items-start
                 ${isCurrentMonth ? "bg-white hover:bg-indigo-50/50" : "bg-gray-50/50"}
                 ${idx % 7 === 0 ? "border-l-0" : ""}
               `}
@@ -89,7 +95,7 @@ export default function MonthView({ currentDate, events, onDayClick, onEventClic
               </span>
 
               {/* イベント */}
-              <div className="space-y-0.5">
+              <div className="space-y-0.5 w-full">
                 {dayEvents.slice(0, 3).map((event, i) => (
                   <div
                     key={event.id}

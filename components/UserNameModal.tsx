@@ -6,10 +6,11 @@ import { verifyMasterPin } from "@/lib/settings";
 import { getMembers, type Member } from "@/lib/members";
 
 type Props = {
+  tenantId: string;
   onSave: (name: string, isMaster: boolean) => void;
 };
 
-export default function UserNameModal({ onSave }: Props) {
+export default function UserNameModal({ tenantId, onSave }: Props) {
   const [members, setMembers] = useState<Member[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [selectedName, setSelectedName] = useState<string | null>(null);
@@ -19,11 +20,11 @@ export default function UserNameModal({ onSave }: Props) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    getMembers()
+    getMembers(tenantId)
       .then(setMembers)
       .catch(() => setMembers([]))
       .finally(() => setLoadingMembers(false));
-  }, []);
+  }, [tenantId]);
 
   // メンバーが0人のときは「管理者」を仮の選択肢として使う
   const options: { name: string; color: string }[] =
@@ -40,7 +41,7 @@ export default function UserNameModal({ onSave }: Props) {
       }
       setLoading(true);
       try {
-        const ok = await verifyMasterPin(pin.trim());
+        const ok = await verifyMasterPin(pin.trim(), tenantId);
         if (ok) {
           onSave(selectedName, true);
         } else {

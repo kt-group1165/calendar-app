@@ -8,28 +8,29 @@ export type Member = {
   created_at: string;
 };
 
-export async function getMembers(): Promise<Member[]> {
+export async function getMembers(tenantId: string): Promise<Member[]> {
   const { data, error } = await supabase
     .from("members")
     .select("*")
+    .eq("tenant_id", tenantId)
     .order("sort_order", { nullsFirst: false })
     .order("name");
   if (error) throw error;
   return data ?? [];
 }
 
-export async function addMember(name: string, color: string = "#6366f1"): Promise<Member> {
-  // 現在の最大 sort_order を取得して末尾に追加
+export async function addMember(name: string, color: string = "#6366f1", tenantId: string): Promise<Member> {
   const { data: existing } = await supabase
     .from("members")
     .select("sort_order")
+    .eq("tenant_id", tenantId)
     .order("sort_order", { ascending: false })
     .limit(1);
   const maxOrder = existing?.[0]?.sort_order ?? 0;
 
   const { data, error } = await supabase
     .from("members")
-    .insert({ name, color, sort_order: maxOrder + 1 })
+    .insert({ name, color, sort_order: maxOrder + 1, tenant_id: tenantId })
     .select()
     .single();
   if (error) throw error;

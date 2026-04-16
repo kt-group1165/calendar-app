@@ -6,6 +6,7 @@ import { X, Loader2, ChevronRight } from "lucide-react";
 import { getActivityLogs, type ActivityLog } from "@/lib/events";
 
 type Props = {
+  tenantId: string;
   currentUser: string;
   onClose: () => void;
   onEventClick?: (eventId: string) => void;
@@ -38,7 +39,7 @@ function actionVerb(action: ActivityLog["action"]): string {
   }
 }
 
-export default function ActivityLogView({ currentUser, onClose, onEventClick }: Props) {
+export default function ActivityLogView({ tenantId, currentUser, onClose, onEventClick }: Props) {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -61,7 +62,8 @@ export default function ActivityLogView({ currentUser, onClose, onEventClick }: 
       const data = await getActivityLogs(
         LIMIT,
         offset,
-        filter === "mine" ? currentUser : undefined
+        filter === "mine" ? currentUser : undefined,
+        tenantId
       );
       setLogs((prev) => (reset ? data : [...prev, ...data]));
       setHasMore(data.length === LIMIT);

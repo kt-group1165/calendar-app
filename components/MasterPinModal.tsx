@@ -5,11 +5,12 @@ import { Lock, Loader2, X } from "lucide-react";
 import { verifyMasterPin } from "@/lib/settings";
 
 type Props = {
+  tenantId: string;
   onSuccess: () => void;
   onClose: () => void;
 };
 
-export default function MasterPinModal({ onSuccess, onClose }: Props) {
+export default function MasterPinModal({ tenantId, onSuccess, onClose }: Props) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -19,7 +20,7 @@ export default function MasterPinModal({ onSuccess, onClose }: Props) {
     setLoading(true);
     setError(false);
     try {
-      const ok = await verifyMasterPin(pin.trim());
+      const ok = await verifyMasterPin(pin.trim(), tenantId);
       if (ok) {
         onSuccess();
       } else {

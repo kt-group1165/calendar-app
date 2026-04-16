@@ -8,7 +8,7 @@ const supabase = createClient(
 
 const CSV_HEADERS = [
   "ID","タイトル","開始日","終了日","開始時刻","終了時刻","終日",
-  "用件種別","担当者","メモ","備考","住所","作成者","最終編集者","作成日時",
+  "用件種別","担当者","メモ","備考","住所","カラー","作成者","最終編集者","作成日時",
 ];
 
 function escapeCell(v: string | null | undefined): string {
@@ -62,6 +62,7 @@ export async function GET() {
       e.description ?? "",
       e.notes ?? "",
       e.location ?? "",
+      e.color ?? "#6366f1",
       e.created_by ?? "",
       e.updated_by ?? "",
       formatJST(e.created_at),
@@ -73,8 +74,8 @@ export async function GET() {
         .map((row) => row.map(escapeCell).join(","))
         .join("\n");
 
-    // Supabase Storage の backups バケットにアップロード
-    const fileName = `backup_${todayJST()}.csv`;
+    // Supabase Storage の backups バケットにアップロード（全テナント合算）
+    const fileName = `backup_all_${todayJST()}.csv`;
     const { error: uploadError } = await supabase.storage
       .from("backups")
       .upload(fileName, Buffer.from(csv, "utf-8"), {

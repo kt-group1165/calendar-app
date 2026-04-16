@@ -7,11 +7,12 @@ import { searchEventsByTitle } from "@/lib/events";
 import { type Event } from "@/lib/supabase";
 
 type Props = {
+  tenantId: string;
   onEventClick: (event: Event) => void;
   onClose: () => void;
 };
 
-export default function SearchView({ onEventClick, onClose }: Props) {
+export default function SearchView({ tenantId, onEventClick, onClose }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Event[]>([]);
   const [searching, setSearching] = useState(false);
@@ -32,7 +33,7 @@ export default function SearchView({ onEventClick, onClose }: Props) {
     setSearching(true);
     timerRef.current = setTimeout(async () => {
       try {
-        const data = await searchEventsByTitle(query.trim());
+        const data = await searchEventsByTitle(query.trim(), tenantId);
         setResults(data);
       } catch {
         setResults([]);

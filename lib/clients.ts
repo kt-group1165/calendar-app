@@ -21,22 +21,35 @@ export type Client = {
 
 export type ClientInsert = Omit<Client, "id" | "created_at" | "updated_at">;
 
-export async function getClients(): Promise<Client[]> {
-  const { data, error } = await supabase
-    .from("clients")
-    .select("*")
-    .order("furigana", { ascending: true });
-  if (error) throw error;
-  return data ?? [];
+// 利用者取得（最大2000件まで・1000件超対応）
+export async function getClients(tenantId: string): Promise<Client[]> {
+  const PAGE = 1000;
+  const MAX = 2000;
+  const all: Client[] = [];
+  for (let from = 0; from < MAX; from += PAGE) {
+    const to = Math.min(from + PAGE - 1, MAX - 1);
+    const { data, error } = await supabase
+      .from("clients")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .order("furigana", { ascending: true })
+      .range(from, to);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < PAGE) break;
+  }
+  return all;
 }
 
-export async function replaceAllClients(clients: ClientInsert[]): Promise<void> {
-  // 全件削除
-  await supabase.from("clients").delete().not("user_number", "is", null);
+export async function replaceAllClients(clients: ClientInsert[], tenantId: string): Promise<void> {
+  // テナントの全件削除
+  await supabase.from("clients").delete().eq("tenant_id", tenantId);
   // バッチ挿入（500件ずつ）
   const BATCH = 500;
   for (let i = 0; i < clients.length; i += BATCH) {
-    const { error } = await supabase.from("clients").insert(clients.slice(i, i + BATCH));
+    const batch = clients.slice(i, i + BATCH).map((c) => ({ ...c, tenant_id: tenantId }));
+    const { error } = await supabase.from("clients").insert(batch);
     if (error) throw error;
   }
 }
@@ -71,7 +84,6 @@ export async function parseClientCSV(file: File): Promise<ClientInsert[]> {
 
   const headers = parseRow(lines[0]);
 
-  // 利用者番号でグループ化し、認定有効期間－終了日 が最新の行を採用
   const userMap = new Map<string, Record<string, string>>();
 
   for (let i = 1; i < lines.length; i++) {
