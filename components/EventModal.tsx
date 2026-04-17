@@ -8,7 +8,7 @@ import { type Event, type EventInsert } from "@/lib/supabase";
 import { uploadImage, deleteImage } from "@/lib/events";
 import { getMembers, type Member } from "@/lib/members";
 import { getEventTypes, type EventType } from "@/lib/event_types";
-import { getClients, type Client } from "@/lib/clients";
+import { getClients, getClientOfficeAssignments, type Client, type ClientOfficeAssignment } from "@/lib/clients";
 
 function TimeSelect({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
   const parts = value ? value.split(":") : ["", ""];
@@ -250,6 +250,7 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
   const [members, setMembers] = useState<Member[]>([]);
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
+  const [clientAssignments, setClientAssignments] = useState<ClientOfficeAssignment[]>([]);
   // 利用者: DBから選択 or 手動入力、どちらか一方
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [manualClientName, setManualClientName] = useState<string>("");
@@ -266,11 +267,13 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
     getMembers(tenantId).then(setMembers).catch(() => {});
     getEventTypes(tenantId).then(setEventTypes).catch(() => {});
     getClients(tenantId).then(setClients).catch(() => {});
+    getClientOfficeAssignments(tenantId).then(setClientAssignments).catch(() => {});
   }, [tenantId]);
 
   // 自事業所絞り込み
   //   members: 自事業所のメンバーのみ（未割当は含めない）
-  //   eventTypes / clients: 自事業所のもの + 共有(NULL)
+  //   eventTypes: 自事業所のもの + 共有(NULL)
+  //   clients: client_office_assignments を参照して判定（kaigo-appと連動）
   //   ただし既存イベントで選択済みのメンバー/種別/利用者は必ず残す（編集時に消えないため）
   const visibleMembers = officeId
     ? members.filter((m) => m.office_id === officeId || assignees.includes(m.name))
@@ -278,8 +281,23 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
   const visibleEventTypes = officeId
     ? eventTypes.filter((t) => t.office_id === officeId || t.office_id === null || eventType.includes(t.name))
     : eventTypes;
+
+  const clientOfficeSetMap = (() => {
+    const m = new Map<string, Set<string>>();
+    for (const a of clientAssignments) {
+      if (!m.has(a.client_id)) m.set(a.client_id, new Set());
+      m.get(a.client_id)!.add(a.office_id);
+    }
+    return m;
+  })();
   const visibleClients = officeId
-    ? clients.filter((c) => c.office_id === officeId || c.office_id === null || c.id === selectedClient?.id)
+    ? clients.filter((c) => {
+        if (c.id === selectedClient?.id) return true;
+        const ids = clientOfficeSetMap.get(c.id);
+        if (ids && ids.size > 0) return ids.has(officeId);
+        // junction に紐付けが無いとき → clients.office_id フォールバック
+        return c.office_id === officeId || c.office_id === null;
+      })
     : clients;
 
   // 編集モード時：タイトルのプレフィックスからクライアントを特定し、prefix/autoBlockを復元する

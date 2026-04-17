@@ -12,7 +12,7 @@ import { getEventTypes, addEventType, deleteEventType, updateEventTypeOffice, ty
 import { verifyMasterPin, updateMasterPin, getOrderEmailSettings, updateOrderEmailSettings, getClientSelectionEnabled, updateClientSelectionEnabled } from "@/lib/settings";
 import { getEventsByDateRange, getAllEvents, importEventsFromCSV } from "@/lib/events";
 import { getGroups, addGroup, deleteGroup, updateGroup, type MemberGroup } from "@/lib/groups";
-import { getClients, replaceAllClients, replaceClientsForOffice, parseClientCSV, updateClientOffice, type Client } from "@/lib/clients";
+import { getClients, replaceAllClients, replaceClientsForOffice, parseClientCSV, updateClientOffice, getClientOfficeAssignments, setClientOfficeAssignment, type Client, type ClientOfficeAssignment } from "@/lib/clients";
 import UsersTab from "@/components/UsersTab";
 
 type Tab = "members" | "groups" | "types" | "clients" | "users" | "csv" | "analytics" | "settings";
@@ -510,6 +510,7 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
   const currentOfficeId = searchParams.get("office");
   const [clients, setClients] = useState<Client[]>([]);
   const [offices, setOffices] = useState<Office[]>([]);
+  const [assignments, setAssignments] = useState<ClientOfficeAssignment[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
@@ -523,10 +524,30 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
   async function load() {
     setLoading(true);
     try {
-      const [c, o] = await Promise.all([getClients(tenantId), getOffices(tenantId)]);
+      const [c, o, a] = await Promise.all([
+        getClients(tenantId),
+        getOffices(tenantId),
+        getClientOfficeAssignments(tenantId),
+      ]);
       setClients(c);
       setOffices(o);
+      setAssignments(a);
     } finally { setLoading(false); }
+  }
+
+  // client_id → Set<office_id> の map
+  const clientOfficeMap = new Map<string, Set<string>>();
+  for (const a of assignments) {
+    if (!clientOfficeMap.has(a.client_id)) clientOfficeMap.set(a.client_id, new Set());
+    clientOfficeMap.get(a.client_id)!.add(a.office_id);
+  }
+
+  // 利用者の有効事業所IDの取得（junction優先、なければ clients.office_id）
+  function clientOfficeIds(c: Client): Set<string> {
+    const ids = clientOfficeMap.get(c.id);
+    if (ids && ids.size > 0) return ids;
+    if (c.office_id) return new Set([c.office_id]);
+    return new Set(); // 空 = 共有
   }
 
   const currentOfficeName = currentOfficeId
@@ -570,9 +591,12 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
     }
   }
 
-  // 自事業所選択中は「その事業所 または 共有(NULL)」のみ
+  // 自事業所選択中は「その事業所に紐付け あり」か「紐付けなし(共有)」のみ
   const officeFiltered = currentOfficeId
-    ? clients.filter((c) => c.office_id === currentOfficeId || c.office_id === null)
+    ? clients.filter((c) => {
+        const ids = clientOfficeIds(c);
+        return ids.size === 0 || ids.has(currentOfficeId);
+      })
     : clients;
 
   const filtered = search.trim()
@@ -581,8 +605,17 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
 
   async function handleChangeOffice(id: string, officeId: string | null) {
     try {
+      // client_office_assignments を更新（kaigo-appと共有）
+      await setClientOfficeAssignment(tenantId, id, officeId);
+      // 後方互換: clients.office_id も同期
       await updateClientOffice(id, officeId);
+      // ステート更新
       setClients((prev) => prev.map((c) => c.id === id ? { ...c, office_id: officeId } : c));
+      setAssignments((prev) => {
+        const next = prev.filter((a) => a.client_id !== id);
+        if (officeId) next.push({ tenant_id: tenantId, client_id: id, office_id: officeId });
+        return next;
+      });
     } catch { alert("事業所の変更に失敗しました"); }
   }
 
@@ -724,7 +757,7 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
               <div className="flex items-center gap-1.5 mt-2 ml-10">
                 <Building2 size={11} className="text-gray-300" />
                 <select
-                  value={c.office_id ?? ""}
+                  value={Array.from(clientOfficeIds(c))[0] ?? ""}
                   onChange={(e) => handleChangeOffice(c.id, e.target.value || null)}
                   className="text-xs border border-gray-200 rounded-lg px-2 py-0.5 bg-white text-gray-600 focus:outline-none focus:border-indigo-400"
                 >

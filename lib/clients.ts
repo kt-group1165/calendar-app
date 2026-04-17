@@ -21,8 +21,49 @@ export type Client = {
 };
 
 export async function updateClientOffice(id: string, officeId: string | null): Promise<void> {
+  // 後方互換: clients.office_id も更新（カレンダー旧仕様）
   const { error } = await supabase.from("clients").update({ office_id: officeId }).eq("id", id);
   if (error) throw error;
+}
+
+// ── kaigo-app と共有する client_office_assignments 関連 ──
+// kaigo-app が使用する多対多の事業所紐付けテーブル。
+// calendar-app もこちらを優先して参照する。
+export type ClientOfficeAssignment = {
+  tenant_id: string;
+  client_id: string;
+  office_id: string;
+  created_at?: string;
+};
+
+export async function getClientOfficeAssignments(tenantId: string): Promise<ClientOfficeAssignment[]> {
+  const { data, error } = await supabase
+    .from("client_office_assignments")
+    .select("*")
+    .eq("tenant_id", tenantId);
+  if (error) throw error;
+  return (data as ClientOfficeAssignment[]) ?? [];
+}
+
+// 指定利用者の紐付け事業所を設定（既存は置換）
+export async function setClientOfficeAssignment(
+  tenantId: string,
+  clientId: string,
+  officeId: string | null,
+): Promise<void> {
+  // まず既存紐付けを削除
+  await supabase
+    .from("client_office_assignments")
+    .delete()
+    .eq("tenant_id", tenantId)
+    .eq("client_id", clientId);
+  // officeId が指定されていれば追加（null = 共有扱い）
+  if (officeId) {
+    const { error } = await supabase
+      .from("client_office_assignments")
+      .insert({ tenant_id: tenantId, client_id: clientId, office_id: officeId });
+    if (error) throw error;
+  }
 }
 
 export type ClientInsert = Omit<Client, "id" | "created_at" | "updated_at">;
@@ -61,30 +102,67 @@ export async function replaceAllClients(clients: ClientInsert[], tenantId: strin
 }
 
 // 指定した事業所スコープの利用者のみを置換する（他事業所データは保持）
-//   officeId = null  → 共有（office_id IS NULL）のみ置換
-//   officeId = "..." → その office_id のみ置換
+//   officeId = null  → 共有（client_office_assignments 未紐付け）のみ置換
+//   officeId = "..." → その事業所に紐付いた利用者のみ置換し、新規利用者も同事業所に紐付ける
 export async function replaceClientsForOffice(
   clients: ClientInsert[],
   tenantId: string,
   officeId: string | null,
 ): Promise<void> {
-  // 対象スコープのみ削除
-  const delQuery = supabase.from("clients").delete().eq("tenant_id", tenantId);
   if (officeId === null) {
-    await delQuery.is("office_id", null);
+    // 共有スコープ: 事業所紐付けがない利用者のみを対象に置換
+    const assignments = await getClientOfficeAssignments(tenantId);
+    const assignedIds = new Set(assignments.map((a) => a.client_id));
+    const { data: existing } = await supabase
+      .from("clients")
+      .select("id")
+      .eq("tenant_id", tenantId);
+    const idsToDelete = (existing ?? [])
+      .map((c: { id: string }) => c.id)
+      .filter((id: string) => !assignedIds.has(id));
+    if (idsToDelete.length > 0) {
+      await supabase.from("clients").delete().in("id", idsToDelete);
+    }
   } else {
-    await delQuery.eq("office_id", officeId);
+    // 特定事業所スコープ: その事業所に紐付いた利用者だけ削除
+    const { data: assignments } = await supabase
+      .from("client_office_assignments")
+      .select("client_id")
+      .eq("tenant_id", tenantId)
+      .eq("office_id", officeId);
+    const idsToDelete = (assignments ?? []).map((a: { client_id: string }) => a.client_id);
+    if (idsToDelete.length > 0) {
+      // client_office_assignments は clients 削除で CASCADE されるので clients のみ削除
+      await supabase.from("clients").delete().in("id", idsToDelete);
+    }
   }
-  // バッチ挿入（office_idを付与）
+
+  // バッチ挿入
   const BATCH = 500;
+  const insertedIds: string[] = [];
   for (let i = 0; i < clients.length; i += BATCH) {
     const batch = clients.slice(i, i + BATCH).map((c) => ({
       ...c,
       tenant_id: tenantId,
+      office_id: officeId, // 後方互換
+    }));
+    const { data, error } = await supabase.from("clients").insert(batch).select("id");
+    if (error) throw error;
+    (data ?? []).forEach((r: { id: string }) => insertedIds.push(r.id));
+  }
+
+  // 事業所紐付け（officeId指定時のみ）
+  if (officeId && insertedIds.length > 0) {
+    const assignments = insertedIds.map((id) => ({
+      tenant_id: tenantId,
+      client_id: id,
       office_id: officeId,
     }));
-    const { error } = await supabase.from("clients").insert(batch);
-    if (error) throw error;
+    for (let i = 0; i < assignments.length; i += BATCH) {
+      const batch = assignments.slice(i, i + BATCH);
+      const { error } = await supabase.from("client_office_assignments").insert(batch);
+      if (error) throw error;
+    }
   }
 }
 
