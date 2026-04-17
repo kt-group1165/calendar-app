@@ -12,7 +12,7 @@ import { getEventTypes, addEventType, deleteEventType, updateEventTypeOffice, ty
 import { verifyMasterPin, updateMasterPin, getOrderEmailSettings, updateOrderEmailSettings, getClientSelectionEnabled, updateClientSelectionEnabled } from "@/lib/settings";
 import { getEventsByDateRange, getAllEvents, importEventsFromCSV } from "@/lib/events";
 import { getGroups, addGroup, deleteGroup, updateGroup, type MemberGroup } from "@/lib/groups";
-import { getClients, replaceAllClients, parseClientCSV, updateClientOffice, type Client } from "@/lib/clients";
+import { getClients, replaceAllClients, replaceClientsForOffice, parseClientCSV, updateClientOffice, type Client } from "@/lib/clients";
 import UsersTab from "@/components/UsersTab";
 
 type Tab = "members" | "groups" | "types" | "clients" | "users" | "csv" | "analytics" | "settings";
@@ -503,6 +503,8 @@ function EventTypesTab({ tenantId }: { tenantId: string }) {
 }
 
 // ── 利用者管理 ────────────────────────────────
+type ImportScope = "shared" | "office" | "all";
+
 function ClientsTab({ tenantId }: { tenantId: string }) {
   const searchParams = useSearchParams();
   const currentOfficeId = searchParams.get("office");
@@ -512,6 +514,9 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState("");
+  // 取込先: "shared" (共有/NULL) | "office" (特定事業所) | "all" (全件置換 = 旧動作)
+  const [importScope, setImportScope] = useState<ImportScope>(currentOfficeId ? "office" : "shared");
+  const [importOfficeId, setImportOfficeId] = useState<string | null>(currentOfficeId);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { load(); }, []);
@@ -528,6 +533,12 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
     ? offices.find((o) => o.id === currentOfficeId)?.name ?? null
     : null;
 
+  // 取込先ラベル
+  const importTargetLabel =
+    importScope === "all" ? "全件（他事業所含む全利用者を置換）"
+    : importScope === "office" ? (offices.find((o) => o.id === importOfficeId)?.name ?? "事業所")
+    : "共有（office_id = NULL）";
+
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -535,11 +546,22 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
     setImportMsg("");
     try {
       const parsed = await parseClientCSV(file);
-      if (!confirm(`${parsed.length}件の利用者データを取り込みます。\n既存データはすべて上書きされます。よろしいですか？`)) return;
-      await replaceAllClients(parsed, tenantId);
+      const scopeMsg =
+        importScope === "all" ? "全利用者（他事業所含む）を置換"
+        : importScope === "office" ? `「${importTargetLabel}」の利用者のみ置換`
+        : "共有（全事業所で見える）利用者のみ置換";
+      if (!confirm(`${parsed.length}件を取込：\n\n対象：${scopeMsg}\n\nよろしいですか？`)) return;
+
+      if (importScope === "all") {
+        await replaceAllClients(parsed, tenantId);
+      } else if (importScope === "office" && importOfficeId) {
+        await replaceClientsForOffice(parsed, tenantId, importOfficeId);
+      } else {
+        await replaceClientsForOffice(parsed, tenantId, null);
+      }
       const updated = await getClients(tenantId);
       setClients(updated);
-      setImportMsg(`✅ ${parsed.length}件の取り込みが完了しました`);
+      setImportMsg(`✅ ${parsed.length}件の取り込みが完了しました（${importTargetLabel}）`);
     } catch (err) {
       setImportMsg(`❌ 取り込みに失敗しました: ${(err as Error).message}`);
     } finally {
@@ -577,15 +599,63 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
         <p className="text-xs font-semibold text-indigo-700">CSVファイル取り込み</p>
         <p className="text-xs text-indigo-500">
           保険.CSV（Shift-JIS形式）を選択してください。<br />
-          同一利用者番号は最新の認定有効期間で上書き、全件置換されます。
+          同一利用者番号は最新の認定有効期間で上書きされます。
         </p>
+
+        {/* 取込先スコープ選択 */}
+        <div className="space-y-1.5 bg-white rounded-lg p-2.5 border border-indigo-100">
+          <p className="text-[11px] font-semibold text-indigo-700">取込先</p>
+          <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+            <input
+              type="radio"
+              checked={importScope === "office"}
+              onChange={() => setImportScope("office")}
+              className="accent-indigo-500"
+            />
+            <span>特定の事業所</span>
+            <select
+              value={importOfficeId ?? ""}
+              onChange={(e) => { setImportOfficeId(e.target.value || null); setImportScope("office"); }}
+              disabled={importScope !== "office"}
+              className="flex-1 text-xs border border-gray-200 rounded px-2 py-1 bg-white disabled:opacity-50"
+            >
+              <option value="">選択してください</option>
+              {offices.map((o) => (
+                <option key={o.id} value={o.id}>{o.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+            <input
+              type="radio"
+              checked={importScope === "shared"}
+              onChange={() => setImportScope("shared")}
+              className="accent-indigo-500"
+            />
+            <span>共有（全事業所で見える）</span>
+          </label>
+          <label className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer">
+            <input
+              type="radio"
+              checked={importScope === "all"}
+              onChange={() => setImportScope("all")}
+              className="accent-indigo-500"
+            />
+            <span className="text-red-500">全件置換（他事業所含め全て削除→置換）</span>
+          </label>
+          <p className="text-[11px] text-gray-400 leading-relaxed pt-1">
+            選んだスコープの既存データだけが削除され、同じスコープで挿入されます。<br />
+            他スコープのデータは影響を受けません。
+          </p>
+        </div>
+
         <button
           onClick={() => fileRef.current?.click()}
-          disabled={importing}
+          disabled={importing || (importScope === "office" && !importOfficeId)}
           className="w-full py-2.5 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-white font-semibold rounded-xl flex items-center justify-center gap-2 text-sm"
         >
           {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-          {importing ? "取り込み中..." : "CSVを取り込む"}
+          {importing ? "取り込み中..." : `CSVを取り込む（${importTargetLabel}）`}
         </button>
         {importMsg && (
           <p className={`text-xs font-medium ${importMsg.startsWith("✅") ? "text-green-600" : "text-red-500"}`}>

@@ -60,6 +60,34 @@ export async function replaceAllClients(clients: ClientInsert[], tenantId: strin
   }
 }
 
+// 指定した事業所スコープの利用者のみを置換する（他事業所データは保持）
+//   officeId = null  → 共有（office_id IS NULL）のみ置換
+//   officeId = "..." → その office_id のみ置換
+export async function replaceClientsForOffice(
+  clients: ClientInsert[],
+  tenantId: string,
+  officeId: string | null,
+): Promise<void> {
+  // 対象スコープのみ削除
+  const delQuery = supabase.from("clients").delete().eq("tenant_id", tenantId);
+  if (officeId === null) {
+    await delQuery.is("office_id", null);
+  } else {
+    await delQuery.eq("office_id", officeId);
+  }
+  // バッチ挿入（office_idを付与）
+  const BATCH = 500;
+  for (let i = 0; i < clients.length; i += BATCH) {
+    const batch = clients.slice(i, i + BATCH).map((c) => ({
+      ...c,
+      tenant_id: tenantId,
+      office_id: officeId,
+    }));
+    const { error } = await supabase.from("clients").insert(batch);
+    if (error) throw error;
+  }
+}
+
 // CSV（Shift-JIS）をパースして ClientInsert[] に変換
 export async function parseClientCSV(file: File): Promise<ClientInsert[]> {
   const buffer = await file.arrayBuffer();
