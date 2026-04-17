@@ -1,10 +1,9 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { createAdminClient } from "@/lib/supabase-server";
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// バックアップはCronから叩かれる想定。全テナント横断で全予定を取得するため、
+// service_role キーで RLS をバイパスする必要がある。
+// （認証済みクライアントでは自分のテナント分しか取れない）
 
 const CSV_HEADERS = [
   "ID","タイトル","開始日","終了日","開始時刻","終了時刻","終日",
@@ -29,6 +28,7 @@ function todayJST(): string {
 
 export async function GET() {
   try {
+    const supabase = createAdminClient();
     // 全予定を取得（1000件超対応・ページネーション）
     const PAGE = 1000;
     const allEvents = [];

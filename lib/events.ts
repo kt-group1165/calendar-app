@@ -268,11 +268,13 @@ export async function cleanupOldDeletedEvents(tenantId: string): Promise<void> {
     .eq("tenant_id", tenantId)
     .not("deleted_at", "is", null)
     .lt("deleted_at", cutoff.toISOString());
-  if (data && data.length > 0) {
-    const ids = data.map((e) => e.id);
+  type DeletableRow = { id: string; image_url: string | null; image_urls: string[] | null };
+  const rows = (data ?? []) as DeletableRow[];
+  if (rows.length > 0) {
+    const ids = rows.map((e) => e.id);
     const { error } = await supabase.from("events").delete().in("id", ids);
     if (!error) {
-      for (const event of data) {
+      for (const event of rows) {
         const urls: string[] = event.image_urls?.length
           ? event.image_urls
           : event.image_url ? [event.image_url] : [];
