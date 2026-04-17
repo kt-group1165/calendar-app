@@ -29,5 +29,5 @@ export type Event = {
   updated_at: string;
 };
 
-export type EventInsert = Omit<Event, "id" | "created_at" | "updated_at" | "deleted_at">;
+export type EventInsert = Omit<Event, "id" | "created_at" | "updated_at" | "deleted_at" | "office_id"> & { office_id?: string | null };
 export type EventUpdate = Partial<EventInsert>;
