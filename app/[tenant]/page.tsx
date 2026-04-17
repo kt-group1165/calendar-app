@@ -392,7 +392,7 @@ export default function TenantCalendarPage() {
   if (currentUser === null) return null;
   // Auth 未使用かつ名前未登録 → UserNameModal で従来の PIN フローへ
   if (!authUser.authUser && currentUser === "") {
-    return <UserNameModal tenantId={tenantId} onSave={handleUserNameSave} />;
+    return <UserNameModal tenantId={tenantId} officeId={currentOfficeId} onSave={handleUserNameSave} />;
   }
 
   return (

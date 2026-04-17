@@ -7,10 +7,11 @@ import { getMembers, type Member } from "@/lib/members";
 
 type Props = {
   tenantId: string;
+  officeId?: string | null;
   onSave: (name: string, isMaster: boolean) => void;
 };
 
-export default function UserNameModal({ tenantId, onSave }: Props) {
+export default function UserNameModal({ tenantId, officeId, onSave }: Props) {
   const [members, setMembers] = useState<Member[]>([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [selectedName, setSelectedName] = useState<string | null>(null);
@@ -26,11 +27,16 @@ export default function UserNameModal({ tenantId, onSave }: Props) {
       .finally(() => setLoadingMembers(false));
   }, [tenantId]);
 
+  // 自事業所のメンバーのみ
+  const visibleMembers = officeId
+    ? members.filter((m) => m.office_id === officeId)
+    : members;
+
   // メンバーが0人のときは「管理者」を仮の選択肢として使う
   const options: { name: string; color: string }[] =
-    members.length === 0
+    visibleMembers.length === 0
       ? [{ name: "管理者", color: "#6366f1" }]
-      : members.map((m) => ({ name: m.name, color: m.color }));
+      : visibleMembers.map((m) => ({ name: m.name, color: m.color }));
 
   async function handleSave() {
     if (!selectedName) return;
