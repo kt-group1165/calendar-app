@@ -5,8 +5,14 @@ export type Member = {
   name: string;
   color: string;
   sort_order: number | null;
+  office_id: string | null;
   created_at: string;
 };
+
+export async function updateMemberOffice(id: string, officeId: string | null): Promise<void> {
+  const { error } = await supabase.from("members").update({ office_id: officeId }).eq("id", id);
+  if (error) throw error;
+}
 
 export async function getMembers(tenantId: string): Promise<Member[]> {
   const { data, error } = await supabase

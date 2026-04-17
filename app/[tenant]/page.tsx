@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useParams } from "next/navigation";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { useParams, useSearchParams } from "next/navigation";
 import {
   format, addMonths, subMonths, addWeeks, subWeeks, addDays, subDays,
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameDay, isSameMonth, isToday,
 } from "date-fns";
 import { ja } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, ChevronDown, Plus, Calendar, RefreshCw, Trash2, Settings, Bell, Search, StickyNote } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Plus, Calendar, RefreshCw, Trash2, Settings, Bell, Search, StickyNote, LogOut } from "lucide-react";
 import MonthView from "@/components/MonthView";
 import WeekView from "@/components/WeekView";
 import DayView from "@/components/DayView";
@@ -27,8 +27,10 @@ import {
   logActivity, getUnreadActivityCount, getAllEvents,
 } from "@/lib/events";
 import { getMembers, type Member } from "@/lib/members";
+import { getOffices, type Office } from "@/lib/offices";
 import { getGroups, type MemberGroup } from "@/lib/groups";
 import { getClientSelectionEnabled } from "@/lib/settings";
+import { useCurrentUser, signOut } from "@/lib/auth";
 
 const LAST_SEEN_KEY = (tid: string) => `calendar_activity_last_seen_${tid}`;
 const LAST_BACKUP_KEY = (tid: string) => `calendar_last_backup_date_${tid}`;
@@ -57,6 +59,11 @@ function getDateRange(date: Date, mode: ViewMode) {
 export default function TenantCalendarPage() {
   const params = useParams<{ tenant: string }>();
   const tenantId = params.tenant as string;
+  const searchParams = useSearchParams();
+  const currentOfficeId = searchParams.get("office"); // nullなら全事業所表示
+
+  // Auth セッションがある場合はそれを優先（PIN モード互換ロジックは下で維持）
+  const authUser = useCurrentUser(tenantId);
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>("month");
@@ -83,7 +90,12 @@ export default function TenantCalendarPage() {
 
   // 担当者フィルター
   const [members, setMembers] = useState<Member[]>([]);
+  const [offices, setOffices] = useState<Office[]>([]);
   const [groups, setGroups] = useState<MemberGroup[]>([]);
+  const currentOffice = useMemo(
+    () => offices.find((o) => o.id === currentOfficeId) ?? null,
+    [offices, currentOfficeId]
+  );
   const [filterMembers, setFilterMembers] = useState<string[]>([]);
   const [filterGroups, setFilterGroups] = useState<string[]>([]);
 
@@ -95,14 +107,33 @@ export default function TenantCalendarPage() {
   const [showMemo, setShowMemo] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
+  // Auth セッションが確定したら、そちらから currentUser / isMaster を同期
+  useEffect(() => {
+    if (!tenantId || authUser.loading) return;
+    if (authUser.authUser) {
+      // Auth モード：user_tenants から取得した情報を使用
+      setCurrentUser(authUser.name ?? authUser.authUser.email ?? "");
+      setIsMaster(authUser.role === "master");
+    }
+    // 未ログイン時は下の localStorage 読み取り useEffect にまかせる
+  }, [authUser.loading, authUser.authUser, authUser.name, authUser.role, tenantId]);
+
   useEffect(() => {
     if (!tenantId) return;
-    const name = localStorage.getItem(USER_NAME_KEY(tenantId));
-    const master = localStorage.getItem(IS_MASTER_KEY(tenantId)) === "true";
-    setCurrentUser(name ?? "");
-    if (master) setIsMaster(true);
+    // 認証状態が確定するまで待つ（localStorage 読み取りのフラッシュを防ぐ）
+    if (authUser.loading) return;
+
+    // Auth 済み → localStorage の PIN 情報は無視
+    if (!authUser.authUser) {
+      // PIN モード（匿名）：従来通り localStorage から
+      const name = localStorage.getItem(USER_NAME_KEY(tenantId));
+      const master = localStorage.getItem(IS_MASTER_KEY(tenantId)) === "true";
+      setCurrentUser(name ?? "");
+      if (master) setIsMaster(true);
+    }
     cleanupOldDeletedEvents(tenantId).catch(() => {});
     getMembers(tenantId).then(setMembers).catch(() => {});
+    getOffices(tenantId).then(setOffices).catch(() => {});
     getGroups(tenantId).then(setGroups).catch(() => {});
     getClientSelectionEnabled(tenantId).then(setClientSelectionEnabled).catch(() => {});
 
@@ -143,7 +174,7 @@ export default function TenantCalendarPage() {
     } else {
       getUnreadActivityCount(lastSeen, tenantId).then(setUnreadCount).catch(() => {});
     }
-  }, [tenantId]);
+  }, [tenantId, authUser.loading, authUser.authUser]);
 
   function handleUserNameSave(name: string, master: boolean) {
     localStorage.setItem(USER_NAME_KEY(tenantId), name);
@@ -238,22 +269,54 @@ export default function TenantCalendarPage() {
       .flatMap((g) => g.member_names)
   );
 
+  // 事業所フィルター（URL ?office=<id>）
+  const officeFilteredMembers = useMemo(() => {
+    if (!currentOfficeId) return members;
+    return members.filter((m) => m.office_id === currentOfficeId);
+  }, [members, currentOfficeId]);
+  const officeMemberNames = useMemo(
+    () => new Set(officeFilteredMembers.map((m) => m.name)),
+    [officeFilteredMembers]
+  );
+
+  const officeFilteredEvents = useMemo(() => {
+    if (!currentOfficeId) return events;
+    return events.filter(
+      (e) =>
+        e.office_id === currentOfficeId ||
+        // 後方互換：office_id未設定でも、担当者がこの事業所ならこの事業所扱い
+        (e.office_id == null && e.assignees.some((a) => officeMemberNames.has(a)))
+    );
+  }, [events, currentOfficeId, officeMemberNames]);
+
   const hasFilter = filterMembers.length > 0 || filterGroups.length > 0;
   const displayEvents = !hasFilter
-    ? events
-    : events.filter((e) =>
+    ? officeFilteredEvents
+    : officeFilteredEvents.filter((e) =>
         e.assignees.some(
           (a) => filterMembers.includes(a) || groupFilterNames.has(a)
         )
       );
 
   async function handleSaveEvent(data: EventInsert) {
+    // 事業所切替中に作成された予定は、その事業所に紐付ける
+    // さもなくば担当者のoffice_idから自動推定
+    const inferOfficeId = () => {
+      if (data.office_id) return data.office_id;
+      if (currentOfficeId) return currentOfficeId;
+      for (const assigneeName of data.assignees) {
+        const m = members.find((mm) => mm.name === assigneeName);
+        if (m?.office_id) return m.office_id;
+      }
+      return null;
+    };
+    const enriched: EventInsert = { ...data, office_id: inferOfficeId() };
     if (editingEvent) {
-      await updateEvent(editingEvent.id, data);
-      logActivity(editingEvent.id, data.title, "updated", currentUser ?? "", editingEvent.assignees, data.assignees, tenantId).catch(() => {});
+      await updateEvent(editingEvent.id, enriched);
+      logActivity(editingEvent.id, enriched.title, "updated", currentUser ?? "", editingEvent.assignees, enriched.assignees, tenantId).catch(() => {});
     } else {
-      const created = await createEvent(data, tenantId);
-      logActivity(created.id, data.title, "created", currentUser ?? "", [], data.assignees, tenantId).catch(() => {});
+      const created = await createEvent(enriched, tenantId);
+      logActivity(created.id, enriched.title, "created", currentUser ?? "", [], enriched.assignees, tenantId).catch(() => {});
     }
     setShowAddModal(false);
     setEditingEvent(null);
@@ -324,8 +387,13 @@ export default function TenantCalendarPage() {
     setShowAddModal(true);
   }
 
+  // 認証状態が確定するまでは何も描画しない（localStorage フラッシュ防止）
+  if (authUser.loading) return null;
   if (currentUser === null) return null;
-  if (currentUser === "") return <UserNameModal tenantId={tenantId} onSave={handleUserNameSave} />;
+  // Auth 未使用かつ名前未登録 → UserNameModal で従来の PIN フローへ
+  if (!authUser.authUser && currentUser === "") {
+    return <UserNameModal tenantId={tenantId} onSave={handleUserNameSave} />;
+  }
 
   return (
     <div className="flex flex-col h-dvh max-h-dvh bg-[#f8f9fa]">
@@ -345,7 +413,7 @@ export default function TenantCalendarPage() {
         </div>
 
         {/* 年月タイトル（タップでピッカー） */}
-        <div className="relative">
+        <div className="relative flex flex-col items-center">
           <button
             onClick={() => { setPickerYear(currentDate.getFullYear()); setPickerMonth(currentDate.getMonth()); setShowDatePicker(!showDatePicker); }}
             className="flex items-center gap-1 text-base font-bold text-gray-800 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors"
@@ -353,6 +421,11 @@ export default function TenantCalendarPage() {
             {getHeaderTitle()}
             <ChevronDown size={14} className="text-gray-400" />
           </button>
+          {currentOffice && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-medium leading-none -mt-0.5 truncate max-w-[200px]">
+              {currentOffice.name}
+            </span>
+          )}
 
           {showDatePicker && (
             <>
@@ -493,11 +566,24 @@ export default function TenantCalendarPage() {
             className="p-2 rounded-xl hover:bg-gray-100 transition-colors" title="管理">
             <Settings size={18} className={isMaster ? "text-indigo-500" : "text-gray-400"} />
           </button>
+          {authUser.authUser && (
+            <button
+              onClick={async () => {
+                if (!confirm("ログアウトしますか？")) return;
+                await signOut();
+                window.location.href = "/";
+              }}
+              className="p-2 rounded-xl hover:bg-red-50 transition-colors"
+              title={`ログアウト (${authUser.authUser.email})`}
+            >
+              <LogOut size={18} className="text-gray-400" />
+            </button>
+          )}
         </div>
       </header>
 
       {/* 担当者・グループフィルターバー */}
-      {members.length > 0 && (
+      {officeFilteredMembers.length > 0 && (
         <div className="bg-white border-b border-gray-100 px-3 py-2 flex items-center gap-2 overflow-x-auto">
           <button
             onClick={clearAllFilters}
@@ -523,7 +609,7 @@ export default function TenantCalendarPage() {
 
           {groups.length > 0 && <div className="shrink-0 w-px h-5 bg-gray-200" />}
 
-          {members.map((m) => {
+          {officeFilteredMembers.map((m) => {
             const active = filterMembers.includes(m.name);
             return (
               <button

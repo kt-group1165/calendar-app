@@ -1,18 +1,21 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { X, Users, Download, BarChart2, Settings, Plus, Trash2, Loader2, Lock, Tag, User, Upload, Search, ChevronUp, ChevronDown, FileUp } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { X, Users, Download, BarChart2, Settings, Plus, Trash2, Loader2, Lock, Tag, User, Upload, Search, ChevronUp, ChevronDown, FileUp, UserPlus, Building2 } from "lucide-react";
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns";
 import { ja } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
-import { getMembers, addMember, deleteMember, updateMemberColor, updateMemberOrder, type Member } from "@/lib/members";
+import { getMembers, addMember, deleteMember, updateMemberColor, updateMemberOrder, updateMemberOffice, type Member } from "@/lib/members";
+import { getOffices, type Office } from "@/lib/offices";
 import { getEventTypes, addEventType, deleteEventType, type EventType } from "@/lib/event_types";
 import { verifyMasterPin, updateMasterPin, getOrderEmailSettings, updateOrderEmailSettings, getClientSelectionEnabled, updateClientSelectionEnabled } from "@/lib/settings";
 import { getEventsByDateRange, getAllEvents, importEventsFromCSV } from "@/lib/events";
 import { getGroups, addGroup, deleteGroup, updateGroup, type MemberGroup } from "@/lib/groups";
 import { getClients, replaceAllClients, parseClientCSV, type Client } from "@/lib/clients";
+import UsersTab from "@/components/UsersTab";
 
-type Tab = "members" | "groups" | "types" | "clients" | "csv" | "analytics" | "settings";
+type Tab = "members" | "groups" | "types" | "clients" | "users" | "csv" | "analytics" | "settings";
 
 const COLORS = [
   "#6366f1","#ec4899","#f97316","#10b981","#3b82f6","#8b5cf6","#ef4444","#f59e0b",
@@ -29,6 +32,7 @@ export default function AdminPanel({ tenantId, onClose, onLogout }: Props) {
     { key: "groups" as Tab, icon: Users, label: "グループ" },
     { key: "types" as Tab, icon: Tag, label: "種別" },
     { key: "clients" as Tab, icon: User, label: "利用者" },
+    { key: "users" as Tab, icon: UserPlus, label: "ユーザー" },
     { key: "csv" as Tab, icon: Download, label: "CSV" },
     { key: "analytics" as Tab, icon: BarChart2, label: "分析" },
     { key: "settings" as Tab, icon: Settings, label: "設定" },
@@ -62,6 +66,7 @@ export default function AdminPanel({ tenantId, onClose, onLogout }: Props) {
         {tab === "groups" && <GroupsTab tenantId={tenantId} />}
         {tab === "types" && <EventTypesTab tenantId={tenantId} />}
         {tab === "clients" && <ClientsTab tenantId={tenantId} />}
+        {tab === "users" && <UsersTab tenantId={tenantId} />}
         {tab === "csv" && <CsvTab tenantId={tenantId} />}
         {tab === "analytics" && <AnalyticsTab tenantId={tenantId} />}
         {tab === "settings" && <SettingsTab tenantId={tenantId} onLogout={onLogout} />}
@@ -613,7 +618,8 @@ function CsvTab({ tenantId }: { tenantId: string }) {
     setLoadingBackups(true);
     try {
       const { data } = await supabase.storage.from("backups").list("", { sortBy: { column: "name", order: "desc" }, limit: 30 });
-      setBackups((data ?? []).filter((f) => f.name.endsWith(".csv")).map((f) => ({ name: f.name, created_at: f.created_at ?? "" })));
+      const files = (data ?? []) as { name: string; created_at?: string | null }[];
+      setBackups(files.filter((f) => f.name.endsWith(".csv")).map((f) => ({ name: f.name, created_at: f.created_at ?? "" })));
     } catch { /* バケット未作成などは無視 */ }
     finally { setLoadingBackups(false); }
   }
@@ -918,6 +924,23 @@ function AnalyticsTab({ tenantId }: { tenantId: string }) {
 
 // ── 設定 ─────────────────────────────────────
 function SettingsTab({ tenantId, onLogout }: { tenantId: string; onLogout: () => void }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const currentOfficeId = searchParams.get("office");
+  const [offices, setOffices] = useState<Office[]>([]);
+
+  useEffect(() => {
+    getOffices(tenantId).then(setOffices).catch(() => {});
+  }, [tenantId]);
+
+  function switchOffice(officeId: string | null) {
+    const params = new URLSearchParams(Array.from(searchParams.entries()));
+    if (officeId) params.set("office", officeId);
+    else params.delete("office");
+    const qs = params.toString();
+    router.push(`/${tenantId}${qs ? `?${qs}` : ""}`);
+  }
+
   const [currentPin, setCurrentPin] = useState("");
   const [newPin, setNewPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
@@ -1018,6 +1041,27 @@ function SettingsTab({ tenantId, onLogout }: { tenantId: string; onLogout: () =>
           className="w-full py-2.5 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-white font-medium rounded-xl flex items-center justify-center gap-2 text-sm">
           {saving && <Loader2 size={14} className="animate-spin" />}PINを変更
         </button>
+      </div>
+
+      {/* 自事業所切替 */}
+      <div className="border-t border-gray-100 pt-4 space-y-2">
+        <div className="flex items-center gap-2">
+          <Building2 size={14} className="text-indigo-500" />
+          <h3 className="text-sm font-semibold text-gray-700">自事業所切替</h3>
+        </div>
+        <p className="text-xs text-gray-400">選択した事業所のメンバー・予定だけが表示されます。URL に反映されるのでブックマーク可能です。</p>
+        <select
+          value={currentOfficeId ?? ""}
+          onChange={(e) => switchOffice(e.target.value || null)}
+          className="w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-400 bg-white"
+        >
+          <option value="">全事業所（絞り込みなし）</option>
+          {offices.map((o) => (
+            <option key={o.id} value={o.id}>
+              [{o.service_type ?? "—"}] {o.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* 利用者選択機能 */}

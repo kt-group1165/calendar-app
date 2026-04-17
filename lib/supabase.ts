@@ -1,9 +1,8 @@
-import { createClient } from "@supabase/supabase-js";
+// 既存コード互換のための re-export。
+// 新規コードでは lib/supabase-browser.ts / lib/supabase-server.ts を直接使うこと。
+import { getSupabase } from "./supabase-browser";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = getSupabase();
 
 export type Event = {
   id: string;
@@ -22,6 +21,7 @@ export type Event = {
   notes: string | null;
   assignees: string[];
   event_type: string[];
+  office_id: string | null;
   created_by: string | null;
   updated_by: string | null;
   deleted_at: string | null;
