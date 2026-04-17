@@ -8,11 +8,11 @@ import { ja } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
 import { getMembers, addMember, deleteMember, updateMemberColor, updateMemberOrder, updateMemberOffice, type Member } from "@/lib/members";
 import { getOffices, type Office } from "@/lib/offices";
-import { getEventTypes, addEventType, deleteEventType, type EventType } from "@/lib/event_types";
+import { getEventTypes, addEventType, deleteEventType, updateEventTypeOffice, type EventType } from "@/lib/event_types";
 import { verifyMasterPin, updateMasterPin, getOrderEmailSettings, updateOrderEmailSettings, getClientSelectionEnabled, updateClientSelectionEnabled } from "@/lib/settings";
 import { getEventsByDateRange, getAllEvents, importEventsFromCSV } from "@/lib/events";
 import { getGroups, addGroup, deleteGroup, updateGroup, type MemberGroup } from "@/lib/groups";
-import { getClients, replaceAllClients, parseClientCSV, type Client } from "@/lib/clients";
+import { getClients, replaceAllClients, parseClientCSV, updateClientOffice, type Client } from "@/lib/clients";
 import UsersTab from "@/components/UsersTab";
 
 type Tab = "members" | "groups" | "types" | "clients" | "users" | "csv" | "analytics" | "settings";
@@ -428,11 +428,18 @@ function EventTypesTab({ tenantId }: { tenantId: string }) {
     if (!name) return;
     setAdding(true);
     try {
-      const t = await addEventType(name, tenantId);
+      const t = await addEventType(name, tenantId, currentOfficeId);
       setTypes((prev) => [...prev, t]);
       setNewName("");
     } catch { alert("追加に失敗しました（同名の種別が既に存在する可能性があります）"); }
     finally { setAdding(false); }
+  }
+
+  async function handleChangeOffice(id: string, officeId: string | null) {
+    try {
+      await updateEventTypeOffice(id, officeId);
+      setTypes((prev) => prev.map((t) => t.id === id ? { ...t, office_id: officeId } : t));
+    } catch { alert("事業所の変更に失敗しました"); }
   }
 
   async function handleDelete(id: string, name: string) {
@@ -443,12 +450,17 @@ function EventTypesTab({ tenantId }: { tenantId: string }) {
     } catch { alert("削除に失敗しました"); }
   }
 
+  // 表示: 自事業所選択中は「その事業所 または 共有(NULL)」のみ
+  const visibleTypes = currentOfficeId
+    ? types.filter((t) => t.office_id === currentOfficeId || t.office_id === null)
+    : types;
+
   return (
     <div className="p-4 space-y-4">
       {currentOfficeName && (
-        <div className="flex items-start gap-1.5 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-1.5">
-          <Building2 size={13} className="mt-0.5 shrink-0" />
-          <span>種別はテナント全体で共有されます（事業所別の絞り込み対象外）</span>
+        <div className="flex items-center gap-1.5 text-xs text-indigo-600 bg-indigo-50 rounded-lg px-3 py-1.5">
+          <Building2 size={13} />
+          <span>自事業所「{currentOfficeName}」＋共有種別を表示中（追加は自事業所に紐付け）</span>
         </div>
       )}
       <div className="flex gap-2">
@@ -462,14 +474,24 @@ function EventTypesTab({ tenantId }: { tenantId: string }) {
       </div>
 
       {loading ? <div className="flex justify-center py-8"><Loader2 size={24} className="animate-spin text-gray-300" /></div>
-        : types.length === 0 ? <p className="text-sm text-gray-400 text-center py-8">種別がありません</p>
+        : visibleTypes.length === 0 ? <p className="text-sm text-gray-400 text-center py-8">種別がありません</p>
         : (
           <div className="space-y-2">
-            {types.map((t) => (
-              <div key={t.id} className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2.5">
-                <span className="text-sm font-medium text-gray-700">{t.name}</span>
+            {visibleTypes.map((t) => (
+              <div key={t.id} className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2.5 gap-2">
+                <span className="text-sm font-medium text-gray-700 flex-1 min-w-0 truncate">{t.name}</span>
+                <select
+                  value={t.office_id ?? ""}
+                  onChange={(e) => handleChangeOffice(t.id, e.target.value || null)}
+                  className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white text-gray-600 focus:outline-none focus:border-indigo-400 max-w-[140px]"
+                >
+                  <option value="">共有（全事業所）</option>
+                  {offices.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}</option>
+                  ))}
+                </select>
                 <button onClick={() => handleDelete(t.id, t.name)}
-                  className="p-1.5 text-gray-300 hover:text-red-400 transition-colors rounded-lg hover:bg-red-50">
+                  className="p-1.5 text-gray-300 hover:text-red-400 transition-colors rounded-lg hover:bg-red-50 shrink-0">
                   <Trash2 size={15} />
                 </button>
               </div>
@@ -526,16 +548,28 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
     }
   }
 
-  const filtered = search.trim()
-    ? clients.filter((c) => c.name.includes(search) || (c.furigana ?? "").includes(search))
+  // 自事業所選択中は「その事業所 または 共有(NULL)」のみ
+  const officeFiltered = currentOfficeId
+    ? clients.filter((c) => c.office_id === currentOfficeId || c.office_id === null)
     : clients;
+
+  const filtered = search.trim()
+    ? officeFiltered.filter((c) => c.name.includes(search) || (c.furigana ?? "").includes(search))
+    : officeFiltered;
+
+  async function handleChangeOffice(id: string, officeId: string | null) {
+    try {
+      await updateClientOffice(id, officeId);
+      setClients((prev) => prev.map((c) => c.id === id ? { ...c, office_id: officeId } : c));
+    } catch { alert("事業所の変更に失敗しました"); }
+  }
 
   return (
     <div className="p-4 space-y-4">
       {currentOfficeName && (
-        <div className="flex items-start gap-1.5 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-1.5">
-          <Building2 size={13} className="mt-0.5 shrink-0" />
-          <span>利用者はテナント全体で共有されます（事業所別の絞り込み対象外）</span>
+        <div className="flex items-center gap-1.5 text-xs text-indigo-600 bg-indigo-50 rounded-lg px-3 py-1.5">
+          <Building2 size={13} />
+          <span>自事業所「{currentOfficeName}」＋共有利用者を表示中（CSV取込は共有として登録）</span>
         </div>
       )}
       {/* CSV取り込み */}
@@ -617,6 +651,19 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
               {c.address && (
                 <p className="text-xs text-gray-400 mt-1 ml-10 truncate">{c.address}</p>
               )}
+              <div className="flex items-center gap-1.5 mt-2 ml-10">
+                <Building2 size={11} className="text-gray-300" />
+                <select
+                  value={c.office_id ?? ""}
+                  onChange={(e) => handleChangeOffice(c.id, e.target.value || null)}
+                  className="text-xs border border-gray-200 rounded-lg px-2 py-0.5 bg-white text-gray-600 focus:outline-none focus:border-indigo-400"
+                >
+                  <option value="">共有（全事業所）</option>
+                  {offices.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           ))}
           {filtered.length > 100 && (
