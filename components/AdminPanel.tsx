@@ -77,7 +77,10 @@ export default function AdminPanel({ tenantId, onClose, onLogout }: Props) {
 
 // ── メンバー管理 ──────────────────────────────
 function MembersTab({ tenantId }: { tenantId: string }) {
+  const searchParams = useSearchParams();
+  const currentOfficeId = searchParams.get("office"); // nullなら全事業所
   const [members, setMembers] = useState<Member[]>([]);
+  const [offices, setOffices] = useState<Office[]>([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
   const [newColor, setNewColor] = useState(COLORS[0]);
@@ -86,15 +89,28 @@ function MembersTab({ tenantId }: { tenantId: string }) {
   useEffect(() => { load(); }, []);
   async function load() {
     setLoading(true);
-    try { setMembers(await getMembers(tenantId)); } finally { setLoading(false); }
+    try {
+      const [m, o] = await Promise.all([getMembers(tenantId), getOffices(tenantId)]);
+      setMembers(m);
+      setOffices(o);
+    } finally { setLoading(false); }
   }
 
-  // メンバーが読み込まれたら未使用の色を自動選択
+  // 自事業所のみ表示
+  const visibleMembers = currentOfficeId
+    ? members.filter((m) => m.office_id === currentOfficeId)
+    : members;
+
+  const currentOfficeName = currentOfficeId
+    ? offices.find((o) => o.id === currentOfficeId)?.name ?? null
+    : null;
+
+  // メンバーが読み込まれたら未使用の色を自動選択（表示中メンバー基準）
   useEffect(() => {
-    const usedColors = new Set(members.map((m) => m.color));
+    const usedColors = new Set(visibleMembers.map((m) => m.color));
     const unused = COLORS.find((c) => !usedColors.has(c));
     if (unused) setNewColor(unused);
-  }, [members]);
+  }, [members, currentOfficeId]);
 
   async function handleAdd() {
     const name = newName.trim();
@@ -102,6 +118,11 @@ function MembersTab({ tenantId }: { tenantId: string }) {
     setAdding(true);
     try {
       const m = await addMember(name, newColor, tenantId);
+      // 自事業所選択中なら自動で office_id を紐付け
+      if (currentOfficeId) {
+        await updateMemberOffice(m.id, currentOfficeId);
+        m.office_id = currentOfficeId;
+      }
       setMembers((prev) => [...prev, m].sort((a, b) => a.name.localeCompare(b.name, "ja")));
       setNewName("");
     } catch { alert("追加に失敗しました（同名のメンバーが既に存在する可能性があります）"); }
@@ -117,23 +138,29 @@ function MembersTab({ tenantId }: { tenantId: string }) {
 
   async function handleMoveUp(index: number) {
     if (index === 0) return;
-    const updated = [...members];
-    const a = updated[index - 1];
-    const b = updated[index];
-    // sort_order を交換
+    // visibleMembers ベースで隣接ペアを取得し、実データ(members) 内で入れ替える
+    const a = visibleMembers[index - 1];
+    const b = visibleMembers[index];
     const orderA = a.sort_order ?? index;
     const orderB = b.sort_order ?? index + 1;
     try {
       await updateMemberOrder(a.id, orderB);
       await updateMemberOrder(b.id, orderA);
-      updated[index - 1] = { ...b, sort_order: orderB };
-      updated[index] = { ...a, sort_order: orderA };
-      setMembers(updated);
+      setMembers((prev) => {
+        // sort_order を入れ替え、実配列内でも位置を swap する
+        const idxA = prev.findIndex((m) => m.id === a.id);
+        const idxB = prev.findIndex((m) => m.id === b.id);
+        if (idxA < 0 || idxB < 0) return prev;
+        const next = [...prev];
+        next[idxA] = { ...b, sort_order: orderA };
+        next[idxB] = { ...a, sort_order: orderB };
+        return next;
+      });
     } catch {}
   }
 
   async function handleMoveDown(index: number) {
-    if (index === members.length - 1) return;
+    if (index === visibleMembers.length - 1) return;
     await handleMoveUp(index + 1);
   }
 
@@ -147,6 +174,12 @@ function MembersTab({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="p-4 space-y-4">
+      {currentOfficeName && (
+        <div className="flex items-center gap-1.5 text-xs text-indigo-600 bg-indigo-50 rounded-lg px-3 py-1.5">
+          <Building2 size={13} />
+          <span>自事業所「{currentOfficeName}」のメンバーのみ表示中</span>
+        </div>
+      )}
       <div className="space-y-2">
         <div className="flex gap-2">
           <input type="text" placeholder="メンバー名" value={newName} onChange={(e) => setNewName(e.target.value)}
@@ -177,10 +210,10 @@ function MembersTab({ tenantId }: { tenantId: string }) {
       </div>
 
       {loading ? <div className="flex justify-center py-8"><Loader2 size={24} className="animate-spin text-gray-300" /></div>
-        : members.length === 0 ? <p className="text-sm text-gray-400 text-center py-8">メンバーがいません</p>
+        : visibleMembers.length === 0 ? <p className="text-sm text-gray-400 text-center py-8">{currentOfficeName ? "この事業所のメンバーはいません" : "メンバーがいません"}</p>
         : (
           <div className="space-y-2">
-            {members.map((m, index) => (
+            {visibleMembers.map((m, index) => (
               <div key={m.id} className="bg-gray-50 rounded-xl px-3 py-2.5">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2.5">
@@ -190,7 +223,7 @@ function MembersTab({ tenantId }: { tenantId: string }) {
                         className="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-gray-200 text-gray-400 hover:text-indigo-500 hover:border-indigo-300 disabled:opacity-20 disabled:cursor-not-allowed transition-colors active:bg-gray-50">
                         <ChevronUp size={18} />
                       </button>
-                      <button onClick={() => handleMoveDown(index)} disabled={index === members.length - 1}
+                      <button onClick={() => handleMoveDown(index)} disabled={index === visibleMembers.length - 1}
                         className="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-gray-200 text-gray-400 hover:text-indigo-500 hover:border-indigo-300 disabled:opacity-20 disabled:cursor-not-allowed transition-colors active:bg-gray-50">
                         <ChevronDown size={18} />
                       </button>
