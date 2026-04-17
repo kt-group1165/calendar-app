@@ -264,19 +264,34 @@ function MembersTab({ tenantId }: { tenantId: string }) {
 
 // ── グループ管理 ──────────────────────────────
 function GroupsTab({ tenantId }: { tenantId: string }) {
+  const searchParams = useSearchParams();
+  const currentOfficeId = searchParams.get("office");
   const [groups, setGroups] = useState<MemberGroup[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [offices, setOffices] = useState<Office[]>([]);
   const [groupName, setGroupName] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([getGroups(tenantId), getMembers(tenantId)])
-      .then(([g, m]) => { setGroups(g); setMembers(m); })
+    Promise.all([getGroups(tenantId), getMembers(tenantId), getOffices(tenantId)])
+      .then(([g, m, o]) => { setGroups(g); setMembers(m); setOffices(o); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  // 自事業所絞り込み
+  const visibleMembers = currentOfficeId
+    ? members.filter((m) => m.office_id === currentOfficeId)
+    : members;
+  const officeMemberNames = new Set(visibleMembers.map((m) => m.name));
+  const visibleGroups = currentOfficeId
+    ? groups.filter((g) => g.member_names.some((n) => officeMemberNames.has(n)))
+    : groups;
+  const currentOfficeName = currentOfficeId
+    ? offices.find((o) => o.id === currentOfficeId)?.name ?? null
+    : null;
 
   function toggleMember(name: string) {
     setSelected((prev) => prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]);
@@ -313,10 +328,16 @@ function GroupsTab({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="p-4 space-y-4">
+      {currentOfficeName && (
+        <div className="flex items-center gap-1.5 text-xs text-indigo-600 bg-indigo-50 rounded-lg px-3 py-1.5">
+          <Building2 size={13} />
+          <span>自事業所「{currentOfficeName}」のメンバーを含むグループのみ表示中</span>
+        </div>
+      )}
       {/* グループ一覧 */}
-      {groups.length > 0 && (
+      {visibleGroups.length > 0 && (
         <div className="space-y-2">
-          {groups.map((g) => (
+          {visibleGroups.map((g) => (
             <div key={g.id} className="bg-gray-50 rounded-xl p-3 flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-semibold text-gray-800">{g.name}</p>
@@ -344,7 +365,7 @@ function GroupsTab({ tenantId }: { tenantId: string }) {
         <div>
           <p className="text-xs text-gray-400 mb-2">メンバーを選択</p>
           <div className="flex flex-wrap gap-2">
-            {members.map((m) => {
+            {visibleMembers.map((m) => {
               const on = selected.includes(m.name);
               return (
                 <button key={m.id} onClick={() => toggleMember(m.name)}
@@ -380,7 +401,10 @@ function GroupsTab({ tenantId }: { tenantId: string }) {
 
 // ── 用件種別管理 ──────────────────────────────
 function EventTypesTab({ tenantId }: { tenantId: string }) {
+  const searchParams = useSearchParams();
+  const currentOfficeId = searchParams.get("office");
   const [types, setTypes] = useState<EventType[]>([]);
+  const [offices, setOffices] = useState<Office[]>([]);
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
@@ -388,8 +412,16 @@ function EventTypesTab({ tenantId }: { tenantId: string }) {
   useEffect(() => { load(); }, []);
   async function load() {
     setLoading(true);
-    try { setTypes(await getEventTypes(tenantId)); } finally { setLoading(false); }
+    try {
+      const [t, o] = await Promise.all([getEventTypes(tenantId), getOffices(tenantId)]);
+      setTypes(t);
+      setOffices(o);
+    } finally { setLoading(false); }
   }
+
+  const currentOfficeName = currentOfficeId
+    ? offices.find((o) => o.id === currentOfficeId)?.name ?? null
+    : null;
 
   async function handleAdd() {
     const name = newName.trim();
@@ -413,6 +445,12 @@ function EventTypesTab({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="p-4 space-y-4">
+      {currentOfficeName && (
+        <div className="flex items-start gap-1.5 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-1.5">
+          <Building2 size={13} className="mt-0.5 shrink-0" />
+          <span>種別はテナント全体で共有されます（事業所別の絞り込み対象外）</span>
+        </div>
+      )}
       <div className="flex gap-2">
         <input type="text" placeholder="種別名を入力" value={newName} onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleAdd()}
@@ -444,7 +482,10 @@ function EventTypesTab({ tenantId }: { tenantId: string }) {
 
 // ── 利用者管理 ────────────────────────────────
 function ClientsTab({ tenantId }: { tenantId: string }) {
+  const searchParams = useSearchParams();
+  const currentOfficeId = searchParams.get("office");
   const [clients, setClients] = useState<Client[]>([]);
+  const [offices, setOffices] = useState<Office[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
@@ -454,8 +495,16 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
   useEffect(() => { load(); }, []);
   async function load() {
     setLoading(true);
-    try { setClients(await getClients(tenantId)); } finally { setLoading(false); }
+    try {
+      const [c, o] = await Promise.all([getClients(tenantId), getOffices(tenantId)]);
+      setClients(c);
+      setOffices(o);
+    } finally { setLoading(false); }
   }
+
+  const currentOfficeName = currentOfficeId
+    ? offices.find((o) => o.id === currentOfficeId)?.name ?? null
+    : null;
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -483,6 +532,12 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
 
   return (
     <div className="p-4 space-y-4">
+      {currentOfficeName && (
+        <div className="flex items-start gap-1.5 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-1.5">
+          <Building2 size={13} className="mt-0.5 shrink-0" />
+          <span>利用者はテナント全体で共有されます（事業所別の絞り込み対象外）</span>
+        </div>
+      )}
       {/* CSV取り込み */}
       <div className="bg-indigo-50 rounded-xl p-3 space-y-2.5">
         <p className="text-xs font-semibold text-indigo-700">CSVファイル取り込み</p>
