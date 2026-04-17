@@ -128,5 +128,6 @@ export async function parseClientCSV(file: File): Promise<ClientInsert[]> {
       care_manager_org: n(r["支援事業所（正式名称）"]),
       care_manager: n(r["担当ケアマネジャー"]),
       certification_end_date: n(r["認定有効期間－終了日"]),
+      office_id: null,
     }));
 }
