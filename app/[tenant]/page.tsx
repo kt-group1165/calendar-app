@@ -652,6 +652,7 @@ export default function TenantCalendarPage() {
       {showAddModal && (
         <EventModal
           tenantId={tenantId}
+          officeId={currentOfficeId}
           event={editingEvent}
           initialData={duplicateData ?? undefined}
           defaultDate={selectedDate ? format(selectedDate, "yyyy-MM-dd") : undefined}

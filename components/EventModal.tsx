@@ -218,6 +218,7 @@ function ClientSelector({ clients, selected, manualName, onSelect, onManualName 
 
 type Props = {
   tenantId: string;
+  officeId?: string | null;
   event?: Event | null;
   initialData?: Partial<EventInsert>;
   defaultDate?: string;
@@ -228,7 +229,7 @@ type Props = {
   onClose: () => void;
 };
 
-export default function EventModal({ tenantId, event, initialData, defaultDate, currentUser, clientSelectionEnabled = true, onSave, onDelete, onClose }: Props) {
+export default function EventModal({ tenantId, officeId, event, initialData, defaultDate, currentUser, clientSelectionEnabled = true, onSave, onDelete, onClose }: Props) {
   const today = format(new Date(), "yyyy-MM-dd");
   const base = initialData ?? {};
   const [title, setTitle] = useState(event?.title ?? base.title ?? "");
@@ -266,6 +267,20 @@ export default function EventModal({ tenantId, event, initialData, defaultDate, 
     getEventTypes(tenantId).then(setEventTypes).catch(() => {});
     getClients(tenantId).then(setClients).catch(() => {});
   }, [tenantId]);
+
+  // 自事業所絞り込み
+  //   members: 自事業所のメンバーのみ（未割当は含めない）
+  //   eventTypes / clients: 自事業所のもの + 共有(NULL)
+  //   ただし既存イベントで選択済みのメンバー/種別/利用者は必ず残す（編集時に消えないため）
+  const visibleMembers = officeId
+    ? members.filter((m) => m.office_id === officeId || assignees.includes(m.name))
+    : members;
+  const visibleEventTypes = officeId
+    ? eventTypes.filter((t) => t.office_id === officeId || t.office_id === null || eventType.includes(t.name))
+    : eventTypes;
+  const visibleClients = officeId
+    ? clients.filter((c) => c.office_id === officeId || c.office_id === null || c.id === selectedClient?.id)
+    : clients;
 
   // 編集モード時：タイトルのプレフィックスからクライアントを特定し、prefix/autoBlockを復元する
   useEffect(() => {
@@ -498,7 +513,7 @@ export default function EventModal({ tenantId, event, initialData, defaultDate, 
 
           {/* 利用者選択 */}
           {clientSelectionEnabled && <ClientSelector
-            clients={clients}
+            clients={visibleClients}
             selected={selectedClient}
             manualName={manualClientName}
             onSelect={handleSelectClient}
@@ -506,14 +521,14 @@ export default function EventModal({ tenantId, event, initialData, defaultDate, 
           />}
 
           {/* 担当者（メンバーがいる場合のみ） */}
-          {members.length > 0 && (
+          {visibleMembers.length > 0 && (
             <div className="bg-gray-50 rounded-xl p-3 space-y-2">
               <div className="flex items-center gap-2 text-gray-500">
                 <Users size={16} />
                 <span className="text-sm font-medium">担当者</span>
               </div>
               <div className="flex flex-wrap gap-2">
-                {members.map((m) => {
+                {visibleMembers.map((m) => {
                   const active = assignees.includes(m.name);
                   return (
                   <button key={m.id} onClick={() => toggleAssignee(m)}
@@ -534,14 +549,14 @@ export default function EventModal({ tenantId, event, initialData, defaultDate, 
           )}
 
           {/* 用件種別 */}
-          {eventTypes.length > 0 && (
+          {visibleEventTypes.length > 0 && (
             <div className="bg-gray-50 rounded-xl p-3 space-y-2">
               <div className="flex items-center gap-2 text-gray-500">
                 <Tag size={16} />
                 <span className="text-sm font-medium">用件種別</span>
               </div>
               <div className="flex flex-wrap gap-2">
-                {eventTypes.map((t) => (
+                {visibleEventTypes.map((t) => (
                   <button key={t.id} onClick={() => toggleEventType(t.name)}
                     className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
                       eventType.includes(t.name)
