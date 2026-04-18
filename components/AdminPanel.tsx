@@ -675,39 +675,35 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
       ) : filtered.length === 0 ? (
         <p className="text-sm text-gray-400 text-center py-6">見つかりません</p>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-1">
           {filtered.slice(0, 100).map((c) => (
-            <div key={c.id} className="bg-gray-50 rounded-xl px-3 py-2.5">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center shrink-0">
-                  <span className="text-xs font-bold text-indigo-600">{c.name.charAt(0)}</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-800">{c.name}</p>
-                  <p className="text-xs text-gray-400">{c.furigana}</p>
-                </div>
-                <div className="text-right text-xs shrink-0 space-y-0.5">
-                  {c.care_level && <p className="text-indigo-500 font-medium">{c.care_level}</p>}
-                  {c.phone && <p className="text-gray-400">{c.phone}</p>}
-                  {!c.phone && c.mobile && <p className="text-gray-400">{c.mobile}</p>}
-                </div>
+            <div key={c.id} className="bg-gray-50 rounded-xl px-2.5 py-1.5 flex items-center gap-2 flex-wrap">
+              {/* アバター */}
+              <div className="w-7 h-7 bg-indigo-100 rounded-full flex items-center justify-center shrink-0">
+                <span className="text-xs font-bold text-indigo-600">{c.name.charAt(0)}</span>
               </div>
-              {c.address && (
-                <p className="text-xs text-gray-400 mt-1 ml-10 truncate">{c.address}</p>
-              )}
-              <div className="flex items-center gap-1.5 mt-2 ml-10">
-                <Building2 size={11} className="text-gray-300" />
-                <select
-                  value={Array.from(clientOfficeIds(c))[0] ?? ""}
-                  onChange={(e) => handleChangeOffice(c.id, e.target.value || null)}
-                  className="text-xs border border-gray-200 rounded-lg px-2 py-0.5 bg-white text-gray-600 focus:outline-none focus:border-indigo-400"
-                >
-                  <option value="">共有（全事業所）</option>
-                  {offices.map((o) => (
-                    <option key={o.id} value={o.id}>{o.name}</option>
-                  ))}
-                </select>
-              </div>
+              {/* 氏名 */}
+              <span className="text-sm font-semibold text-gray-800 shrink-0">{c.name}</span>
+              {/* フリガナ */}
+              {c.furigana && <span className="text-[11px] text-gray-400 shrink-0">{c.furigana}</span>}
+              {/* 介護度 */}
+              {c.care_level && <span className="text-[11px] text-indigo-500 font-medium bg-indigo-50 px-1.5 py-0.5 rounded shrink-0">{c.care_level}</span>}
+              {/* 電話 */}
+              {(c.phone || c.mobile) && <span className="text-[11px] text-gray-500 shrink-0">{c.phone ?? c.mobile}</span>}
+              {/* 住所（伸縮・省略） */}
+              {c.address && <span className="text-[11px] text-gray-400 flex-1 min-w-[120px] truncate">{c.address}</span>}
+              {/* 事業所ドロップダウン */}
+              <select
+                value={Array.from(clientOfficeIds(c))[0] ?? ""}
+                onChange={(e) => handleChangeOffice(c.id, e.target.value || null)}
+                className="ml-auto text-[11px] border border-gray-200 rounded-md px-1.5 py-0.5 bg-white text-gray-600 focus:outline-none focus:border-indigo-400 shrink-0 max-w-[140px]"
+                title="事業所紐付け"
+              >
+                <option value="">共有</option>
+                {offices.map((o) => (
+                  <option key={o.id} value={o.id}>{o.name}</option>
+                ))}
+              </select>
             </div>
           ))}
           {filtered.length > 100 && (
