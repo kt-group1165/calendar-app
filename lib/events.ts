@@ -108,6 +108,7 @@ export async function importEventsFromCSV(
       location: data.location ?? null,
       assignees: data.assignees ?? [],
       event_type: data.event_type ?? [],
+      area_id: data.area_id ?? null,
       created_by: data.created_by ?? null,
       updated_by: data.updated_by ?? null,
     }));
@@ -130,6 +131,7 @@ export async function importEventsFromCSV(
       location: data.location ?? null,
       assignees: data.assignees ?? [],
       event_type: data.event_type ?? [],
+      area_id: data.area_id ?? null,
       created_by: data.created_by ?? null,
       updated_by: data.updated_by ?? null,
     }));

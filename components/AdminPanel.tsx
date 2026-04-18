@@ -2,20 +2,21 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { X, Users, Download, BarChart2, Settings, Plus, Trash2, Loader2, Lock, Tag, User, Upload, Search, ChevronUp, ChevronDown, FileUp, UserPlus, Building2 } from "lucide-react";
+import { X, Users, Download, BarChart2, Settings, Plus, Trash2, Loader2, Lock, Tag, User, Upload, Search, ChevronUp, ChevronDown, FileUp, UserPlus, Building2, MapPin } from "lucide-react";
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns";
 import { ja } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
 import { getMembers, addMember, deleteMember, updateMemberColor, updateMemberOrder, updateMemberOffice, type Member } from "@/lib/members";
 import { getOffices, type Office } from "@/lib/offices";
 import { getEventTypes, addEventType, deleteEventType, updateEventTypeOffice, type EventType } from "@/lib/event_types";
+import { getEventAreas, addEventArea, updateEventArea, deleteEventArea, type EventArea } from "@/lib/event_areas";
 import { verifyMasterPin, updateMasterPin, getOrderEmailSettings, updateOrderEmailSettings, getClientSelectionEnabled, updateClientSelectionEnabled } from "@/lib/settings";
 import { getEventsByDateRange, getAllEvents, importEventsFromCSV } from "@/lib/events";
 import { getGroups, addGroup, deleteGroup, updateGroup, type MemberGroup } from "@/lib/groups";
 import { getClients, replaceClientsForOffice, parseClientCSV, updateClientOffice, getClientOfficeAssignments, setClientOfficeAssignment, type Client, type ClientOfficeAssignment } from "@/lib/clients";
 import UsersTab from "@/components/UsersTab";
 
-type Tab = "members" | "groups" | "types" | "clients" | "users" | "csv" | "analytics" | "settings";
+type Tab = "members" | "groups" | "types" | "areas" | "clients" | "users" | "csv" | "analytics" | "settings";
 
 const COLORS = [
   "#6366f1","#ec4899","#f97316","#10b981","#3b82f6","#8b5cf6","#ef4444","#f59e0b",
@@ -31,6 +32,7 @@ export default function AdminPanel({ tenantId, onClose, onLogout }: Props) {
     { key: "members" as Tab, icon: Users, label: "メンバー" },
     { key: "groups" as Tab, icon: Users, label: "グループ" },
     { key: "types" as Tab, icon: Tag, label: "種別" },
+    { key: "areas" as Tab, icon: MapPin, label: "エリア" },
     { key: "clients" as Tab, icon: User, label: "利用者" },
     { key: "users" as Tab, icon: UserPlus, label: "ユーザー" },
     { key: "csv" as Tab, icon: Download, label: "CSV" },
@@ -65,6 +67,7 @@ export default function AdminPanel({ tenantId, onClose, onLogout }: Props) {
         {tab === "members" && <MembersTab tenantId={tenantId} />}
         {tab === "groups" && <GroupsTab tenantId={tenantId} />}
         {tab === "types" && <EventTypesTab tenantId={tenantId} />}
+        {tab === "areas" && <AreasTab tenantId={tenantId} />}
         {tab === "clients" && <ClientsTab tenantId={tenantId} />}
         {tab === "users" && <UsersTab tenantId={tenantId} />}
         {tab === "csv" && <CsvTab tenantId={tenantId} />}
@@ -395,6 +398,169 @@ function GroupsTab({ tenantId }: { tenantId: string }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── エリア管理（事業所ごと） ──────────────────────────────
+function AreasTab({ tenantId }: { tenantId: string }) {
+  const searchParams = useSearchParams();
+  const currentOfficeId = searchParams.get("office");
+  const [areas, setAreas] = useState<EventArea[]>([]);
+  const [offices, setOffices] = useState<Office[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newName, setNewName] = useState("");
+  const [newOfficeId, setNewOfficeId] = useState<string | null>(currentOfficeId);
+  const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+
+  useEffect(() => { load(); }, []);
+  async function load() {
+    setLoading(true);
+    try {
+      const [a, o] = await Promise.all([getEventAreas(tenantId), getOffices(tenantId)]);
+      setAreas(a);
+      setOffices(o);
+    } finally { setLoading(false); }
+  }
+
+  const currentOfficeName = currentOfficeId
+    ? offices.find((o) => o.id === currentOfficeId)?.name ?? null
+    : null;
+
+  // 表示対象を絞り込み（自事業所選択中はその事業所のエリア）
+  const visibleAreas = currentOfficeId
+    ? areas.filter((a) => a.office_id === currentOfficeId)
+    : areas;
+
+  async function handleAdd() {
+    const name = newName.trim();
+    if (!name) return;
+    setAdding(true);
+    try {
+      const a = await addEventArea(tenantId, newOfficeId, name);
+      setAreas((prev) => [...prev, a]);
+      setNewName("");
+    } catch { alert("追加に失敗しました（同名のエリアが既に存在する可能性があります）"); }
+    finally { setAdding(false); }
+  }
+
+  async function handleSaveEdit(id: string) {
+    if (!editName.trim()) { setEditingId(null); return; }
+    try {
+      await updateEventArea(id, { name: editName.trim() });
+      setAreas((prev) => prev.map((a) => a.id === id ? { ...a, name: editName.trim() } : a));
+      setEditingId(null);
+    } catch { alert("更新に失敗しました"); }
+  }
+
+  async function handleDelete(id: string, name: string) {
+    if (!confirm(`「${name}」を削除しますか？\nこのエリアを設定中の予定は「未設定」になります。`)) return;
+    try {
+      await deleteEventArea(id);
+      setAreas((prev) => prev.filter((a) => a.id !== id));
+    } catch { alert("削除に失敗しました"); }
+  }
+
+  // 事業所IDでエリアをグループ化
+  const areasByOffice = new Map<string | null, EventArea[]>();
+  for (const a of visibleAreas) {
+    const key = a.office_id ?? null;
+    if (!areasByOffice.has(key)) areasByOffice.set(key, []);
+    areasByOffice.get(key)!.push(a);
+  }
+
+  return (
+    <div className="p-4 space-y-4">
+      {currentOfficeName && (
+        <div className="flex items-center gap-1.5 text-xs text-indigo-600 bg-indigo-50 rounded-lg px-3 py-1.5">
+          <Building2 size={13} />
+          <span>自事業所「{currentOfficeName}」のエリアのみ表示中</span>
+        </div>
+      )}
+
+      {/* 追加フォーム */}
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <select
+            value={newOfficeId ?? ""}
+            onChange={(e) => setNewOfficeId(e.target.value || null)}
+            className="text-sm border-2 border-gray-200 rounded-xl px-2.5 py-2.5 bg-white focus:outline-none focus:border-indigo-400"
+          >
+            <option value="">事業所を選択</option>
+            {offices.map((o) => (
+              <option key={o.id} value={o.id}>{o.name}</option>
+            ))}
+          </select>
+          <input
+            type="text"
+            placeholder="エリア名（例：市原）"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+            className="flex-1 text-sm border-2 border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-400"
+          />
+          <button
+            onClick={handleAdd}
+            disabled={adding || !newName.trim() || !newOfficeId}
+            className="px-4 py-2.5 bg-indigo-500 text-white rounded-xl text-sm font-medium disabled:opacity-50 hover:bg-indigo-600 flex items-center gap-1.5"
+          >
+            {adding ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}追加
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-8"><Loader2 size={24} className="animate-spin text-gray-300" /></div>
+      ) : visibleAreas.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-8">エリアがありません</p>
+      ) : (
+        <div className="space-y-4">
+          {Array.from(areasByOffice.entries()).map(([officeId, list]) => {
+            const office = offices.find((o) => o.id === officeId);
+            return (
+              <div key={officeId ?? "__null__"} className="space-y-1.5">
+                <p className="text-xs font-semibold text-gray-500 flex items-center gap-1.5">
+                  <Building2 size={12} />
+                  {office?.name ?? "（事業所未設定）"}
+                </p>
+                <div className="space-y-1.5">
+                  {list.map((a) => (
+                    <div key={a.id} className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2 gap-2">
+                      {editingId === a.id ? (
+                        <>
+                          <input
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            onKeyDown={(e) => e.key === "Enter" && handleSaveEdit(a.id)}
+                            className="flex-1 text-sm border border-indigo-300 rounded-lg px-2 py-1 focus:outline-none"
+                            autoFocus
+                          />
+                          <button onClick={() => handleSaveEdit(a.id)}
+                            className="text-xs text-white bg-indigo-500 px-2.5 py-1 rounded-lg">保存</button>
+                          <button onClick={() => setEditingId(null)}
+                            className="text-xs text-gray-500 px-2 py-1 rounded-lg">キャンセル</button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-sm font-medium text-gray-700 flex-1">{a.name}</span>
+                          <button onClick={() => { setEditingId(a.id); setEditName(a.name); }}
+                            className="text-xs text-indigo-500 px-2 py-0.5 rounded-lg hover:bg-indigo-50">編集</button>
+                          <button onClick={() => handleDelete(a.id, a.name)}
+                            className="p-1.5 text-gray-300 hover:text-red-400 transition-colors rounded-lg hover:bg-red-50">
+                            <Trash2 size={14} />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

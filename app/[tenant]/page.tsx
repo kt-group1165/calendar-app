@@ -29,6 +29,7 @@ import {
 import { getMembers, type Member } from "@/lib/members";
 import { getOffices, type Office } from "@/lib/offices";
 import { getGroups, type MemberGroup } from "@/lib/groups";
+import { getEventAreas, type EventArea } from "@/lib/event_areas";
 import { getClientSelectionEnabled } from "@/lib/settings";
 import { useCurrentUser, signOut } from "@/lib/auth";
 
@@ -98,6 +99,8 @@ export default function TenantCalendarPage() {
   );
   const [filterMembers, setFilterMembers] = useState<string[]>([]);
   const [filterGroups, setFilterGroups] = useState<string[]>([]);
+  const [filterAreas, setFilterAreas] = useState<string[]>([]);
+  const [eventAreas, setEventAreas] = useState<EventArea[]>([]);
 
   const [clientSelectionEnabled, setClientSelectionEnabled] = useState(true);
 
@@ -135,6 +138,7 @@ export default function TenantCalendarPage() {
     getMembers(tenantId).then(setMembers).catch(() => {});
     getOffices(tenantId).then(setOffices).catch(() => {});
     getGroups(tenantId).then(setGroups).catch(() => {});
+    getEventAreas(tenantId).then(setEventAreas).catch(() => {});
     getClientSelectionEnabled(tenantId).then(setClientSelectionEnabled).catch(() => {});
 
     // 1日1回、アプリを開いたときに自動バックアップCSVをダウンロード
@@ -258,9 +262,16 @@ export default function TenantCalendarPage() {
     );
   }
 
+  function toggleFilterArea(id: string) {
+    setFilterAreas((prev) =>
+      prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id]
+    );
+  }
+
   function clearAllFilters() {
     setFilterMembers([]);
     setFilterGroups([]);
+    setFilterAreas([]);
   }
 
   const groupFilterNames = new Set(
@@ -289,14 +300,20 @@ export default function TenantCalendarPage() {
     );
   }, [events, currentOfficeId, officeMemberNames]);
 
-  const hasFilter = filterMembers.length > 0 || filterGroups.length > 0;
+  const hasFilter = filterMembers.length > 0 || filterGroups.length > 0 || filterAreas.length > 0;
   const displayEvents = !hasFilter
     ? officeFilteredEvents
-    : officeFilteredEvents.filter((e) =>
-        e.assignees.some(
-          (a) => filterMembers.includes(a) || groupFilterNames.has(a)
-        )
-      );
+    : officeFilteredEvents.filter((e) => {
+        // メンバー/グループで絞り込み
+        const memberMatch = filterMembers.length === 0 && filterGroups.length === 0
+          ? true
+          : e.assignees.some((a) => filterMembers.includes(a) || groupFilterNames.has(a));
+        // エリアで絞り込み
+        const areaMatch = filterAreas.length === 0
+          ? true
+          : (e.area_id != null && filterAreas.includes(e.area_id));
+        return memberMatch && areaMatch;
+      });
 
   async function handleSaveEvent(data: EventInsert) {
     // 事業所切替中に作成された予定は、その事業所に紐付ける
@@ -629,6 +646,33 @@ export default function TenantCalendarPage() {
         </div>
       )}
 
+      {/* エリアフィルターバー */}
+      {(() => {
+        const visibleAreas = currentOfficeId
+          ? eventAreas.filter((a) => a.office_id === currentOfficeId)
+          : eventAreas;
+        if (visibleAreas.length === 0) return null;
+        return (
+          <div className="bg-white border-b border-gray-100 px-3 py-1.5 flex items-center gap-2 overflow-x-auto">
+            <span className="shrink-0 text-[11px] text-gray-400 font-medium">エリア</span>
+            {visibleAreas.map((a) => {
+              const active = filterAreas.includes(a.id);
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => toggleFilterArea(a.id)}
+                  className={`shrink-0 px-2.5 h-7 rounded-full text-xs font-medium transition-all border whitespace-nowrap ${
+                    active
+                      ? "bg-emerald-500 text-white border-emerald-500"
+                      : "bg-white text-emerald-600 border-emerald-300 hover:bg-emerald-50"
+                  }`}
+                >{a.name}</button>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {supabaseError && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-700">
           ⚠️ 接続エラーが発生しました。ページを再読み込みしてください。
@@ -710,7 +754,11 @@ export default function TenantCalendarPage() {
       {showAdmin && (
         <AdminPanel
           tenantId={tenantId}
-          onClose={() => { setShowAdmin(false); getGroups(tenantId).then(setGroups).catch(() => {}); }}
+          onClose={() => {
+            setShowAdmin(false);
+            getGroups(tenantId).then(setGroups).catch(() => {});
+            getEventAreas(tenantId).then(setEventAreas).catch(() => {});
+          }}
           onLogout={handleMasterLogout}
         />
       )}

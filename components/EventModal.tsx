@@ -8,6 +8,7 @@ import { type Event, type EventInsert } from "@/lib/supabase";
 import { uploadImage, deleteImage } from "@/lib/events";
 import { getMembers, type Member } from "@/lib/members";
 import { getEventTypes, type EventType } from "@/lib/event_types";
+import { getEventAreas, type EventArea } from "@/lib/event_areas";
 import { getClients, getClientOfficeAssignments, type Client, type ClientOfficeAssignment } from "@/lib/clients";
 
 function TimeSelect({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
@@ -247,8 +248,10 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
   const [location, setLocation] = useState(event?.location ?? base.location ?? "");
   const [assignees, setAssignees] = useState<string[]>(event?.assignees ?? base.assignees ?? []);
   const [eventType, setEventType] = useState<string[]>(event?.event_type ?? base.event_type ?? []);
+  const [areaId, setAreaId] = useState<string | null>(event?.area_id ?? base.area_id ?? null);
   const [members, setMembers] = useState<Member[]>([]);
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
+  const [eventAreas, setEventAreas] = useState<EventArea[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [clientAssignments, setClientAssignments] = useState<ClientOfficeAssignment[]>([]);
   // 利用者: DBから選択 or 手動入力、どちらか一方
@@ -266,6 +269,7 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
   useEffect(() => {
     getMembers(tenantId).then(setMembers).catch(() => {});
     getEventTypes(tenantId).then(setEventTypes).catch(() => {});
+    getEventAreas(tenantId).then(setEventAreas).catch(() => {});
     getClients(tenantId).then(setClients).catch(() => {});
     getClientOfficeAssignments(tenantId).then(setClientAssignments).catch(() => {});
   }, [tenantId]);
@@ -498,6 +502,7 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
         location: location.trim() || null,
         assignees,
         event_type: eventType,
+        area_id: areaId,
         created_by: event ? event.created_by : currentUser,
         updated_by: currentUser,
       });
@@ -587,6 +592,48 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
               </div>
             </div>
           )}
+
+          {/* エリア */}
+          {(() => {
+            // 自事業所選択中はその事業所のエリア、未選択は全エリア
+            const visibleAreas = officeId
+              ? eventAreas.filter((a) => a.office_id === officeId || a.id === areaId)
+              : eventAreas;
+            if (visibleAreas.length === 0) return null;
+            return (
+              <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+                <div className="flex items-center gap-2 text-gray-500">
+                  <MapPin size={16} />
+                  <span className="text-sm font-medium">エリア</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setAreaId(null)}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
+                      areaId === null
+                        ? "bg-gray-500 text-white border-gray-500"
+                        : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
+                    }`}
+                  >
+                    未設定
+                  </button>
+                  {visibleAreas.map((a) => (
+                    <button
+                      key={a.id}
+                      onClick={() => setAreaId(a.id)}
+                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
+                        areaId === a.id
+                          ? "bg-indigo-500 text-white border-indigo-500"
+                          : "bg-white text-gray-600 border-gray-200 hover:border-indigo-300"
+                      }`}
+                    >
+                      {a.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* カラー（手動選択） */}
           <div>
