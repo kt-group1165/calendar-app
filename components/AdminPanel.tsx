@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { X, Users, Download, BarChart2, Settings, Plus, Trash2, Loader2, Lock, Tag, User, Upload, Search, ChevronUp, ChevronDown, FileUp, UserPlus, Building2, MapPin } from "lucide-react";
+import { X, Users, Download, BarChart2, Settings, Plus, Trash2, Loader2, Lock, Tag, User, Upload, Search, ChevronUp, ChevronDown, FileUp, UserPlus, Building2, MapPin, Merge } from "lucide-react";
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns";
 import { ja } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
@@ -10,13 +10,14 @@ import { getMembers, addMember, deleteMember, updateMemberColor, updateMemberOrd
 import { getOffices, type Office } from "@/lib/offices";
 import { getEventTypes, addEventType, deleteEventType, updateEventTypeOffice, type EventType } from "@/lib/event_types";
 import { getEventAreas, addEventArea, updateEventArea, deleteEventArea, type EventArea } from "@/lib/event_areas";
+import { detectDuplicates, executeMerge, type DuplicateGroup } from "@/lib/staff_merge";
 import { verifyMasterPin, updateMasterPin, getOrderEmailSettings, updateOrderEmailSettings, getClientSelectionEnabled, updateClientSelectionEnabled } from "@/lib/settings";
 import { getEventsByDateRange, getAllEvents, importEventsFromCSV } from "@/lib/events";
 import { getGroups, addGroup, deleteGroup, updateGroup, type MemberGroup } from "@/lib/groups";
 import { getClients, replaceClientsForOffice, parseClientCSV, updateClientOffice, getClientOfficeAssignments, setClientOfficeAssignment, type Client, type ClientOfficeAssignment } from "@/lib/clients";
 import UsersTab from "@/components/UsersTab";
 
-type Tab = "members" | "groups" | "types" | "areas" | "clients" | "users" | "csv" | "analytics" | "settings";
+type Tab = "members" | "groups" | "types" | "areas" | "merge" | "clients" | "users" | "csv" | "analytics" | "settings";
 
 const COLORS = [
   "#6366f1","#ec4899","#f97316","#10b981","#3b82f6","#8b5cf6","#ef4444","#f59e0b",
@@ -33,6 +34,7 @@ export default function AdminPanel({ tenantId, onClose, onLogout }: Props) {
     { key: "groups" as Tab, icon: Users, label: "グループ" },
     { key: "types" as Tab, icon: Tag, label: "種別" },
     { key: "areas" as Tab, icon: MapPin, label: "エリア" },
+    { key: "merge" as Tab, icon: Merge, label: "スタッフ統合" },
     { key: "clients" as Tab, icon: User, label: "利用者" },
     { key: "users" as Tab, icon: UserPlus, label: "ユーザー" },
     { key: "csv" as Tab, icon: Download, label: "CSV" },
@@ -68,6 +70,7 @@ export default function AdminPanel({ tenantId, onClose, onLogout }: Props) {
         {tab === "groups" && <GroupsTab tenantId={tenantId} />}
         {tab === "types" && <EventTypesTab tenantId={tenantId} />}
         {tab === "areas" && <AreasTab tenantId={tenantId} />}
+        {tab === "merge" && <StaffMergeTab tenantId={tenantId} />}
         {tab === "clients" && <ClientsTab tenantId={tenantId} />}
         {tab === "users" && <UsersTab tenantId={tenantId} />}
         {tab === "csv" && <CsvTab tenantId={tenantId} />}
@@ -560,6 +563,171 @@ function AreasTab({ tenantId }: { tenantId: string }) {
             );
           })}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── スタッフ統合（エリア付き重複スタッフを統合） ──────────────────────
+function StaffMergeTab({ tenantId }: { tenantId: string }) {
+  const [members, setMembers] = useState<Member[]>([]);
+  const [areas, setAreas] = useState<EventArea[]>([]);
+  const [groups, setGroups] = useState<DuplicateGroup[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [executing, setExecuting] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  // 各グループを実行対象にするかどうか
+  const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
+
+  useEffect(() => { load(); }, []);
+  async function load() {
+    setLoading(true);
+    try {
+      const [m, a] = await Promise.all([getMembers(tenantId), getEventAreas(tenantId)]);
+      setMembers(m);
+      setAreas(a);
+      const g = detectDuplicates(m, a);
+      setGroups(g);
+      // デフォルトで全選択
+      setSelectedGroups(new Set(g.map((grp) => grp.baseName)));
+    } finally { setLoading(false); }
+  }
+
+  const toggleGroup = (baseName: string) => {
+    setSelectedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(baseName)) next.delete(baseName);
+      else next.add(baseName);
+      return next;
+    });
+  };
+
+  async function handleExecute() {
+    const targetGroups = groups.filter((g) => selectedGroups.has(g.baseName));
+    if (targetGroups.length === 0) {
+      alert("統合対象のグループを選択してください");
+      return;
+    }
+    const totalVariants = targetGroups.reduce(
+      (sum, g) => sum + g.variants.filter((v) => v.areaName !== null).length,
+      0,
+    );
+    if (!confirm(
+      `${targetGroups.length}グループ（${totalVariants}件のエリア付きスタッフ）を統合します。\n\n` +
+      `・対象予定の担当者を基本名に書き換え\n` +
+      `・対象予定のエリアを自動設定（未設定の場合のみ）\n` +
+      `・エリア付き変種メンバーを削除\n\n` +
+      `この操作は元に戻せません。続行しますか？`
+    )) return;
+
+    setExecuting(true);
+    setResult(null);
+    try {
+      const res = await executeMerge(tenantId, targetGroups, areas, members);
+      setResult(
+        `✅ 完了: 予定${res.updatedEvents}件を更新、` +
+        `変種${res.deletedMembers}件を削除` +
+        (res.createdBaseMembers > 0 ? `、基本名${res.createdBaseMembers}件を新規作成` : "")
+      );
+      await load();
+    } catch (e) {
+      console.error(e);
+      setResult(`❌ エラー: ${(e as Error).message}`);
+    } finally {
+      setExecuting(false);
+    }
+  }
+
+  if (loading) return <div className="flex justify-center py-12"><Loader2 size={20} className="animate-spin text-gray-300" /></div>;
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="bg-indigo-50 rounded-xl p-3 space-y-1.5">
+        <p className="text-xs font-semibold text-indigo-700">スタッフ統合機能</p>
+        <p className="text-xs text-indigo-600 leading-relaxed">
+          「山田（市原）」「山田（木更津）」のようにエリア名が付いたメンバーを検出します。<br />
+          統合すると：<br />
+          ① 該当予定の担当者を「山田」に書き換え<br />
+          ② 該当予定の<strong>エリアを自動設定</strong>（未設定の場合のみ）<br />
+          ③ 「山田（市原）」「山田（木更津）」のメンバーを削除
+        </p>
+      </div>
+
+      {groups.length === 0 ? (
+        <p className="text-sm text-gray-400 text-center py-8">
+          統合対象が検出されませんでした。<br />
+          <span className="text-xs">「名前（エリア名）」形式のメンバーがいないか、該当エリアが登録されていません。</span>
+        </p>
+      ) : (
+        <>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-500">{groups.length}グループ検出（選択中 {selectedGroups.size}）</p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSelectedGroups(new Set(groups.map((g) => g.baseName)))}
+                className="text-xs text-indigo-500 font-medium px-2 py-1 rounded-lg hover:bg-indigo-50"
+              >全選択</button>
+              <button
+                onClick={() => setSelectedGroups(new Set())}
+                className="text-xs text-gray-500 font-medium px-2 py-1 rounded-lg hover:bg-gray-100"
+              >全解除</button>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {groups.map((g) => {
+              const active = selectedGroups.has(g.baseName);
+              const areaVariants = g.variants.filter((v) => v.areaName !== null);
+              const hasBase = g.variants.some((v) => v.areaName === null);
+              return (
+                <div
+                  key={g.baseName}
+                  className={`rounded-xl p-3 border transition-colors ${active ? "bg-indigo-50 border-indigo-200" : "bg-gray-50 border-gray-100"}`}
+                >
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={active}
+                      onChange={() => toggleGroup(g.baseName)}
+                      className="mt-1 accent-indigo-500"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-800">
+                        基本名: <span className="text-indigo-600">{g.baseName}</span>
+                        {!hasBase && <span className="ml-2 text-xs text-amber-600 font-medium">（新規作成）</span>}
+                      </p>
+                      <div className="mt-1.5 space-y-0.5">
+                        {areaVariants.map((v) => (
+                          <div key={v.member.id} className="flex items-center gap-1.5 text-xs text-gray-600">
+                            <span className="inline-block w-2 h-2 rounded-full" style={{ backgroundColor: v.member.color }} />
+                            <span className="font-medium">{v.member.name}</span>
+                            <span className="text-gray-400">→</span>
+                            <span className="text-emerald-600 font-medium">エリア: {v.areaName}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+
+          <button
+            onClick={handleExecute}
+            disabled={executing || selectedGroups.size === 0}
+            className="w-full py-3 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-white font-semibold rounded-xl flex items-center justify-center gap-2 text-sm"
+          >
+            {executing ? <Loader2 size={16} className="animate-spin" /> : <Merge size={16} />}
+            {executing ? "統合中..." : `選択した${selectedGroups.size}グループを統合する`}
+          </button>
+
+          {result && (
+            <p className={`text-sm font-medium text-center ${result.startsWith("✅") ? "text-green-600" : "text-red-500"}`}>
+              {result}
+            </p>
+          )}
+        </>
       )}
     </div>
   );
