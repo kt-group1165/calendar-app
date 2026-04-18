@@ -626,16 +626,6 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
                   </p>
                 ) : (
                   <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => setAreaId(null)}
-                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
-                        areaId === null
-                          ? "bg-gray-500 text-white border-gray-500"
-                          : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
-                      }`}
-                    >
-                      未設定
-                    </button>
                     {displayAreas.map((a) => {
                       // 選択状態: ID一致 or 名前一致（重複排除時は名前ベース）
                       const active = officeId
@@ -655,6 +645,16 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
                         </button>
                       );
                     })}
+                    <button
+                      onClick={() => setAreaId(null)}
+                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
+                        areaId === null
+                          ? "bg-gray-500 text-white border-gray-500"
+                          : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
+                      }`}
+                    >
+                      未設定
+                    </button>
                   </div>
                 )}
               </div>
