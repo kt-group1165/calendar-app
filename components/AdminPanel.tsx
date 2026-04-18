@@ -8,7 +8,7 @@ import { ja } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
 import { getMembers, addMember, deleteMember, updateMemberColor, updateMemberOrder, updateMemberOffice, type Member } from "@/lib/members";
 import { getOffices, type Office } from "@/lib/offices";
-import { getEventTypes, addEventType, deleteEventType, updateEventTypeOffice, type EventType } from "@/lib/event_types";
+import { getEventTypes, addEventType, deleteEventType, updateEventTypeOffice, mergeEventTypes, type EventType } from "@/lib/event_types";
 import { getEventAreas, addEventArea, updateEventArea, deleteEventArea, type EventArea } from "@/lib/event_areas";
 import { detectDuplicates, executeMerge, type DuplicateGroup } from "@/lib/staff_merge";
 import { verifyMasterPin, updateMasterPin, getOrderEmailSettings, updateOrderEmailSettings, getClientSelectionEnabled, updateClientSelectionEnabled } from "@/lib/settings";
@@ -742,6 +742,12 @@ function EventTypesTab({ tenantId }: { tenantId: string }) {
   const [loading, setLoading] = useState(true);
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
+  // 統合機能
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const [mergeTargetId, setMergeTargetId] = useState<string | null>(null);
+  const [merging, setMerging] = useState(false);
+  const [search, setSearch] = useState("");
 
   useEffect(() => { load(); }, []);
   async function load() {
@@ -751,6 +757,61 @@ function EventTypesTab({ tenantId }: { tenantId: string }) {
       setTypes(t);
       setOffices(o);
     } finally { setLoading(false); }
+  }
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const openMergeModal = () => {
+    if (selectedIds.size < 2) return;
+    // デフォルト統合先: 最も短い名前（最もシンプルなもの）
+    const selected = types.filter((t) => selectedIds.has(t.id));
+    const shortest = selected.reduce((a, b) => a.name.length <= b.name.length ? a : b);
+    setMergeTargetId(shortest.id);
+    setShowMergeModal(true);
+  };
+
+  async function handleMerge() {
+    if (!mergeTargetId) return;
+    const target = types.find((t) => t.id === mergeTargetId);
+    if (!target) return;
+    const mergeSourceTypes = types.filter(
+      (t) => selectedIds.has(t.id) && t.id !== mergeTargetId,
+    );
+    if (mergeSourceTypes.length === 0) {
+      alert("統合元がありません");
+      return;
+    }
+    if (!confirm(
+      `以下を「${target.name}」に統合します：\n\n` +
+      mergeSourceTypes.map((t) => `・${t.name}`).join("\n") +
+      `\n\n予定内の種別名も自動で「${target.name}」に書き換えます。\nこの操作は元に戻せません。続行しますか？`
+    )) return;
+
+    setMerging(true);
+    try {
+      const res = await mergeEventTypes(
+        tenantId,
+        target.name,
+        mergeSourceTypes.map((t) => t.id),
+        mergeSourceTypes.map((t) => t.name),
+      );
+      alert(`✅ 完了: 予定${res.updatedEvents}件を更新、種別${res.deletedTypes}件を削除`);
+      setShowMergeModal(false);
+      setSelectedIds(new Set());
+      setMergeTargetId(null);
+      await load();
+    } catch (e) {
+      alert(`❌ エラー: ${(e as Error).message}`);
+    } finally {
+      setMerging(false);
+    }
   }
 
   const currentOfficeName = currentOfficeId
@@ -785,9 +846,14 @@ function EventTypesTab({ tenantId }: { tenantId: string }) {
   }
 
   // 表示: 自事業所選択中は「その事業所 または 共有(NULL)」のみ
-  const visibleTypes = currentOfficeId
+  const officeFilteredTypes = currentOfficeId
     ? types.filter((t) => t.office_id === currentOfficeId || t.office_id === null)
     : types;
+
+  // 検索絞り込み
+  const visibleTypes = search.trim()
+    ? officeFilteredTypes.filter((t) => t.name.toLowerCase().includes(search.trim().toLowerCase()))
+    : officeFilteredTypes;
 
   return (
     <div className="p-4 space-y-4">
@@ -807,31 +873,116 @@ function EventTypesTab({ tenantId }: { tenantId: string }) {
         </button>
       </div>
 
-      {loading ? <div className="flex justify-center py-8"><Loader2 size={24} className="animate-spin text-gray-300" /></div>
-        : visibleTypes.length === 0 ? <p className="text-sm text-gray-400 text-center py-8">種別がありません</p>
-        : (
-          <div className="space-y-2">
-            {visibleTypes.map((t) => (
-              <div key={t.id} className="flex items-center justify-between bg-gray-50 rounded-xl px-3 py-2.5 gap-2">
-                <span className="text-sm font-medium text-gray-700 flex-1 min-w-0 truncate">{t.name}</span>
-                <select
-                  value={t.office_id ?? ""}
-                  onChange={(e) => handleChangeOffice(t.id, e.target.value || null)}
-                  className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white text-gray-600 focus:outline-none focus:border-indigo-400 max-w-[140px]"
-                >
-                  <option value="">共有（全事業所）</option>
-                  {offices.map((o) => (
-                    <option key={o.id} value={o.id}>{o.name}</option>
-                  ))}
-                </select>
-                <button onClick={() => handleDelete(t.id, t.name)}
-                  className="p-1.5 text-gray-300 hover:text-red-400 transition-colors rounded-lg hover:bg-red-50 shrink-0">
-                  <Trash2 size={15} />
-                </button>
-              </div>
-            ))}
-          </div>
+      {/* 検索 */}
+      <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
+        <Search size={14} className="text-gray-400 shrink-0" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="似た種別を探す（例：面談）"
+          className="flex-1 text-sm bg-transparent placeholder-gray-300 focus:outline-none"
+        />
+        {search && (
+          <button onClick={() => setSearch("")} className="text-gray-300 hover:text-gray-500">
+            <X size={14} />
+          </button>
         )}
+      </div>
+
+      {/* 統合ボタン（2件以上選択時） */}
+      {selectedIds.size >= 2 && (
+        <button
+          onClick={openMergeModal}
+          className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-xl flex items-center justify-center gap-2 text-sm"
+        >
+          <Merge size={14} />
+          選択した{selectedIds.size}件を統合する
+        </button>
+      )}
+
+      {loading ? <div className="flex justify-center py-8"><Loader2 size={24} className="animate-spin text-gray-300" /></div>
+        : visibleTypes.length === 0 ? <p className="text-sm text-gray-400 text-center py-8">該当なし</p>
+        : (
+          <>
+            <p className="text-xs text-gray-400">
+              {officeFilteredTypes.length}件中 {visibleTypes.length}件表示 / 選択中 {selectedIds.size}件
+              <span className="ml-2 text-gray-500">（2件以上選んで統合可能）</span>
+            </p>
+            <div className="space-y-1.5">
+              {visibleTypes.map((t) => {
+                const isSelected = selectedIds.has(t.id);
+                return (
+                  <div key={t.id} className={`flex items-center justify-between rounded-xl px-3 py-2 gap-2 transition-colors ${isSelected ? "bg-emerald-50 border border-emerald-200" : "bg-gray-50 border border-transparent"}`}>
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleSelect(t.id)}
+                      className="accent-emerald-500 shrink-0"
+                    />
+                    <span className="text-sm font-medium text-gray-700 flex-1 min-w-0 truncate">{t.name}</span>
+                    <select
+                      value={t.office_id ?? ""}
+                      onChange={(e) => handleChangeOffice(t.id, e.target.value || null)}
+                      className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white text-gray-600 focus:outline-none focus:border-indigo-400 max-w-[140px]"
+                    >
+                      <option value="">共有（全事業所）</option>
+                      {offices.map((o) => (
+                        <option key={o.id} value={o.id}>{o.name}</option>
+                      ))}
+                    </select>
+                    <button onClick={() => handleDelete(t.id, t.name)}
+                      className="p-1.5 text-gray-300 hover:text-red-400 transition-colors rounded-lg hover:bg-red-50 shrink-0">
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+      {/* 統合モーダル */}
+      {showMergeModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 px-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-base font-bold text-gray-800">種別を統合</h3>
+              <button onClick={() => setShowMergeModal(false)}><X size={18} className="text-gray-400" /></button>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">
+              残す名前（統合先）を選んでください。他は全て削除され、予定内の種別も書き換えられます。
+            </p>
+            <div className="flex-1 overflow-y-auto space-y-2 mb-4">
+              {types.filter((t) => selectedIds.has(t.id)).map((t) => (
+                <label key={t.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${mergeTargetId === t.id ? "bg-emerald-50 border-emerald-300" : "bg-gray-50 border-gray-200 hover:border-gray-300"}`}>
+                  <input
+                    type="radio"
+                    name="mergeTarget"
+                    checked={mergeTargetId === t.id}
+                    onChange={() => setMergeTargetId(t.id)}
+                    className="accent-emerald-500"
+                  />
+                  <span className="text-sm font-medium text-gray-800 flex-1">{t.name}</span>
+                  {mergeTargetId === t.id && <span className="text-xs text-emerald-600 font-bold">✓ 残す</span>}
+                </label>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowMergeModal(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm text-gray-500 bg-gray-100 hover:bg-gray-200"
+              >キャンセル</button>
+              <button
+                onClick={handleMerge}
+                disabled={merging || !mergeTargetId}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold text-white bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50"
+              >
+                {merging ? "統合中…" : "統合実行"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

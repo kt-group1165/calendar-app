@@ -44,3 +44,48 @@ export async function deleteEventType(id: string): Promise<void> {
   const { error } = await supabase.from("event_types").delete().eq("id", id);
   if (error) throw error;
 }
+
+// 複数の種別を1つに統合する
+//   targetName: 残す名前（canonical）
+//   mergeNames: 削除する名前（統合元）
+//   全予定の event_type 配列から mergeNames の名前を targetName に置換
+//   重複した targetName は1つにまとめる
+//   mergeNames の種別マスタを削除
+export async function mergeEventTypes(
+  tenantId: string,
+  targetName: string,
+  mergeIds: string[],
+  mergeNames: string[],
+): Promise<{ updatedEvents: number; deletedTypes: number }> {
+  // 該当する予定を全件取得（event_type配列に対象名のいずれかを含むもの）
+  const { data: events, error: evErr } = await supabase
+    .from("events")
+    .select("id, event_type")
+    .eq("tenant_id", tenantId)
+    .overlaps("event_type", mergeNames);
+  if (evErr) throw evErr;
+
+  let updatedEvents = 0;
+  for (const ev of (events ?? []) as Array<{ id: string; event_type: string[] }>) {
+    const newTypes = Array.from(
+      new Set(
+        ev.event_type.map((t) => (mergeNames.includes(t) ? targetName : t)),
+      ),
+    );
+    const { error: upErr } = await supabase
+      .from("events")
+      .update({ event_type: newTypes })
+      .eq("id", ev.id);
+    if (upErr) throw upErr;
+    updatedEvents++;
+  }
+
+  // マージ対象の種別マスタを削除
+  const { error: delErr } = await supabase
+    .from("event_types")
+    .delete()
+    .in("id", mergeIds);
+  if (delErr) throw delErr;
+
+  return { updatedEvents, deletedTypes: mergeIds.length };
+}
