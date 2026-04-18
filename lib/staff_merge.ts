@@ -22,21 +22,37 @@ export type DuplicateGroup = {
   }>;
 };
 
+// カッコ内文字列から登録エリア名を検出（前方一致・部分一致）
+//   例: "市原方面用" → "市原" （"市原方面用" がカッコ内で、"市原" が登録エリアなら一致）
+function findAreaNameMatch(text: string, areaNames: string[]): string | null {
+  // 長い名前から優先して一致（"市原中央" と "市原" があれば "市原中央" を優先）
+  const sorted = [...areaNames].sort((a, b) => b.length - a.length);
+  for (const name of sorted) {
+    if (text.includes(name)) return name;
+  }
+  return null;
+}
+
 export function detectDuplicates(
   members: Member[],
   areas: EventArea[],
 ): DuplicateGroup[] {
-  const areaNames = new Set(areas.map((a) => a.name));
+  const areaNames = Array.from(new Set(areas.map((a) => a.name)));
   // 基本名ごとにグルーピング
   const byBase = new Map<string, DuplicateGroup["variants"]>();
 
   for (const m of members) {
     const parsed = parseAreaSuffix(m.name);
-    if (parsed && areaNames.has(parsed.area)) {
+    let matchedAreaName: string | null = null;
+    if (parsed) {
+      // カッコ内の文字列から登録エリア名を検出
+      matchedAreaName = findAreaNameMatch(parsed.area, areaNames);
+    }
+    if (parsed && matchedAreaName) {
       // エリア付き変種として登録
       const key = parsed.base;
       if (!byBase.has(key)) byBase.set(key, []);
-      byBase.get(key)!.push({ member: m, areaName: parsed.area });
+      byBase.get(key)!.push({ member: m, areaName: matchedAreaName });
     } else {
       // 基本名そのものの候補（後でグループに追加される可能性）
       const key = m.name;
