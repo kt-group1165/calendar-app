@@ -593,44 +593,49 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
             </div>
           )}
 
-          {/* エリア */}
+          {/* エリア（常に表示） */}
           {(() => {
             // 自事業所選択中はその事業所のエリア、未選択は全エリア
             const visibleAreas = officeId
               ? eventAreas.filter((a) => a.office_id === officeId || a.id === areaId)
               : eventAreas;
-            if (visibleAreas.length === 0) return null;
             return (
               <div className="bg-gray-50 rounded-xl p-3 space-y-2">
                 <div className="flex items-center gap-2 text-gray-500">
                   <MapPin size={16} />
                   <span className="text-sm font-medium">エリア</span>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => setAreaId(null)}
-                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
-                      areaId === null
-                        ? "bg-gray-500 text-white border-gray-500"
-                        : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
-                    }`}
-                  >
-                    未設定
-                  </button>
-                  {visibleAreas.map((a) => (
+                {visibleAreas.length === 0 ? (
+                  <p className="text-xs text-gray-400">
+                    エリアが登録されていません。管理パネル→エリアタブで追加してください。
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
                     <button
-                      key={a.id}
-                      onClick={() => setAreaId(a.id)}
+                      onClick={() => setAreaId(null)}
                       className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
-                        areaId === a.id
-                          ? "bg-indigo-500 text-white border-indigo-500"
-                          : "bg-white text-gray-600 border-gray-200 hover:border-indigo-300"
+                        areaId === null
+                          ? "bg-gray-500 text-white border-gray-500"
+                          : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
                       }`}
                     >
-                      {a.name}
+                      未設定
                     </button>
-                  ))}
-                </div>
+                    {visibleAreas.map((a) => (
+                      <button
+                        key={a.id}
+                        onClick={() => setAreaId(a.id)}
+                        className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
+                          areaId === a.id
+                            ? "bg-indigo-500 text-white border-indigo-500"
+                            : "bg-white text-gray-600 border-gray-200 hover:border-indigo-300"
+                        }`}
+                      >
+                        {a.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })()}
