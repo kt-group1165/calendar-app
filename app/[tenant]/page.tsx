@@ -327,7 +327,25 @@ export default function TenantCalendarPage() {
       }
       return null;
     };
-    const enriched: EventInsert = { ...data, office_id: inferOfficeId() };
+    const resolvedOfficeId = inferOfficeId();
+    // area_id を予定の事業所に合ったものに振り替える
+    //   例: A事業所の市原(id=X)を選択したまま、予定の事業所がB事業所になる場合
+    //   → B事業所の市原(id=Y)に自動変換
+    let resolvedAreaId = data.area_id ?? null;
+    if (resolvedAreaId && resolvedOfficeId) {
+      const selectedArea = eventAreas.find((a) => a.id === resolvedAreaId);
+      if (selectedArea && selectedArea.office_id !== resolvedOfficeId) {
+        const matching = eventAreas.find(
+          (a) => a.office_id === resolvedOfficeId && a.name === selectedArea.name,
+        );
+        if (matching) resolvedAreaId = matching.id;
+      }
+    }
+    const enriched: EventInsert = {
+      ...data,
+      office_id: resolvedOfficeId,
+      area_id: resolvedAreaId,
+    };
     if (editingEvent) {
       await updateEvent(editingEvent.id, enriched);
       logActivity(editingEvent.id, enriched.title, "updated", currentUser ?? "", editingEvent.assignees, enriched.assignees, tenantId).catch(() => {});
@@ -648,19 +666,53 @@ export default function TenantCalendarPage() {
 
       {/* エリアフィルターバー */}
       {(() => {
-        const visibleAreas = currentOfficeId
-          ? eventAreas.filter((a) => a.office_id === currentOfficeId)
-          : eventAreas;
-        if (visibleAreas.length === 0) return null;
+        // 表示用: 自事業所選択中はその事業所のみ、未選択は名前で重複排除
+        let displayAreas: EventArea[];
+        if (currentOfficeId) {
+          displayAreas = eventAreas.filter((a) => a.office_id === currentOfficeId);
+        } else {
+          const sorted = [...eventAreas].sort((a, b) => a.sort_order - b.sort_order);
+          const seen = new Set<string>();
+          displayAreas = [];
+          for (const a of sorted) {
+            if (!seen.has(a.name)) {
+              seen.add(a.name);
+              displayAreas.push(a);
+            }
+          }
+        }
+        if (displayAreas.length === 0) return null;
+        // 絞り込みは「同じ名前のエリア全て」にマッチ（事業所を跨いでOK）
+        const isAreaActive = (a: EventArea) => {
+          if (currentOfficeId) return filterAreas.includes(a.id);
+          // 未選択時は名前ベースで判定
+          return eventAreas
+            .filter((x) => x.name === a.name)
+            .some((x) => filterAreas.includes(x.id));
+        };
+        const toggleAreaByName = (a: EventArea) => {
+          if (currentOfficeId) {
+            toggleFilterArea(a.id);
+            return;
+          }
+          // 名前が同じ全エリアIDを一括トグル
+          const sameNameIds = eventAreas.filter((x) => x.name === a.name).map((x) => x.id);
+          const anyActive = sameNameIds.some((id) => filterAreas.includes(id));
+          setFilterAreas((prev) =>
+            anyActive
+              ? prev.filter((id) => !sameNameIds.includes(id))
+              : [...new Set([...prev, ...sameNameIds])],
+          );
+        };
         return (
           <div className="bg-white border-b border-gray-100 px-3 py-1.5 flex items-center gap-2 overflow-x-auto">
             <span className="shrink-0 text-[11px] text-gray-400 font-medium">エリア</span>
-            {visibleAreas.map((a) => {
-              const active = filterAreas.includes(a.id);
+            {displayAreas.map((a) => {
+              const active = isAreaActive(a);
               return (
                 <button
                   key={a.id}
-                  onClick={() => toggleFilterArea(a.id)}
+                  onClick={() => toggleAreaByName(a)}
                   className={`shrink-0 px-2.5 h-7 rounded-full text-xs font-medium transition-all border whitespace-nowrap ${
                     active
                       ? "bg-emerald-500 text-white border-emerald-500"

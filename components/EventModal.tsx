@@ -595,17 +595,32 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
 
           {/* エリア（常に表示） */}
           {(() => {
-            // 自事業所選択中はその事業所のエリア、未選択は全エリア
-            const visibleAreas = officeId
-              ? eventAreas.filter((a) => a.office_id === officeId || a.id === areaId)
-              : eventAreas;
+            // 自事業所選択中はその事業所のエリア、未選択は全事業所のエリアを名前で重複排除
+            let displayAreas: EventArea[];
+            if (officeId) {
+              displayAreas = eventAreas.filter((a) => a.office_id === officeId || a.id === areaId);
+            } else {
+              // 名前ごとに1件だけ残す（ソート順の早いもの）
+              const sorted = [...eventAreas].sort((a, b) => a.sort_order - b.sort_order);
+              const seen = new Set<string>();
+              displayAreas = [];
+              for (const a of sorted) {
+                if (!seen.has(a.name)) {
+                  seen.add(a.name);
+                  displayAreas.push(a);
+                }
+              }
+            }
+            // 現在選択されているエリアの名前（選択状態判定用）
+            const selectedAreaName = eventAreas.find((a) => a.id === areaId)?.name ?? null;
+
             return (
               <div className="bg-gray-50 rounded-xl p-3 space-y-2">
                 <div className="flex items-center gap-2 text-gray-500">
                   <MapPin size={16} />
                   <span className="text-sm font-medium">エリア</span>
                 </div>
-                {visibleAreas.length === 0 ? (
+                {displayAreas.length === 0 ? (
                   <p className="text-xs text-gray-400">
                     エリアが登録されていません。管理パネル→エリアタブで追加してください。
                   </p>
@@ -621,19 +636,25 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
                     >
                       未設定
                     </button>
-                    {visibleAreas.map((a) => (
-                      <button
-                        key={a.id}
-                        onClick={() => setAreaId(a.id)}
-                        className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
-                          areaId === a.id
-                            ? "bg-indigo-500 text-white border-indigo-500"
-                            : "bg-white text-gray-600 border-gray-200 hover:border-indigo-300"
-                        }`}
-                      >
-                        {a.name}
-                      </button>
-                    ))}
+                    {displayAreas.map((a) => {
+                      // 選択状態: ID一致 or 名前一致（重複排除時は名前ベース）
+                      const active = officeId
+                        ? areaId === a.id
+                        : selectedAreaName === a.name;
+                      return (
+                        <button
+                          key={a.id}
+                          onClick={() => setAreaId(a.id)}
+                          className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
+                            active
+                              ? "bg-indigo-500 text-white border-indigo-500"
+                              : "bg-white text-gray-600 border-gray-200 hover:border-indigo-300"
+                          }`}
+                        >
+                          {a.name}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
