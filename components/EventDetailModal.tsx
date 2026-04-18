@@ -7,6 +7,7 @@ import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { type Event } from "@/lib/supabase";
 import { getComments, addComment, deleteComment, logActivity, type Comment } from "@/lib/events";
+import { getEventAreas, type EventArea } from "@/lib/event_areas";
 import { getOrderEmailSettings, type OrderEmailSettings } from "@/lib/settings";
 import OrderEmailModal from "@/components/OrderEmailModal";
 
@@ -30,13 +31,19 @@ export default function EventDetailModal({ tenantId, event, currentUser, isMaste
   const [loadingComments, setLoadingComments] = useState(true);
   const [orderEmailSettings, setOrderEmailSettings] = useState<OrderEmailSettings | null>(null);
   const [showOrderEmail, setShowOrderEmail] = useState(false);
+  const [eventAreas, setEventAreas] = useState<EventArea[]>([]);
 
   useEffect(() => {
     loadComments();
     getOrderEmailSettings(tenantId).then((s) => {
       if (s.enabled) setOrderEmailSettings(s);
     }).catch(() => {});
+    getEventAreas(tenantId).then(setEventAreas).catch(() => {});
   }, [event.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const areaName = event.area_id
+    ? eventAreas.find((a) => a.id === event.area_id)?.name ?? null
+    : null;
 
   async function loadComments() {
     setLoadingComments(true);
@@ -157,6 +164,18 @@ export default function EventDetailModal({ tenantId, event, currentUser, isMaste
                   <p>最終編集：<span className="font-medium text-gray-700">{event.updated_by}</span></p>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* エリア */}
+          {areaName && (
+            <div className="flex items-center gap-2 text-gray-600">
+              <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center shrink-0">
+                <MapPin size={14} className="text-gray-400" />
+              </div>
+              <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-full text-xs font-medium border border-emerald-100">
+                {areaName}
+              </span>
             </div>
           )}
 
