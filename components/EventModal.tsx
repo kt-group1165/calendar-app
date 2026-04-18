@@ -543,56 +543,6 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
             onManualName={handleManualClientName}
           />}
 
-          {/* 担当者（メンバーがいる場合のみ） */}
-          {visibleMembers.length > 0 && (
-            <div className="bg-gray-50 rounded-xl p-3 space-y-2">
-              <div className="flex items-center gap-2 text-gray-500">
-                <Users size={16} />
-                <span className="text-sm font-medium">担当者</span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {visibleMembers.map((m) => {
-                  const active = assignees.includes(m.name);
-                  return (
-                  <button key={m.id} onClick={() => toggleAssignee(m)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors"
-                    style={active
-                      ? { backgroundColor: m.color, color: "white", border: "2px solid transparent" }
-                      : { backgroundColor: "white", border: `2px solid ${m.color}30`, color: "#374151" }}>
-                    <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-                      style={{ backgroundColor: active ? "rgba(255,255,255,0.25)" : m.color + "30", color: active ? "white" : m.color }}>
-                      {m.name.charAt(0)}
-                    </span>
-                    {m.name}
-                  </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* 用件種別 */}
-          {visibleEventTypes.length > 0 && (
-            <div className="bg-gray-50 rounded-xl p-3 space-y-2">
-              <div className="flex items-center gap-2 text-gray-500">
-                <Tag size={16} />
-                <span className="text-sm font-medium">用件種別</span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {visibleEventTypes.map((t) => (
-                  <button key={t.id} onClick={() => toggleEventType(t.name)}
-                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
-                      eventType.includes(t.name)
-                        ? "bg-indigo-500 text-white border-indigo-500"
-                        : "bg-white text-gray-600 border-gray-200 hover:border-indigo-300"
-                    }`}>
-                    {t.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* エリア（常に表示） */}
           {(() => {
             // 自事業所選択中はその事業所のエリア、未選択は全事業所のエリアを名前で重複排除
@@ -660,6 +610,56 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
               </div>
             );
           })()}
+
+          {/* 担当者（メンバーがいる場合のみ） */}
+          {visibleMembers.length > 0 && (
+            <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+              <div className="flex items-center gap-2 text-gray-500">
+                <Users size={16} />
+                <span className="text-sm font-medium">担当者</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {visibleMembers.map((m) => {
+                  const active = assignees.includes(m.name);
+                  return (
+                  <button key={m.id} onClick={() => toggleAssignee(m)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-colors"
+                    style={active
+                      ? { backgroundColor: m.color, color: "white", border: "2px solid transparent" }
+                      : { backgroundColor: "white", border: `2px solid ${m.color}30`, color: "#374151" }}>
+                    <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                      style={{ backgroundColor: active ? "rgba(255,255,255,0.25)" : m.color + "30", color: active ? "white" : m.color }}>
+                      {m.name.charAt(0)}
+                    </span>
+                    {m.name}
+                  </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* 用件種別 */}
+          {visibleEventTypes.length > 0 && (
+            <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+              <div className="flex items-center gap-2 text-gray-500">
+                <Tag size={16} />
+                <span className="text-sm font-medium">用件種別</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {visibleEventTypes.map((t) => (
+                  <button key={t.id} onClick={() => toggleEventType(t.name)}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
+                      eventType.includes(t.name)
+                        ? "bg-indigo-500 text-white border-indigo-500"
+                        : "bg-white text-gray-600 border-gray-200 hover:border-indigo-300"
+                    }`}>
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* カラー（手動選択） */}
           <div>
