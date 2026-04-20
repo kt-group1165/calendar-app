@@ -80,18 +80,22 @@ export async function getAllEventsAllTenants(): Promise<Event[]> {
 }
 
 // CSVインポート：バッチ処理版（500件まとめてupsert）
+// syncMode=true の場合、CSV に無い既存予定をソフトデリート（ゴミ箱へ）
+//   ID一致の予定は deleted_at=null で復活するため、バックアップCSV再取り込みで復元可能
 export async function importEventsFromCSV(
   rows: Array<{ id?: string } & Partial<EventInsert>>,
   tenantId: string,
-  onProgress?: (done: number, total: number) => void
-): Promise<{ updated: number; inserted: number; errors: number }> {
+  onProgress?: (done: number, total: number) => void,
+  syncMode: boolean = false
+): Promise<{ updated: number; inserted: number; errors: number; deleted: number }> {
   const BATCH = 500;
-  let updated = 0, inserted = 0, errors = 0;
+  let updated = 0, inserted = 0, errors = 0, deleted = 0;
   const today = new Date().toISOString().slice(0, 10);
   const total = rows.length;
 
   // IDあり（既存更新）とIDなし（新規）に分ける
   // area_id は CSV にエリア列が無い場合 undefined なので、その場合は payload から除外して既存値を保持
+  // deleted_at: null を設定することで、ゴミ箱内の予定を復活できる（ID一致時のみ）
   const toUpsert = rows
     .filter((r) => r.id)
     .map(({ id, ...data }) => {
@@ -112,6 +116,7 @@ export async function importEventsFromCSV(
         event_type: data.event_type ?? [],
         created_by: data.created_by ?? null,
         updated_by: data.updated_by ?? null,
+        deleted_at: null,
       };
       if (data.area_id !== undefined) base.area_id = data.area_id;
       return base;
@@ -140,6 +145,21 @@ export async function importEventsFromCSV(
       updated_by: data.updated_by ?? null,
     }));
 
+  // sync mode: 削除対象の事前スナップショット（upsert/insert の前に取得）
+  //   insert で採番される新UUIDが誤って削除対象に入らないようにするため
+  let toDelete: string[] = [];
+  if (syncMode) {
+    const csvIds = new Set(rows.filter((r) => r.id).map((r) => r.id!));
+    const { data: existingRows } = await supabase
+      .from("events")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .is("deleted_at", null);
+    toDelete = (existingRows ?? [])
+      .filter((r) => !csvIds.has(r.id))
+      .map((r) => r.id);
+  }
+
   // upsert（IDあり）をバッチ処理
   for (let i = 0; i < toUpsert.length; i += BATCH) {
     const batch = toUpsert.slice(i, i + BATCH);
@@ -160,7 +180,20 @@ export async function importEventsFromCSV(
     onProgress?.(updated + inserted + errors, total);
   }
 
-  return { updated, inserted, errors };
+  // sync mode: 事前スナップショットで算出した削除対象をソフトデリート
+  if (syncMode) {
+    const nowIso = new Date().toISOString();
+    for (let i = 0; i < toDelete.length; i += BATCH) {
+      const batch = toDelete.slice(i, i + BATCH);
+      const { error } = await supabase
+        .from("events")
+        .update({ deleted_at: nowIso })
+        .in("id", batch);
+      if (!error) deleted += batch.length;
+    }
+  }
+
+  return { updated, inserted, errors, deleted };
 }
 
 // 予定取得（削除済み・メモ除く）

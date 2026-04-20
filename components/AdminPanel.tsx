@@ -1274,6 +1274,7 @@ function CsvTab({ tenantId }: { tenantId: string }) {
   const [backups, setBackups] = useState<{ name: string; created_at: string }[]>([]);
   const [loadingBackups, setLoadingBackups] = useState(false);
   const [eventAreas, setEventAreas] = useState<EventArea[]>([]);
+  const [syncMode, setSyncMode] = useState(false);
   const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { loadBackups(); }, []);
@@ -1374,14 +1375,21 @@ function CsvTab({ tenantId }: { tenantId: string }) {
         };
       }).filter((r) => r.title && r.start_date);
 
-      if (!confirm(`${dataRows.length}件のデータを取り込みます。\nIDが一致する予定は更新（画像・コメントは保持）、IDなしは新規追加されます。`)) return;
+      const confirmMsg = syncMode
+        ? `${dataRows.length}件のデータを取り込みます。\n\n⚠️ 同期モード：CSVに無い既存予定はゴミ箱に移動されます（ID一致で復活可）。\n\nIDが一致する予定は更新（画像・コメントは保持）、IDなしは新規追加。`
+        : `${dataRows.length}件のデータを取り込みます。\nIDが一致する予定は更新（画像・コメントは保持）、IDなしは新規追加されます。`;
+      if (!confirm(confirmMsg)) return;
 
       setImportProgress({ done: 0, total: dataRows.length });
       const result = await importEventsFromCSV(dataRows, tenantId, (done, total) => {
         setImportProgress({ done, total });
-      });
+      }, syncMode);
       setImportProgress(null);
-      setImportMsg(`✅ 完了：更新 ${result.updated}件、新規追加 ${result.inserted}件${result.errors > 0 ? `、エラー ${result.errors}件` : ""}`);
+      setImportMsg(
+        `✅ 完了：更新 ${result.updated}件、新規追加 ${result.inserted}件` +
+        (result.deleted > 0 ? `、削除 ${result.deleted}件` : "") +
+        (result.errors > 0 ? `、エラー ${result.errors}件` : "")
+      );
     } catch (err) {
       setImportProgress(null);
       setImportMsg(`❌ 取り込みに失敗しました: ${(err as Error).message}`);
@@ -1438,9 +1446,22 @@ function CsvTab({ tenantId }: { tenantId: string }) {
           <p>・このアプリで出力したCSVを取り込めます</p>
           <p>・IDが一致する予定は内容を<strong>更新</strong>（画像・コメントは保持）</p>
           <p>・IDがない行は<strong>新規追加</strong></p>
-          <p>・CSVにない予定は削除されません</p>
+          <p>・通常モード：CSVにない予定は削除されません</p>
+          <p>・同期モード：CSVにない予定はゴミ箱へ移動（ID一致で復活可）</p>
           <p>・エリア列が無いCSVを取り込んだ場合、既存のエリア設定は保持されます</p>
         </div>
+        <label className="flex items-start gap-2 p-3 rounded-xl border-2 border-rose-200 bg-rose-50 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={syncMode}
+            onChange={(e) => setSyncMode(e.target.checked)}
+            className="mt-0.5"
+          />
+          <div className="text-xs text-rose-700">
+            <p className="font-semibold">⚠️ 同期モード（CSV外の予定をゴミ箱へ）</p>
+            <p className="mt-0.5">CSVに含まれない既存予定をソフトデリートします。バックアップCSVを再取り込みすると同じIDで復活できます。</p>
+          </div>
+        </label>
         <button
           onClick={() => importRef.current?.click()}
           disabled={importing}
