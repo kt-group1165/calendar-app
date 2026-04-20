@@ -1203,9 +1203,10 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
 }
 
 // ── CSV出力 ──────────────────────────────────
-const CSV_HEADERS = ["ID","タイトル","開始日","終了日","開始時刻","終了時刻","終日","用件種別","担当者","メモ","備考","住所","カラー","作成者","最終編集者","作成日時"];
+const CSV_HEADERS = ["ID","タイトル","開始日","終了日","開始時刻","終了時刻","終日","用件種別","担当者","エリア","メモ","備考","住所","カラー","作成者","最終編集者","作成日時"];
 
-function eventsToCsvRows(events: Awaited<ReturnType<typeof getAllEvents>>) {
+function eventsToCsvRows(events: Awaited<ReturnType<typeof getAllEvents>>, areas: EventArea[] = []) {
+  const areaById = new Map(areas.map((a) => [a.id, a.name]));
   return events.map((e) => [
     e.id,
     e.title, e.start_date, e.end_date,
@@ -1213,6 +1214,7 @@ function eventsToCsvRows(events: Awaited<ReturnType<typeof getAllEvents>>) {
     e.all_day ? "はい" : "いいえ",
     (e.event_type ?? []).join("・"),
     (e.assignees ?? []).join("・"),
+    e.area_id ? (areaById.get(e.area_id) ?? "") : "",
     e.description ?? "", e.notes ?? "", e.location ?? "",
     e.color ?? "#6366f1",
     e.created_by ?? "", e.updated_by ?? "",
@@ -1271,9 +1273,13 @@ function CsvTab({ tenantId }: { tenantId: string }) {
   const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null);
   const [backups, setBackups] = useState<{ name: string; created_at: string }[]>([]);
   const [loadingBackups, setLoadingBackups] = useState(false);
+  const [eventAreas, setEventAreas] = useState<EventArea[]>([]);
   const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { loadBackups(); }, []);
+  useEffect(() => {
+    getEventAreas(tenantId).then(setEventAreas).catch(() => setEventAreas([]));
+  }, [tenantId]);
   async function loadBackups() {
     setLoadingBackups(true);
     try {
@@ -1297,7 +1303,7 @@ function CsvTab({ tenantId }: { tenantId: string }) {
     setExporting(true);
     try {
       const events = await getEventsByDateRange(startDate, endDate, tenantId);
-      downloadBlob(buildCsvBlob(CSV_HEADERS, eventsToCsvRows(events)), `予定_${startDate}_${endDate}.csv`);
+      downloadBlob(buildCsvBlob(CSV_HEADERS, eventsToCsvRows(events, eventAreas)), `予定_${startDate}_${endDate}.csv`);
     } finally { setExporting(false); }
   }
 
@@ -1305,7 +1311,7 @@ function CsvTab({ tenantId }: { tenantId: string }) {
     setExportingAll(true);
     try {
       const events = await getAllEvents(tenantId);
-      downloadBlob(buildCsvBlob(CSV_HEADERS, eventsToCsvRows(events)), `予定_全期間_${format(now, "yyyyMMdd")}.csv`);
+      downloadBlob(buildCsvBlob(CSV_HEADERS, eventsToCsvRows(events, eventAreas)), `予定_全期間_${format(now, "yyyyMMdd")}.csv`);
     } finally { setExportingAll(false); }
   }
 
@@ -1329,6 +1335,7 @@ function CsvTab({ tenantId }: { tenantId: string }) {
       const adIdx       = headers.indexOf("終日");
       const typeIdx     = headers.indexOf("用件種別");
       const assnIdx     = headers.indexOf("担当者");
+      const areaIdx     = headers.indexOf("エリア");
       const descIdx     = headers.indexOf("メモ");
       const notesIdx    = headers.indexOf("備考");
       const locIdx      = headers.indexOf("住所");
@@ -1338,8 +1345,15 @@ function CsvTab({ tenantId }: { tenantId: string }) {
 
       if (titleIdx < 0 || sdIdx < 0) { setImportMsg("❌ ヘッダー形式が正しくありません（タイトル・開始日が必要です）"); return; }
 
+      // エリア名 → area_id のマップ（同名が複数ある場合は最初のもの）
+      const areaIdByName = new Map<string, string>();
+      for (const a of eventAreas) {
+        if (!areaIdByName.has(a.name)) areaIdByName.set(a.name, a.id);
+      }
+
       const dataRows = rows.slice(1).map((cols) => {
         const get = (i: number) => (i >= 0 ? (cols[i] ?? "").trim() : "");
+        const areaName = get(areaIdx);
         return {
           id: idIdx >= 0 ? get(idIdx) || undefined : undefined,
           title: get(titleIdx),
@@ -1350,6 +1364,7 @@ function CsvTab({ tenantId }: { tenantId: string }) {
           all_day: get(adIdx) === "はい",
           event_type: get(typeIdx) ? get(typeIdx).split("・").filter(Boolean) : [],
           assignees: get(assnIdx) ? get(assnIdx).split("・").filter(Boolean) : [],
+          area_id: areaIdx >= 0 ? (areaName ? (areaIdByName.get(areaName) ?? null) : null) : undefined,
           description: get(descIdx) || null,
           notes: notesIdx >= 0 ? (get(notesIdx) || null) : undefined,
           location: locIdx >= 0 ? (get(locIdx) || null) : undefined,
@@ -1397,7 +1412,7 @@ function CsvTab({ tenantId }: { tenantId: string }) {
         </div>
         <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-500">
           <p className="font-medium text-gray-700 mb-1">出力項目</p>
-          <p>ID・タイトル・日付・時刻・終日・用件種別・担当者・メモ・備考・住所・カラー・作成者・最終編集者・作成日時</p>
+          <p>ID・タイトル・日付・時刻・終日・用件種別・担当者・エリア・メモ・備考・住所・カラー・作成者・最終編集者・作成日時</p>
         </div>
         <div className="flex gap-2">
           <button onClick={handleExport} disabled={exporting}
@@ -1424,6 +1439,7 @@ function CsvTab({ tenantId }: { tenantId: string }) {
           <p>・IDが一致する予定は内容を<strong>更新</strong>（画像・コメントは保持）</p>
           <p>・IDがない行は<strong>新規追加</strong></p>
           <p>・CSVにない予定は削除されません</p>
+          <p>・エリア列が無いCSVを取り込んだ場合、既存のエリア設定は保持されます</p>
         </div>
         <button
           onClick={() => importRef.current?.click()}

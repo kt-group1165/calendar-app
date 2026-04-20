@@ -91,27 +91,31 @@ export async function importEventsFromCSV(
   const total = rows.length;
 
   // IDあり（既存更新）とIDなし（新規）に分ける
+  // area_id は CSV にエリア列が無い場合 undefined なので、その場合は payload から除外して既存値を保持
   const toUpsert = rows
     .filter((r) => r.id)
-    .map(({ id, ...data }) => ({
-      id,
-      tenant_id: tenantId,
-      title: data.title ?? "",
-      description: data.description ?? null,
-      notes: data.notes ?? null,
-      start_date: data.start_date ?? today,
-      end_date: data.end_date ?? today,
-      start_time: data.start_time ?? null,
-      end_time: data.end_time ?? null,
-      all_day: data.all_day ?? false,
-      color: data.color ?? "#6366f1",
-      location: data.location ?? null,
-      assignees: data.assignees ?? [],
-      event_type: data.event_type ?? [],
-      area_id: data.area_id ?? null,
-      created_by: data.created_by ?? null,
-      updated_by: data.updated_by ?? null,
-    }));
+    .map(({ id, ...data }) => {
+      const base: Record<string, unknown> = {
+        id,
+        tenant_id: tenantId,
+        title: data.title ?? "",
+        description: data.description ?? null,
+        notes: data.notes ?? null,
+        start_date: data.start_date ?? today,
+        end_date: data.end_date ?? today,
+        start_time: data.start_time ?? null,
+        end_time: data.end_time ?? null,
+        all_day: data.all_day ?? false,
+        color: data.color ?? "#6366f1",
+        location: data.location ?? null,
+        assignees: data.assignees ?? [],
+        event_type: data.event_type ?? [],
+        created_by: data.created_by ?? null,
+        updated_by: data.updated_by ?? null,
+      };
+      if (data.area_id !== undefined) base.area_id = data.area_id;
+      return base;
+    });
 
   const toInsert = rows
     .filter((r) => !r.id)
