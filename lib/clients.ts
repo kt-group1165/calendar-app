@@ -68,23 +68,23 @@ export async function setClientOfficeAssignment(
 
 export type ClientInsert = Omit<Client, "id" | "created_at" | "updated_at">;
 
-// 利用者取得（最大2000件まで・1000件超対応）
+// 利用者取得（全件・ページング）
 export async function getClients(tenantId: string): Promise<Client[]> {
   const PAGE = 1000;
-  const MAX = 2000;
   const all: Client[] = [];
-  for (let from = 0; from < MAX; from += PAGE) {
-    const to = Math.min(from + PAGE - 1, MAX - 1);
+  let from = 0;
+  while (true) {
     const { data, error } = await supabase
       .from("clients")
       .select("*")
       .eq("tenant_id", tenantId)
       .order("furigana", { ascending: true })
-      .range(from, to);
+      .range(from, from + PAGE - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
     all.push(...data);
     if (data.length < PAGE) break;
+    from += PAGE;
   }
   return all;
 }
