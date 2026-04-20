@@ -328,6 +328,20 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
     }
   }, [clients]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 利用者変更時のエリア自動選択
+  //   選択された利用者の住所を各エリアの address_patterns と照合し、合致したエリアを areaId にセット
+  //   ユーザーが手動で別エリアを選んだ後、同じ利用者のままなら上書きしない（依存配列は client.id のみ）
+  //   別の利用者に変更されたら再度自動セット（上書き）
+  useEffect(() => {
+    if (!selectedClient) return;
+    const address = selectedClient.address ?? "";
+    if (!address) return;
+    const matched = eventAreas.find((a) =>
+      (a.address_patterns ?? []).some((p) => p && address.includes(p))
+    );
+    if (matched) setAreaId(matched.id);
+  }, [selectedClient?.id, eventAreas]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // 利用者情報の自動追記ブロックを生成（selectedClientのみ、手動入力時は生成しない）
   function buildAutoBlock(client: Client): string {
     const lines: string[] = [];

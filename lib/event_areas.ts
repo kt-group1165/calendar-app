@@ -6,6 +6,7 @@ export type EventArea = {
   office_id: string | null;
   name: string;
   sort_order: number;
+  address_patterns: string[] | null;
   created_at: string;
 };
 
