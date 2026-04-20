@@ -107,7 +107,12 @@ function ClientSelector({ clients, selected, manualName, onSelect, onManualName 
 
   const filtered = useMemo(() => {
     const q = query.trim();
-    if (!q) return clients.slice(0, 30);
+    if (!q) {
+      // 検索なし: 個人利用者は先頭30件、事業所・施設は全件末尾に表示
+      const individuals = clients.filter((c) => !c.is_facility).slice(0, 30);
+      const facilities = clients.filter((c) => c.is_facility);
+      return [...individuals, ...facilities];
+    }
     const qH = normalizeKana(q);
     return clients.filter((c) => {
       const nameH = normalizeKana(c.name);
