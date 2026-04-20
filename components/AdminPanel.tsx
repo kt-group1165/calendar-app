@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { X, Users, Download, BarChart2, Settings, Plus, Trash2, Loader2, Lock, Tag, User, Upload, Search, ChevronUp, ChevronDown, FileUp, UserPlus, Building2, MapPin, Merge } from "lucide-react";
+import { X, Users, Download, BarChart2, Settings, Plus, Trash2, Loader2, Lock, Tag, User, Search, ChevronUp, ChevronDown, FileUp, UserPlus, Building2, MapPin, Merge } from "lucide-react";
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns";
 import { ja } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
@@ -14,7 +14,7 @@ import { detectDuplicates, executeMerge, type DuplicateGroup } from "@/lib/staff
 import { verifyMasterPin, updateMasterPin, getOrderEmailSettings, updateOrderEmailSettings, getClientSelectionEnabled, updateClientSelectionEnabled } from "@/lib/settings";
 import { getEventsByDateRange, getAllEvents, importEventsFromCSV } from "@/lib/events";
 import { getGroups, addGroup, deleteGroup, updateGroup, type MemberGroup } from "@/lib/groups";
-import { getClients, replaceClientsForOffice, parseClientCSV, updateClientOffice, getClientOfficeAssignments, setClientOfficeAssignment, type Client, type ClientOfficeAssignment } from "@/lib/clients";
+import { getClients, getClientOfficeAssignments, type Client, type ClientOfficeAssignment } from "@/lib/clients";
 import UsersTab from "@/components/UsersTab";
 
 type Tab = "members" | "groups" | "types" | "areas" | "merge" | "clients" | "users" | "csv" | "analytics" | "settings";
@@ -996,9 +996,6 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
   const [assignments, setAssignments] = useState<ClientOfficeAssignment[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  const [importing, setImporting] = useState(false);
-  const [importMsg, setImportMsg] = useState("");
-  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { load(); }, []);
   async function load() {
@@ -1034,35 +1031,6 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
     ? offices.find((o) => o.id === currentOfficeId)?.name ?? null
     : null;
 
-  // 取込先ラベル（自事業所選択中ならその事業所、そうでなければ共有）
-  const importTargetLabel = currentOfficeName ?? "共有（全事業所）";
-
-  async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setImporting(true);
-    setImportMsg("");
-    try {
-      const parsed = await parseClientCSV(file);
-      const scopeMsg = currentOfficeId
-        ? `「${importTargetLabel}」に紐付けて取込`
-        : "共有（全事業所で見える）として取込";
-      if (!confirm(`${parsed.length}件を取込：\n\n対象：${scopeMsg}\n\nよろしいですか？`)) return;
-
-      // 現在選択中の事業所に自動紐付け（未選択なら共有）
-      await replaceClientsForOffice(parsed, tenantId, currentOfficeId);
-
-      const updated = await getClients(tenantId);
-      setClients(updated);
-      setImportMsg(`✅ ${parsed.length}件の取り込みが完了しました（${importTargetLabel}）`);
-    } catch (err) {
-      setImportMsg(`❌ 取り込みに失敗しました: ${(err as Error).message}`);
-    } finally {
-      setImporting(false);
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  }
-
   // 自事業所選択中は「その事業所に紐付け あり」か「紐付けなし(共有)」のみ
   const officeFiltered = currentOfficeId
     ? clients.filter((c) => {
@@ -1075,53 +1043,19 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
     ? officeFiltered.filter((c) => c.name.includes(search) || (c.furigana ?? "").includes(search))
     : officeFiltered;
 
-  async function handleChangeOffice(id: string, officeId: string | null) {
-    try {
-      // client_office_assignments を更新（kaigo-appと共有）
-      await setClientOfficeAssignment(tenantId, id, officeId);
-      // 後方互換: clients.office_id も同期
-      await updateClientOffice(id, officeId);
-      // ステート更新
-      setClients((prev) => prev.map((c) => c.id === id ? { ...c, office_id: officeId } : c));
-      setAssignments((prev) => {
-        const next = prev.filter((a) => a.client_id !== id);
-        if (officeId) next.push({ tenant_id: tenantId, client_id: id, office_id: officeId });
-        return next;
-      });
-    } catch { alert("事業所の変更に失敗しました"); }
-  }
-
   return (
     <div className="p-4 space-y-4">
       {currentOfficeName && (
         <div className="flex items-center gap-1.5 text-xs text-indigo-600 bg-indigo-50 rounded-lg px-3 py-1.5">
           <Building2 size={13} />
-          <span>自事業所「{currentOfficeName}」＋共有利用者を表示中（CSV取込は共有として登録）</span>
+          <span>自事業所「{currentOfficeName}」＋共有利用者を表示中（読み取り専用）</span>
         </div>
       )}
-      {/* CSV取り込み */}
-      <div className="bg-indigo-50 rounded-xl p-3 space-y-2.5">
-        <p className="text-xs font-semibold text-indigo-700">CSVファイル取り込み</p>
-        <p className="text-xs text-indigo-500">
-          保険.CSV（Shift-JIS形式）を選択してください。<br />
-          取込先は<span className="font-bold">{importTargetLabel}</span>（現在選択中の事業所）。<br />
-          同一スコープの既存データは置換されます。他スコープには影響しません。
-        </p>
-
-        <button
-          onClick={() => fileRef.current?.click()}
-          disabled={importing}
-          className="w-full py-2.5 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-white font-semibold rounded-xl flex items-center justify-center gap-2 text-sm"
-        >
-          {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-          {importing ? "取り込み中..." : `CSVを取り込む（${importTargetLabel}）`}
-        </button>
-        {importMsg && (
-          <p className={`text-xs font-medium ${importMsg.startsWith("✅") ? "text-green-600" : "text-red-500"}`}>
-            {importMsg}
-          </p>
-        )}
-        <input ref={fileRef} type="file" accept=".csv,.CSV" className="hidden" onChange={handleImport} />
+      {/* order-app 連携のお知らせ */}
+      <div className="bg-amber-50 rounded-xl p-3 text-xs text-amber-700 space-y-1">
+        <p className="font-semibold">📖 利用者マスタは読み取り専用</p>
+        <p>利用者の追加・編集・CSV取り込み・CSV出力は <span className="font-bold">order-app</span> で行ってください。</p>
+        <p>このタブでは一覧表示のみ可能です。</p>
       </div>
 
       {/* 検索 */}
@@ -1155,7 +1089,7 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
       ) : clients.length === 0 ? (
         <p className="text-sm text-gray-400 text-center py-8">
           利用者データがありません<br />
-          <span className="text-xs">CSVを取り込んでください</span>
+          <span className="text-xs">order-app で取り込んでください</span>
         </p>
       ) : filtered.length === 0 ? (
         <p className="text-sm text-gray-400 text-center py-6">見つかりません</p>
@@ -1177,18 +1111,6 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
               {(c.phone || c.mobile) && <span className="text-[11px] text-gray-500 shrink-0">{c.phone ?? c.mobile}</span>}
               {/* 住所（伸縮・省略） */}
               {c.address && <span className="text-[11px] text-gray-400 flex-1 min-w-[120px] truncate">{c.address}</span>}
-              {/* 事業所ドロップダウン */}
-              <select
-                value={Array.from(clientOfficeIds(c))[0] ?? ""}
-                onChange={(e) => handleChangeOffice(c.id, e.target.value || null)}
-                className="ml-auto text-[11px] border border-gray-200 rounded-md px-1.5 py-0.5 bg-white text-gray-600 focus:outline-none focus:border-indigo-400 shrink-0 max-w-[140px]"
-                title="事業所紐付け"
-              >
-                <option value="">共有</option>
-                {offices.map((o) => (
-                  <option key={o.id} value={o.id}>{o.name}</option>
-                ))}
-              </select>
             </div>
           ))}
           {filtered.length > 100 && (
