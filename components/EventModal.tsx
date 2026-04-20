@@ -294,7 +294,7 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
     }
     return m;
   })();
-  const visibleClients = officeId
+  const baseVisibleClients = officeId
     ? clients.filter((c) => {
         if (c.id === selectedClient?.id) return true;
         const ids = clientOfficeSetMap.get(c.id);
@@ -303,6 +303,13 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
         return c.office_id === officeId || c.office_id === null;
       })
     : clients;
+  // 事業所・施設フラグが true の利用者は最下部に並べる
+  //   個人利用者（false）を先頭、事業所（true）を末尾に
+  //   各ブロック内では元の順序（フリガナ順）を維持
+  const visibleClients = [
+    ...baseVisibleClients.filter((c) => !c.is_facility),
+    ...baseVisibleClients.filter((c) => c.is_facility),
+  ];
 
   // 編集モード時：タイトルのプレフィックスからクライアントを特定し、prefix/autoBlockを復元する
   useEffect(() => {
