@@ -221,17 +221,27 @@ export async function getEventsByDateRange(startDate: string, endDate: string, t
   return data ?? [];
 }
 
-// メモ一覧取得（日付未定の予定）
+// メモ一覧取得（日付未定の予定）・ページング対応
 export async function getMemoEvents(tenantId: string): Promise<Event[]> {
-  const { data, error } = await supabase
-    .from("events")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .is("deleted_at", null)
-    .eq("is_memo", true)
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-  return data ?? [];
+  const PAGE = 1000;
+  const all: Event[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("events")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .is("deleted_at", null)
+      .eq("is_memo", true)
+      .order("created_at", { ascending: false })
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return all;
 }
 
 // 予定1件取得（削除済み含む）
@@ -295,16 +305,26 @@ export async function permanentDeleteEvent(id: string, imageUrl: string | null):
   if (error) throw error;
 }
 
-// ゴミ箱内の予定取得
+// ゴミ箱内の予定取得・ページング対応
 export async function getDeletedEvents(tenantId: string): Promise<Event[]> {
-  const { data, error } = await supabase
-    .from("events")
-    .select("*")
-    .eq("tenant_id", tenantId)
-    .not("deleted_at", "is", null)
-    .order("deleted_at", { ascending: false });
-  if (error) throw error;
-  return data ?? [];
+  const PAGE = 1000;
+  const all: Event[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("events")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .not("deleted_at", "is", null)
+      .order("deleted_at", { ascending: false })
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return all;
 }
 
 // 10日以上経過した削除済みを自動完全削除
