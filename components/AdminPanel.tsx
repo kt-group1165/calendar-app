@@ -1353,7 +1353,7 @@ function CsvTab({ tenantId }: { tenantId: string }) {
         if (!areaIdByName.has(a.name)) areaIdByName.set(a.name, a.id);
       }
 
-      const dataRows = rows.slice(1).map((cols) => {
+      const allDataRows = rows.slice(1).map((cols) => {
         const get = (i: number) => (i >= 0 ? (cols[i] ?? "").trim() : "");
         const areaName = get(areaIdx);
         return {
@@ -1376,10 +1376,19 @@ function CsvTab({ tenantId }: { tenantId: string }) {
         };
       }).filter((r) => r.title && r.start_date);
 
+      // 期間指定時は start_date が範囲外の行をスキップ
+      let dataRows = allDataRows;
+      let skipped = 0;
+      if (importScope === "range") {
+        dataRows = allDataRows.filter((r) => r.start_date >= startDate && r.start_date <= endDate);
+        skipped = allDataRows.length - dataRows.length;
+      }
+
       const scopeLabel = importScope === "range" ? `期間指定（${startDate} 〜 ${endDate}）` : "全期間";
+      const skipNote = skipped > 0 ? `\n期間外の ${skipped} 件はスキップされます。` : "";
       const confirmMsg = syncMode
-        ? `${dataRows.length}件のデータを取り込みます。\n\n⚠️ 同期モード（${scopeLabel}）：対象範囲でCSVに無い既存予定はゴミ箱に移動されます（ID一致で復活可）。\n\nIDが一致する予定は更新（画像・コメントは保持）、IDなしは新規追加。`
-        : `${dataRows.length}件のデータを取り込みます（${scopeLabel}）。\nIDが一致する予定は更新（画像・コメントは保持）、IDなしは新規追加されます。`;
+        ? `${dataRows.length}件のデータを取り込みます（${scopeLabel}）。${skipNote}\n\n⚠️ 同期モード：対象範囲でCSVに無い既存予定はゴミ箱に移動されます（ID一致で復活可）。\n\nIDが一致する予定は更新（画像・コメントは保持）、IDなしは新規追加。`
+        : `${dataRows.length}件のデータを取り込みます（${scopeLabel}）。${skipNote}\nIDが一致する予定は更新（画像・コメントは保持）、IDなしは新規追加されます。`;
       if (!confirm(confirmMsg)) return;
 
       setImportProgress({ done: 0, total: dataRows.length });
@@ -1394,6 +1403,7 @@ function CsvTab({ tenantId }: { tenantId: string }) {
       setImportMsg(
         `✅ 完了：更新 ${result.updated}件、新規追加 ${result.inserted}件` +
         (result.deleted > 0 ? `、削除 ${result.deleted}件` : "") +
+        (skipped > 0 ? `、スキップ ${skipped}件` : "") +
         (result.errors > 0 ? `、エラー ${result.errors}件` : "")
       );
     } catch (err) {
@@ -1452,8 +1462,8 @@ function CsvTab({ tenantId }: { tenantId: string }) {
           <p>・このアプリで出力したCSVを取り込めます</p>
           <p>・IDが一致する予定は内容を<strong>更新</strong>（画像・コメントは保持）</p>
           <p>・IDがない行は<strong>新規追加</strong></p>
-          <p>・期間指定：出力と同じ期間（上記日付）が同期モードの対象範囲</p>
-          <p>・全期間：同期モード時、全期間が対象範囲</p>
+          <p>・期間指定：上記日付範囲内の行のみ取り込み（範囲外はスキップ）。同期モードの削除も範囲内のみ</p>
+          <p>・全期間：CSVの全行を取り込み。同期モード時は全期間が削除対象</p>
           <p>・通常モード：CSVにない予定は削除されません</p>
           <p>・同期モード：対象範囲でCSVにない予定はゴミ箱へ（ID一致で復活可）</p>
           <p>・エリア列が無いCSVを取り込んだ場合、既存のエリア設定は保持されます</p>
