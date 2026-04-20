@@ -164,7 +164,8 @@ export async function importEventsFromCSV(
         .lte("start_date", dateRange.endDate);
     }
     const { data: existingRows } = await query;
-    toDelete = (existingRows ?? [])
+    const rowsTyped = (existingRows ?? []) as Array<{ id: string }>;
+    toDelete = rowsTyped
       .filter((r) => !csvIds.has(r.id))
       .map((r) => r.id);
   }
