@@ -16,6 +16,7 @@ export type Client = {
   care_manager: string | null;
   certification_end_date: string | null;
   office_id: string | null;
+  is_facility?: boolean;
   created_at: string;
   updated_at: string;
 };
