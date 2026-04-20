@@ -1275,6 +1275,7 @@ function CsvTab({ tenantId }: { tenantId: string }) {
   const [loadingBackups, setLoadingBackups] = useState(false);
   const [eventAreas, setEventAreas] = useState<EventArea[]>([]);
   const [syncMode, setSyncMode] = useState(false);
+  const [importScope, setImportScope] = useState<"range" | "all">("all");
   const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { loadBackups(); }, []);
@@ -1375,15 +1376,20 @@ function CsvTab({ tenantId }: { tenantId: string }) {
         };
       }).filter((r) => r.title && r.start_date);
 
+      const scopeLabel = importScope === "range" ? `期間指定（${startDate} 〜 ${endDate}）` : "全期間";
       const confirmMsg = syncMode
-        ? `${dataRows.length}件のデータを取り込みます。\n\n⚠️ 同期モード：CSVに無い既存予定はゴミ箱に移動されます（ID一致で復活可）。\n\nIDが一致する予定は更新（画像・コメントは保持）、IDなしは新規追加。`
-        : `${dataRows.length}件のデータを取り込みます。\nIDが一致する予定は更新（画像・コメントは保持）、IDなしは新規追加されます。`;
+        ? `${dataRows.length}件のデータを取り込みます。\n\n⚠️ 同期モード（${scopeLabel}）：対象範囲でCSVに無い既存予定はゴミ箱に移動されます（ID一致で復活可）。\n\nIDが一致する予定は更新（画像・コメントは保持）、IDなしは新規追加。`
+        : `${dataRows.length}件のデータを取り込みます（${scopeLabel}）。\nIDが一致する予定は更新（画像・コメントは保持）、IDなしは新規追加されます。`;
       if (!confirm(confirmMsg)) return;
 
       setImportProgress({ done: 0, total: dataRows.length });
-      const result = await importEventsFromCSV(dataRows, tenantId, (done, total) => {
-        setImportProgress({ done, total });
-      }, syncMode);
+      const result = await importEventsFromCSV(
+        dataRows,
+        tenantId,
+        (done, total) => setImportProgress({ done, total }),
+        syncMode,
+        importScope === "range" ? { startDate, endDate } : undefined,
+      );
       setImportProgress(null);
       setImportMsg(
         `✅ 完了：更新 ${result.updated}件、新規追加 ${result.inserted}件` +
@@ -1446,8 +1452,10 @@ function CsvTab({ tenantId }: { tenantId: string }) {
           <p>・このアプリで出力したCSVを取り込めます</p>
           <p>・IDが一致する予定は内容を<strong>更新</strong>（画像・コメントは保持）</p>
           <p>・IDがない行は<strong>新規追加</strong></p>
+          <p>・期間指定：出力と同じ期間（上記日付）が同期モードの対象範囲</p>
+          <p>・全期間：同期モード時、全期間が対象範囲</p>
           <p>・通常モード：CSVにない予定は削除されません</p>
-          <p>・同期モード：CSVにない予定はゴミ箱へ移動（ID一致で復活可）</p>
+          <p>・同期モード：対象範囲でCSVにない予定はゴミ箱へ（ID一致で復活可）</p>
           <p>・エリア列が無いCSVを取り込んだ場合、既存のエリア設定は保持されます</p>
         </div>
         <label className="flex items-start gap-2 p-3 rounded-xl border-2 border-rose-200 bg-rose-50 cursor-pointer">
@@ -1462,17 +1470,34 @@ function CsvTab({ tenantId }: { tenantId: string }) {
             <p className="mt-0.5">CSVに含まれない既存予定をソフトデリートします。バックアップCSVを再取り込みすると同じIDで復活できます。</p>
           </div>
         </label>
-        <button
-          onClick={() => importRef.current?.click()}
-          disabled={importing}
-          className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold rounded-xl flex items-center justify-center gap-2 text-sm">
-          {importing ? <Loader2 size={15} className="animate-spin" /> : <FileUp size={15} />}
-          {importing
-            ? importProgress
-              ? `取り込み中... ${importProgress.done.toLocaleString()} / ${importProgress.total.toLocaleString()}件`
-              : "取り込み中..."
-            : "CSVを取り込む"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { setImportScope("range"); setTimeout(() => importRef.current?.click(), 0); }}
+            disabled={importing}
+            className="flex-1 py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-semibold rounded-xl flex items-center justify-center gap-2 text-sm">
+            {importing && importScope === "range"
+              ? <Loader2 size={15} className="animate-spin" />
+              : <FileUp size={15} />}
+            {importing && importScope === "range"
+              ? importProgress
+                ? `${importProgress.done.toLocaleString()}/${importProgress.total.toLocaleString()}件`
+                : "取り込み中..."
+              : "期間指定で取り込み"}
+          </button>
+          <button
+            onClick={() => { setImportScope("all"); setTimeout(() => importRef.current?.click(), 0); }}
+            disabled={importing}
+            className="flex-1 py-3 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 text-white font-semibold rounded-xl flex items-center justify-center gap-2 text-sm">
+            {importing && importScope === "all"
+              ? <Loader2 size={15} className="animate-spin" />
+              : <FileUp size={15} />}
+            {importing && importScope === "all"
+              ? importProgress
+                ? `${importProgress.done.toLocaleString()}/${importProgress.total.toLocaleString()}件`
+                : "取り込み中..."
+              : "全期間で取り込み"}
+          </button>
+        </div>
         {importing && importProgress && importProgress.total > 0 && (
           <div className="space-y-1">
             <div className="w-full bg-gray-200 rounded-full h-2.5 overflow-hidden">

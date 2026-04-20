@@ -82,11 +82,13 @@ export async function getAllEventsAllTenants(): Promise<Event[]> {
 // CSVインポート：バッチ処理版（500件まとめてupsert）
 // syncMode=true の場合、CSV に無い既存予定をソフトデリート（ゴミ箱へ）
 //   ID一致の予定は deleted_at=null で復活するため、バックアップCSV再取り込みで復元可能
+// dateRange を指定すると、同期モードの削除対象を「期間内の予定のみ」に絞る（期間外は触らない）
 export async function importEventsFromCSV(
   rows: Array<{ id?: string } & Partial<EventInsert>>,
   tenantId: string,
   onProgress?: (done: number, total: number) => void,
-  syncMode: boolean = false
+  syncMode: boolean = false,
+  dateRange?: { startDate: string; endDate: string }
 ): Promise<{ updated: number; inserted: number; errors: number; deleted: number }> {
   const BATCH = 500;
   let updated = 0, inserted = 0, errors = 0, deleted = 0;
@@ -147,14 +149,21 @@ export async function importEventsFromCSV(
 
   // sync mode: 削除対象の事前スナップショット（upsert/insert の前に取得）
   //   insert で採番される新UUIDが誤って削除対象に入らないようにするため
+  //   dateRange 指定時は期間内の予定のみを削除対象とする
   let toDelete: string[] = [];
   if (syncMode) {
     const csvIds = new Set(rows.filter((r) => r.id).map((r) => r.id!));
-    const { data: existingRows } = await supabase
+    let query = supabase
       .from("events")
       .select("id")
       .eq("tenant_id", tenantId)
       .is("deleted_at", null);
+    if (dateRange) {
+      query = query
+        .gte("start_date", dateRange.startDate)
+        .lte("start_date", dateRange.endDate);
+    }
+    const { data: existingRows } = await query;
     toDelete = (existingRows ?? [])
       .filter((r) => !csvIds.has(r.id))
       .map((r) => r.id);
