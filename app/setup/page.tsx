@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarDays, ShieldCheck, Loader2, ArrowRight, Mail, Lock } from "lucide-react";
 import { getSupabase } from "@/lib/supabase-browser";
-import { hasAnyUser } from "@/lib/users";
+import { getTenants } from "@/lib/tenants";
 
 export default function SetupPage() {
   const router = useRouter();
@@ -19,9 +19,11 @@ export default function SetupPage() {
   useEffect(() => {
     (async () => {
       try {
-        const already = await hasAnyUser();
-        if (already) {
-          // 既にユーザーがいる → 通常のログイン画面へ
+        // テナントが 1 件でも存在すれば既に運用中 → ログイン画面へ
+        // （user_tenants は RLS の関係で匿名では count=0 になるので使わない）
+        const list = await getTenants();
+        const nonDefault = list.filter((t) => t.id !== "default");
+        if (nonDefault.length > 0) {
           router.replace("/login");
           return;
         }

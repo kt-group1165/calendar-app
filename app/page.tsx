@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { CalendarDays, ChevronRight, Loader2, LogIn, LogOut, User as UserIcon } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { getTenants, type Tenant } from "@/lib/tenants";
-import { hasAnyUser } from "@/lib/users";
 import { getSupabase } from "@/lib/supabase-browser";
 import { signOut } from "@/lib/auth";
 
@@ -19,29 +18,21 @@ export default function HomePage() {
     (async () => {
       const supabase = getSupabase();
 
-      // まず「ユーザーが1人もいない」ならセットアップへ
-      try {
-        const already = await hasAnyUser();
-        if (!already) {
-          // 認証チェックも短絡
-          const { data: { user: u } } = await supabase.auth.getUser();
-          if (!u) {
-            router.replace("/setup");
-            return;
-          }
-        }
-      } catch {
-        // エラー時は通常フロー続行
-      }
-
       // 認証状態取得
       const { data: { user } } = await supabase.auth.getUser();
       setAuthUser(user);
 
       // テナント一覧（RLS により、認証済みなら所属テナントのみ、匿名なら全件）
+      // テナントが 1 件も存在しなければ初回セットアップへ。
+      // user_tenants は RLS の関係で匿名では count=0 になるため、tenants の有無で判定する。
       try {
         const list = await getTenants();
-        setTenants(list.filter((t) => t.id !== "default"));
+        const nonDefault = list.filter((t) => t.id !== "default");
+        setTenants(nonDefault);
+        if (nonDefault.length === 0 && !user) {
+          router.replace("/setup");
+          return;
+        }
       } catch {
         // ignore
       } finally {
