@@ -19,6 +19,8 @@ export type Client = {
   is_facility?: boolean;
   // 仮登録（カレンダー上で自由入力された利用者。発注システムで本登録されたら false になる）
   is_provisional?: boolean;
+  // ソフト削除日時（null なら未削除）
+  deleted_at?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -133,6 +135,7 @@ export async function setClientOfficeAssignment(
 export type ClientInsert = Omit<Client, "id" | "created_at" | "updated_at">;
 
 // 利用者取得（全件・ページング）
+// 削除済み（deleted_at IS NOT NULL）は除外
 export async function getClients(tenantId: string): Promise<Client[]> {
   const PAGE = 1000;
   const all: Client[] = [];
@@ -142,6 +145,7 @@ export async function getClients(tenantId: string): Promise<Client[]> {
       .from("clients")
       .select("*")
       .eq("tenant_id", tenantId)
+      .is("deleted_at", null)
       .order("furigana", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw error;
