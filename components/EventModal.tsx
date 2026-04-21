@@ -218,11 +218,17 @@ function ClientSelector({ clients, selected, manualName, tenantId, onSelect, onM
   }
 
   async function handleProvisionalRegister(name: string, address: string) {
-    const created = await createProvisionalClient(tenantId, name, address || null);
-    onClientCreated(created);
-    onSelect(created);
-    setProvisionalOpen(false);
-    handleClose();
+    try {
+      const created = await createProvisionalClient(tenantId, name, address || null);
+      onClientCreated(created);
+      onSelect(created);
+      setProvisionalOpen(false);
+      handleClose();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      alert(`仮登録に失敗しました\n${msg}`);
+      throw e; // ProvisionalRegisterModal側で saving=false に戻す
+    }
   }
 
   return (

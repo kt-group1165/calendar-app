@@ -26,14 +26,26 @@ export type Client = {
 // カレンダー画面から新規利用者を自由入力で仮登録する。
 //   - 発注システム側にも同じ clients 行として共有される
 //   - is_provisional=true で印を付け、後で本登録時に外す
-//   - user_number は null のまま（本登録時に確定）
+//   - user_number は NOT NULL 制約があるため、テナント内の既存最大番号+1 を採番
 export async function createProvisionalClient(
   tenantId: string,
   name: string,
   address: string | null,
 ): Promise<Client> {
+  // user_number は「数値として解釈できる最大値+1」を採番
+  //   （仮登録の "仮-xxx" 形式は数値化できないので maxNum に影響しない）
+  const { data: existing } = await supabase
+    .from("clients")
+    .select("user_number")
+    .eq("tenant_id", tenantId);
+  const maxNum = (existing ?? []).reduce((mx: number, c: { user_number: string | null }) => {
+    const n = parseInt(c.user_number ?? "0");
+    return isNaN(n) ? mx : Math.max(mx, n);
+  }, 0);
+
   const payload: Record<string, unknown> = {
     tenant_id: tenantId,
+    user_number: String(maxNum + 1),
     name: name.trim(),
     address: address?.trim() || null,
     is_provisional: true,
