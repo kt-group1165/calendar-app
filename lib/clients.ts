@@ -17,9 +17,35 @@ export type Client = {
   certification_end_date: string | null;
   office_id: string | null;
   is_facility?: boolean;
+  // 仮登録（カレンダー上で自由入力された利用者。発注システムで本登録されたら false になる）
+  is_provisional?: boolean;
   created_at: string;
   updated_at: string;
 };
+
+// カレンダー画面から新規利用者を自由入力で仮登録する。
+//   - 発注システム側にも同じ clients 行として共有される
+//   - is_provisional=true で印を付け、後で本登録時に外す
+//   - user_number は null のまま（本登録時に確定）
+export async function createProvisionalClient(
+  tenantId: string,
+  name: string,
+  address: string | null,
+): Promise<Client> {
+  const payload: Record<string, unknown> = {
+    tenant_id: tenantId,
+    name: name.trim(),
+    address: address?.trim() || null,
+    is_provisional: true,
+  };
+  const { data, error } = await supabase
+    .from("clients")
+    .insert(payload)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Client;
+}
 
 export async function updateClientOffice(id: string, officeId: string | null): Promise<void> {
   // 後方互換: clients.office_id も更新（カレンダー旧仕様）

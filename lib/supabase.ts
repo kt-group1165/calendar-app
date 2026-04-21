@@ -23,6 +23,7 @@ export type Event = {
   event_type: string[];
   office_id: string | null;
   area_id: string | null;
+  client_id: string | null;
   created_by: string | null;
   updated_by: string | null;
   deleted_at: string | null;
@@ -30,5 +31,5 @@ export type Event = {
   updated_at: string;
 };
 
-export type EventInsert = Omit<Event, "id" | "created_at" | "updated_at" | "deleted_at" | "office_id" | "area_id"> & { office_id?: string | null; area_id?: string | null };
+export type EventInsert = Omit<Event, "id" | "created_at" | "updated_at" | "deleted_at" | "office_id" | "area_id" | "client_id"> & { office_id?: string | null; area_id?: string | null; client_id?: string | null };
 export type EventUpdate = Partial<EventInsert>;

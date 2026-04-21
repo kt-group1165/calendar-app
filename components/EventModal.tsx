@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useMemo } from "react";
-import { X, Calendar, Clock, Image as ImageIcon, Trash2, Loader2, Users, Tag, MapPin, User, StickyNote } from "lucide-react";
+import { X, Calendar, Clock, Image as ImageIcon, Trash2, Loader2, Users, Tag, MapPin, User, StickyNote, UserPlus } from "lucide-react";
 import { createPortal } from "react-dom";
 import { format } from "date-fns";
 import { type Event, type EventInsert } from "@/lib/supabase";
@@ -9,7 +9,7 @@ import { uploadImage, deleteImage } from "@/lib/events";
 import { getMembers, type Member } from "@/lib/members";
 import { getEventTypes, type EventType } from "@/lib/event_types";
 import { getEventAreas, type EventArea } from "@/lib/event_areas";
-import { getClients, getClientOfficeAssignments, type Client, type ClientOfficeAssignment } from "@/lib/clients";
+import { getClients, getClientOfficeAssignments, createProvisionalClient, type Client, type ClientOfficeAssignment } from "@/lib/clients";
 
 function TimeSelect({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
   const parts = value ? value.split(":") : ["", ""];
@@ -94,16 +94,100 @@ function normalizeKana(str: string): string {
   return toHiragana(hankakuToZenkaku(str));
 }
 
-// ── 利用者選択コンポーネント（DB選択 + 直接入力）──────────
-function ClientSelector({ clients, selected, manualName, onSelect, onManualName }: {
+// ── 新規仮登録モーダル ─────────────────────────────
+function ProvisionalRegisterModal({ defaultName, onCancel, onRegister }: {
+  defaultName: string;
+  onCancel: () => void;
+  onRegister: (name: string, address: string) => Promise<void>;
+}) {
+  const [name, setName] = useState(defaultName);
+  const [address, setAddress] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function handleRegister() {
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      await onRegister(name.trim(), address.trim());
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-[110] flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onCancel} />
+      <div className="relative w-full sm:max-w-md bg-white sm:rounded-2xl rounded-t-2xl shadow-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <UserPlus size={18} className="text-amber-500" />
+            <h3 className="text-base font-semibold text-gray-800">新規利用者を仮登録</h3>
+          </div>
+          <button onClick={onCancel} className="p-2 rounded-full hover:bg-gray-100">
+            <X size={18} className="text-gray-500" />
+          </button>
+        </div>
+        <div className="px-4 py-4 space-y-3">
+          <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+            🏷️ 仮登録として発注システムにも追加されます。レンタル開始時に正式な情報で本登録してください。
+          </p>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">氏名 <span className="text-red-400">*</span></label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="山田 太郎"
+              autoFocus
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">住所</label>
+            <input
+              type="text"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="千葉市中央区…"
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400"
+            />
+          </div>
+        </div>
+        <div className="px-4 py-3 border-t border-gray-100 flex gap-2">
+          <button
+            onClick={onCancel}
+            className="flex-1 py-2.5 rounded-xl border border-gray-200 text-gray-500 font-medium hover:bg-gray-50"
+          >
+            キャンセル
+          </button>
+          <button
+            onClick={handleRegister}
+            disabled={!name.trim() || saving}
+            className="flex-1 py-2.5 rounded-xl bg-amber-500 text-white font-medium hover:bg-amber-600 disabled:opacity-50 flex items-center justify-center gap-1"
+          >
+            {saving ? <Loader2 size={16} className="animate-spin" /> : null}
+            仮登録して選択
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ── 利用者選択コンポーネント（DB選択 + 新規仮登録 + 直接入力）──────────
+function ClientSelector({ clients, selected, manualName, tenantId, onSelect, onManualName, onClientCreated }: {
   clients: Client[];
   selected: Client | null;
   manualName: string;
+  tenantId: string;
   onSelect: (c: Client | null) => void;
   onManualName: (name: string) => void;
+  onClientCreated: (c: Client) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [provisionalOpen, setProvisionalOpen] = useState(false);
 
   const filtered = useMemo(() => {
     const q = query.trim();
@@ -122,6 +206,7 @@ function ClientSelector({ clients, selected, manualName, onSelect, onManualName 
   }, [clients, query]);
 
   const displayName = selected?.name ?? manualName;
+  const isProvisional = !!selected?.is_provisional;
 
   function handleClose() { setOpen(false); setQuery(""); }
 
@@ -132,18 +217,30 @@ function ClientSelector({ clients, selected, manualName, onSelect, onManualName 
     handleClose();
   }
 
+  async function handleProvisionalRegister(name: string, address: string) {
+    const created = await createProvisionalClient(tenantId, name, address || null);
+    onClientCreated(created);
+    onSelect(created);
+    setProvisionalOpen(false);
+    handleClose();
+  }
+
   return (
     <>
       <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2.5">
         <User size={16} className="text-gray-400 shrink-0" />
         <button type="button" onClick={() => setOpen(true)} className="flex-1 text-left text-sm">
           {displayName
-            ? <span className="text-gray-700">{displayName}{!selected && <span className="text-gray-400 text-xs ml-1">（手動入力）</span>}</span>
-            : <span className="text-gray-300">利用者を選択 / 直接入力（任意）</span>
+            ? <span className="text-gray-700">
+                {displayName}
+                {isProvisional && <span className="ml-1.5 text-[10px] font-semibold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">仮</span>}
+                {!selected && <span className="text-gray-400 text-xs ml-1">（手動入力）</span>}
+              </span>
+            : <span className="text-gray-300">利用者を選択 / 新規登録</span>
           }
         </button>
         {displayName && (
-          <button type="button" onClick={() => { onSelect(null); }}
+          <button type="button" onClick={() => { onSelect(null); onManualName(""); }}
             className="text-gray-300 hover:text-red-400 p-0.5 shrink-0">
             <X size={14} />
           </button>
@@ -160,12 +257,28 @@ function ClientSelector({ clients, selected, manualName, onSelect, onManualName 
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="名前・フリガナで検索 / 直接入力..."
+              placeholder="名前・フリガナで検索 / 新規登録..."
               className="flex-1 text-sm bg-gray-50 rounded-xl px-3 py-2 placeholder-gray-300 focus:outline-none"
             />
           </div>
           <div className="flex-1 overflow-y-auto">
-            {/* 直接入力オプション */}
+            {/* 新規仮登録オプション（常に表示） */}
+            <button
+              type="button"
+              onClick={() => setProvisionalOpen(true)}
+              className="w-full flex items-center gap-3 px-4 py-3 text-left bg-amber-50 hover:bg-amber-100 border-b border-amber-100"
+            >
+              <div className="w-9 h-9 bg-amber-200 rounded-full flex items-center justify-center shrink-0">
+                <UserPlus size={16} className="text-amber-700" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-amber-800">
+                  {query.trim() ? `「${query}」を新規利用者として仮登録` : "＋ 新規利用者を仮登録"}
+                </p>
+                <p className="text-xs text-amber-600">氏名・住所だけで即登録、発注システムにも共有</p>
+              </div>
+            </button>
+            {/* タイトル直接入力（利用者紐付けなし） */}
             {query.trim() && (
               <button
                 type="button"
@@ -176,8 +289,8 @@ function ClientSelector({ clients, selected, manualName, onSelect, onManualName 
                   <User size={16} className="text-indigo-600" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-indigo-700">「{query}」で直接入力</p>
-                  <p className="text-xs text-indigo-400">タイトルに名前を追加（住所・情報の自動入力なし）</p>
+                  <p className="text-sm font-medium text-indigo-700">「{query}」をタイトルだけに入れる</p>
+                  <p className="text-xs text-indigo-400">利用者DBに登録しない（打ち合わせ等の一時的な用途）</p>
                 </div>
               </button>
             )}
@@ -189,11 +302,14 @@ function ClientSelector({ clients, selected, manualName, onSelect, onManualName 
                 onClick={() => { onSelect(c); handleClose(); }}
                 className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 border-b border-gray-50"
               >
-                <div className="w-9 h-9 bg-indigo-100 rounded-full flex items-center justify-center shrink-0">
-                  <span className="text-sm font-bold text-indigo-600">{c.name.charAt(0)}</span>
+                <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 ${c.is_provisional ? "bg-amber-100" : "bg-indigo-100"}`}>
+                  <span className={`text-sm font-bold ${c.is_provisional ? "text-amber-600" : "text-indigo-600"}`}>{c.name.charAt(0)}</span>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-800">{c.name}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-gray-800">
+                    {c.name}
+                    {c.is_provisional && <span className="ml-1.5 text-[10px] font-semibold bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">仮</span>}
+                  </p>
                   <p className="text-xs text-gray-400 truncate">
                     {c.furigana}{c.address ? `　${c.address}` : ""}
                   </p>
@@ -207,7 +323,7 @@ function ClientSelector({ clients, selected, manualName, onSelect, onManualName 
               <p className="text-sm text-gray-400 text-center py-12">名前で絞り込んでください</p>
             )}
             {filtered.length === 0 && query.trim() && (
-              <p className="text-sm text-gray-400 text-center py-6">データベースに該当者がいません<br /><span className="text-xs">上の「直接入力」を使ってください</span></p>
+              <p className="text-sm text-gray-400 text-center py-6">データベースに該当者がいません<br /><span className="text-xs">上の「新規登録」を使ってください</span></p>
             )}
             {!query.trim() && clients.length > 30 && (
               <p className="text-xs text-gray-400 text-center py-3">
@@ -217,6 +333,14 @@ function ClientSelector({ clients, selected, manualName, onSelect, onManualName 
           </div>
         </div>,
         document.body
+      )}
+
+      {provisionalOpen && (
+        <ProvisionalRegisterModal
+          defaultName={query.trim()}
+          onCancel={() => setProvisionalOpen(false)}
+          onRegister={handleProvisionalRegister}
+        />
       )}
     </>
   );
@@ -316,12 +440,21 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
     ...baseVisibleClients.filter((c) => c.is_facility),
   ];
 
-  // 編集モード時：タイトルのプレフィックスからクライアントを特定し、prefix/autoBlockを復元する
+  // 編集モード時：client_id 優先、無ければタイトルのプレフィックスからクライアントを特定
   useEffect(() => {
-    if (!clients.length || !event?.title) return;
-    const match = event.title.match(/^(.+?) 様 /);
-    if (!match) return;
-    const foundClient = clients.find((c) => c.name === match[1]);
+    if (!clients.length || !event) return;
+    let foundClient: Client | undefined;
+    // 1. client_id から特定（新規で紐付け済みの場合）
+    if (event.client_id) {
+      foundClient = clients.find((c) => c.id === event.client_id);
+    }
+    // 2. タイトルの「xxx 様 」プレフィックスから特定（後方互換）
+    if (!foundClient && event.title) {
+      const match = event.title.match(/^(.+?) 様 /);
+      if (match) {
+        foundClient = clients.find((c) => c.name === match[1]);
+      }
+    }
     if (foundClient) {
       setSelectedClient(foundClient);
       setClientPrefix(`${foundClient.name} 様 `);
@@ -529,6 +662,7 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
         assignees,
         event_type: eventType,
         area_id: areaId,
+        client_id: selectedClient?.id ?? null,
         created_by: event ? event.created_by : currentUser,
         updated_by: currentUser,
       });
@@ -565,8 +699,10 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
             clients={visibleClients}
             selected={selectedClient}
             manualName={manualClientName}
+            tenantId={tenantId}
             onSelect={handleSelectClient}
             onManualName={handleManualClientName}
+            onClientCreated={(c) => setClients((prev) => [...prev, c])}
           />}
 
           {/* エリア（常に表示） */}
