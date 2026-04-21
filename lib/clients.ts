@@ -23,40 +23,65 @@ export type Client = {
   updated_at: string;
 };
 
+// テナント内の user_number の数値最大値を取得（ページング対応）
+//   Supabase のデフォルト 1000件制限を回避するため、ページングで全件走査する
+async function getMaxUserNumber(tenantId: string): Promise<number> {
+  const PAGE = 1000;
+  let from = 0;
+  let maxNum = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("clients")
+      .select("user_number")
+      .eq("tenant_id", tenantId)
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    for (const row of data) {
+      const n = parseInt((row as { user_number: string | null }).user_number ?? "0");
+      if (!isNaN(n) && n > maxNum) maxNum = n;
+    }
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return maxNum;
+}
+
 // カレンダー画面から新規利用者を自由入力で仮登録する。
 //   - 発注システム側にも同じ clients 行として共有される
 //   - is_provisional=true で印を付け、後で本登録時に外す
-//   - user_number は NOT NULL 制約があるため、テナント内の既存最大番号+1 を採番
+//   - user_number は NOT NULL 制約があるため、テナント内の最大値+1 を採番
+//   - unique 制約衝突時は自動で +1 してリトライ（並行挿入対策）
 export async function createProvisionalClient(
   tenantId: string,
   name: string,
   address: string | null,
 ): Promise<Client> {
-  // user_number は「数値として解釈できる最大値+1」を採番
-  //   （仮登録の "仮-xxx" 形式は数値化できないので maxNum に影響しない）
-  const { data: existing } = await supabase
-    .from("clients")
-    .select("user_number")
-    .eq("tenant_id", tenantId);
-  const maxNum = (existing ?? []).reduce((mx: number, c: { user_number: string | null }) => {
-    const n = parseInt(c.user_number ?? "0");
-    return isNaN(n) ? mx : Math.max(mx, n);
-  }, 0);
+  let candidate = (await getMaxUserNumber(tenantId)) + 1;
+  const MAX_RETRY = 10;
 
-  const payload: Record<string, unknown> = {
-    tenant_id: tenantId,
-    user_number: String(maxNum + 1),
-    name: name.trim(),
-    address: address?.trim() || null,
-    is_provisional: true,
-  };
-  const { data, error } = await supabase
-    .from("clients")
-    .insert(payload)
-    .select()
-    .single();
-  if (error) throw error;
-  return data as Client;
+  for (let i = 0; i < MAX_RETRY; i++) {
+    const payload: Record<string, unknown> = {
+      tenant_id: tenantId,
+      user_number: String(candidate),
+      name: name.trim(),
+      address: address?.trim() || null,
+      is_provisional: true,
+    };
+    const { data, error } = await supabase
+      .from("clients")
+      .insert(payload)
+      .select()
+      .single();
+    if (!error) return data as Client;
+    // 23505 = unique_violation: 採番衝突なら +1 してリトライ
+    if ((error as { code?: string }).code === "23505") {
+      candidate += 1;
+      continue;
+    }
+    throw error;
+  }
+  throw new Error(`user_number の採番に失敗しました（${MAX_RETRY}回リトライ）`);
 }
 
 export async function updateClientOffice(id: string, officeId: string | null): Promise<void> {

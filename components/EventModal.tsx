@@ -225,9 +225,19 @@ function ClientSelector({ clients, selected, manualName, tenantId, onSelect, onM
       setProvisionalOpen(false);
       handleClose();
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      // Supabase エラーは Error インスタンスではなく plain object のため個別に扱う
+      let msg: string;
+      if (e instanceof Error) {
+        msg = e.message;
+      } else if (typeof e === "object" && e !== null) {
+        const obj = e as { message?: string; details?: string; code?: string };
+        msg = obj.message ?? obj.details ?? JSON.stringify(e);
+        if (obj.code) msg = `[${obj.code}] ${msg}`;
+      } else {
+        msg = String(e);
+      }
       alert(`仮登録に失敗しました\n${msg}`);
-      throw e; // ProvisionalRegisterModal側で saving=false に戻す
+      throw e;
     }
   }
 
