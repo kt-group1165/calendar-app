@@ -58,6 +58,7 @@ export async function createProvisionalClient(
   tenantId: string,
   name: string,
   address: string | null,
+  phone?: string | null,
 ): Promise<Client> {
   let candidate = (await getMaxUserNumber(tenantId)) + 1;
   const MAX_RETRY = 10;
@@ -68,6 +69,7 @@ export async function createProvisionalClient(
       user_number: String(candidate),
       name: name.trim(),
       address: address?.trim() || null,
+      phone: phone?.trim() || null,
       is_provisional: true,
     };
     const { data, error } = await supabase

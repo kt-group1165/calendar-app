@@ -98,17 +98,18 @@ function normalizeKana(str: string): string {
 function ProvisionalRegisterModal({ defaultName, onCancel, onRegister }: {
   defaultName: string;
   onCancel: () => void;
-  onRegister: (name: string, address: string) => Promise<void>;
+  onRegister: (name: string, address: string, phone: string) => Promise<void>;
 }) {
   const [name, setName] = useState(defaultName);
   const [address, setAddress] = useState("");
+  const [phone, setPhone] = useState("");
   const [saving, setSaving] = useState(false);
 
   async function handleRegister() {
     if (!name.trim()) return;
     setSaving(true);
     try {
-      await onRegister(name.trim(), address.trim());
+      await onRegister(name.trim(), address.trim(), phone.trim());
     } finally {
       setSaving(false);
     }
@@ -149,6 +150,16 @@ function ProvisionalRegisterModal({ defaultName, onCancel, onRegister }: {
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               placeholder="千葉市中央区…"
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">電話番号</label>
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="043-xxx-xxxx"
               className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400"
             />
           </div>
@@ -217,9 +228,9 @@ function ClientSelector({ clients, selected, manualName, tenantId, onSelect, onM
     handleClose();
   }
 
-  async function handleProvisionalRegister(name: string, address: string) {
+  async function handleProvisionalRegister(name: string, address: string, phone: string) {
     try {
-      const created = await createProvisionalClient(tenantId, name, address || null);
+      const created = await createProvisionalClient(tenantId, name, address || null, phone || null);
       onClientCreated(created);
       onSelect(created);
       setProvisionalOpen(false);
