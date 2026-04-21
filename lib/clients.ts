@@ -21,6 +21,8 @@ export type Client = {
   is_provisional?: boolean;
   // ソフト削除日時（null なら未削除）
   deleted_at?: string | null;
+  // 居宅マスタ FK（発注システム側で管理。なければ care_manager_org テキスト）
+  care_office_id?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -59,6 +61,8 @@ export async function createProvisionalClient(
   name: string,
   address: string | null,
   phone?: string | null,
+  careOfficeId?: string | null,
+  careOfficeName?: string | null,
 ): Promise<Client> {
   let candidate = (await getMaxUserNumber(tenantId)) + 1;
   const MAX_RETRY = 10;
@@ -70,6 +74,8 @@ export async function createProvisionalClient(
       name: name.trim(),
       address: address?.trim() || null,
       phone: phone?.trim() || null,
+      care_office_id: careOfficeId || null,
+      care_manager_org: careOfficeName || null,
       is_provisional: true,
     };
     const { data, error } = await supabase

@@ -95,21 +95,53 @@ function normalizeKana(str: string): string {
 }
 
 // ── 新規仮登録モーダル ─────────────────────────────
-function ProvisionalRegisterModal({ defaultName, onCancel, onRegister }: {
+function ProvisionalRegisterModal({ defaultName, tenantId, onCancel, onRegister }: {
   defaultName: string;
+  tenantId: string;
   onCancel: () => void;
-  onRegister: (name: string, address: string, phone: string) => Promise<void>;
+  onRegister: (name: string, address: string, phone: string, careOfficeId: string | null, careOfficeName: string | null) => Promise<void>;
 }) {
   const [name, setName] = useState(defaultName);
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
+  const [careOfficeId, setCareOfficeId] = useState<string>("");
+  const [careOffices, setCareOffices] = useState<Array<{ id: string; name: string }>>([]);
   const [saving, setSaving] = useState(false);
+
+  // 居宅マスタをロード（発注システムと共通の care_offices テーブル）
+  useEffect(() => {
+    (async () => {
+      const { supabase: sb } = await import("@/lib/supabase");
+      const { data } = await sb
+        .from("care_offices")
+        .select("id, name")
+        .eq("tenant_id", tenantId)
+        .order("name");
+      setCareOffices((data ?? []) as Array<{ id: string; name: string }>);
+    })();
+  }, [tenantId]);
+
+  async function handleOfficeChange(value: string) {
+    if (value === "__ADD__") {
+      const newName = window.prompt("新しい居宅介護支援事業所の名前を入力してください");
+      if (!newName?.trim()) return;
+      const { supabase: sb } = await import("@/lib/supabase");
+      const { data, error } = await sb.from("care_offices").insert({ tenant_id: tenantId, name: newName.trim() }).select("id, name").single();
+      if (error) { alert("追加に失敗しました\n" + error.message); return; }
+      const o = data as { id: string; name: string };
+      setCareOffices((prev) => [...prev, o].sort((a, b) => a.name.localeCompare(b.name, "ja")));
+      setCareOfficeId(o.id);
+      return;
+    }
+    setCareOfficeId(value);
+  }
 
   async function handleRegister() {
     if (!name.trim()) return;
     setSaving(true);
     try {
-      await onRegister(name.trim(), address.trim(), phone.trim());
+      const office = careOffices.find((o) => o.id === careOfficeId);
+      await onRegister(name.trim(), address.trim(), phone.trim(), careOfficeId || null, office?.name ?? null);
     } finally {
       setSaving(false);
     }
@@ -162,6 +194,20 @@ function ProvisionalRegisterModal({ defaultName, onCancel, onRegister }: {
               placeholder="043-xxx-xxxx"
               className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400"
             />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">居宅</label>
+            <select
+              value={careOfficeId}
+              onChange={(e) => handleOfficeChange(e.target.value)}
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-400 bg-white"
+            >
+              <option value="">—（未選択）</option>
+              {careOffices.map((o) => (
+                <option key={o.id} value={o.id}>{o.name}</option>
+              ))}
+              <option value="__ADD__">＋ 新規追加...</option>
+            </select>
           </div>
         </div>
         <div className="px-4 py-3 border-t border-gray-100 flex gap-2">
@@ -228,9 +274,9 @@ function ClientSelector({ clients, selected, manualName, tenantId, onSelect, onM
     handleClose();
   }
 
-  async function handleProvisionalRegister(name: string, address: string, phone: string) {
+  async function handleProvisionalRegister(name: string, address: string, phone: string, careOfficeId: string | null, careOfficeName: string | null) {
     try {
-      const created = await createProvisionalClient(tenantId, name, address || null, phone || null);
+      const created = await createProvisionalClient(tenantId, name, address || null, phone || null, careOfficeId, careOfficeName);
       onClientCreated(created);
       onSelect(created);
       setProvisionalOpen(false);
@@ -365,6 +411,7 @@ function ClientSelector({ clients, selected, manualName, tenantId, onSelect, onM
       {provisionalOpen && (
         <ProvisionalRegisterModal
           defaultName={query.trim()}
+          tenantId={tenantId}
           onCancel={() => setProvisionalOpen(false)}
           onRegister={handleProvisionalRegister}
         />
