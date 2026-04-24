@@ -10,6 +10,7 @@ import { getMembers, type Member } from "@/lib/members";
 import { getEventTypes, type EventType } from "@/lib/event_types";
 import { getEventAreas, type EventArea } from "@/lib/event_areas";
 import { getClients, getClientOfficeAssignments, createProvisionalClient, type Client, type ClientOfficeAssignment } from "@/lib/clients";
+import { getMemoPreset } from "@/lib/settings";
 
 function TimeSelect({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
   const parts = value ? value.split(":") : ["", ""];
@@ -475,6 +476,27 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
     getEventAreas(tenantId).then(setEventAreas).catch(() => {});
     getClients(tenantId).then(setClients).catch(() => {});
     getClientOfficeAssignments(tenantId).then(setClientAssignments).catch(() => {});
+  }, [tenantId]);
+
+  // メモ欄プリセット（新規作成時のみ、description が空のときだけ挿入）
+  useEffect(() => {
+    // 編集時（既存event）はスキップ、initialDataで description が指定されていてもスキップ
+    if (event) return;
+    if (base.description) return;
+    if (description) return;
+    (async () => {
+      try {
+        const preset = await getMemoPreset(tenantId);
+        if (preset.enabled && preset.text) {
+          // ユーザー入力で既に上書きされていないかを再確認してからセット
+          setDescription((cur) => cur ? cur : preset.text);
+        }
+      } catch {
+        /* 設定が無ければ何もしない */
+      }
+    })();
+    // 初回マウント時のみ実行（tenantId 変更も考慮）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tenantId]);
 
   // 自事業所絞り込み

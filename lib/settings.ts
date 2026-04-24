@@ -29,6 +29,33 @@ export async function updateClientSelectionEnabled(tenantId: string, enabled: bo
   await setSetting("client_selection_enabled", enabled ? "true" : "false", tenantId);
 }
 
+// ── メモ欄プリセット ───────────────────────────────────
+// 新規予定作成時に description（メモ）欄に初期テキストを挿入する機能。
+// テナント単位でON/OFF＋本文を保持。既存予定の編集時には挿入しない。
+
+export type MemoPreset = {
+  enabled: boolean;
+  text: string;
+};
+
+export async function getMemoPreset(tenantId: string): Promise<MemoPreset> {
+  const [enabled, text] = await Promise.all([
+    getSetting("event_memo_preset_enabled", tenantId),
+    getSetting("event_memo_preset_text", tenantId),
+  ]);
+  return {
+    enabled: enabled === "true",
+    text: text ?? "",
+  };
+}
+
+export async function updateMemoPreset(tenantId: string, preset: MemoPreset): Promise<void> {
+  await Promise.all([
+    setSetting("event_memo_preset_enabled", preset.enabled ? "true" : "false", tenantId),
+    setSetting("event_memo_preset_text", preset.text, tenantId),
+  ]);
+}
+
 // ── 発注メール設定 ─────────────────────────────────────
 
 export type OrderEmailSettings = {

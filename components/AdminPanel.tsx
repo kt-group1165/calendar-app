@@ -2,16 +2,16 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { X, Users, Download, BarChart2, Settings, Plus, Trash2, Loader2, Lock, Tag, User, Search, ChevronUp, ChevronDown, FileUp, UserPlus, Building2, MapPin, Merge } from "lucide-react";
+import { X, Users, Download, BarChart2, Settings, Plus, Trash2, Loader2, Lock, Tag, User, Search, ChevronUp, ChevronDown, FileUp, UserPlus, Building2, MapPin, Merge, Eye, EyeOff } from "lucide-react";
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns";
 import { ja } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
 import { getMembers, addMember, deleteMember, updateMemberColor, updateMemberOrder, updateMemberOffice, type Member } from "@/lib/members";
 import { getOffices, type Office } from "@/lib/offices";
-import { getEventTypes, addEventType, deleteEventType, updateEventTypeOffice, mergeEventTypes, type EventType } from "@/lib/event_types";
+import { getEventTypes, addEventType, deleteEventType, setEventTypeHidden, updateEventTypeOffice, mergeEventTypes, type EventType } from "@/lib/event_types";
 import { getEventAreas, addEventArea, updateEventArea, deleteEventArea, type EventArea } from "@/lib/event_areas";
 import { detectDuplicates, executeMerge, type DuplicateGroup } from "@/lib/staff_merge";
-import { verifyMasterPin, updateMasterPin, getOrderEmailSettings, updateOrderEmailSettings, getClientSelectionEnabled, updateClientSelectionEnabled } from "@/lib/settings";
+import { verifyMasterPin, updateMasterPin, getOrderEmailSettings, updateOrderEmailSettings, getClientSelectionEnabled, updateClientSelectionEnabled, getMemoPreset, updateMemoPreset } from "@/lib/settings";
 import { getEventsByDateRange, getAllEvents, importEventsFromCSV } from "@/lib/events";
 import { getGroups, addGroup, deleteGroup, updateGroup, type MemberGroup } from "@/lib/groups";
 import { getClients, getClientOfficeAssignments, type Client, type ClientOfficeAssignment } from "@/lib/clients";
@@ -748,12 +748,16 @@ function EventTypesTab({ tenantId }: { tenantId: string }) {
   const [mergeTargetId, setMergeTargetId] = useState<string | null>(null);
   const [merging, setMerging] = useState(false);
   const [search, setSearch] = useState("");
+  const [showHidden, setShowHidden] = useState(false);
 
   useEffect(() => { load(); }, []);
   async function load() {
     setLoading(true);
     try {
-      const [t, o] = await Promise.all([getEventTypes(tenantId), getOffices(tenantId)]);
+      const [t, o] = await Promise.all([
+        getEventTypes(tenantId, { includeHidden: true }),
+        getOffices(tenantId),
+      ]);
       setTypes(t);
       setOffices(o);
     } finally { setLoading(false); }
@@ -845,15 +849,29 @@ function EventTypesTab({ tenantId }: { tenantId: string }) {
     } catch { alert("削除に失敗しました"); }
   }
 
+  async function handleToggleHidden(id: string, nextHidden: boolean) {
+    try {
+      await setEventTypeHidden(id, nextHidden);
+      setTypes((prev) => prev.map((t) => t.id === id ? { ...t, hidden: nextHidden } : t));
+    } catch { alert(nextHidden ? "非表示化に失敗しました" : "再表示に失敗しました"); }
+  }
+
   // 表示: 自事業所選択中は「その事業所 または 共有(NULL)」のみ
   const officeFilteredTypes = currentOfficeId
     ? types.filter((t) => t.office_id === currentOfficeId || t.office_id === null)
     : types;
 
+  // 非表示フィルタ（showHidden=false なら hidden=true を除外）
+  const hiddenFilteredTypes = showHidden
+    ? officeFilteredTypes
+    : officeFilteredTypes.filter((t) => !t.hidden);
+
   // 検索絞り込み
   const visibleTypes = search.trim()
-    ? officeFilteredTypes.filter((t) => t.name.toLowerCase().includes(search.trim().toLowerCase()))
-    : officeFilteredTypes;
+    ? hiddenFilteredTypes.filter((t) => t.name.toLowerCase().includes(search.trim().toLowerCase()))
+    : hiddenFilteredTypes;
+
+  const hiddenCount = officeFilteredTypes.filter((t) => t.hidden).length;
 
   return (
     <div className="p-4 space-y-4">
@@ -889,6 +907,17 @@ function EventTypesTab({ tenantId }: { tenantId: string }) {
         )}
       </div>
 
+      {/* 非表示を表示 トグル */}
+      <label className="flex items-center gap-2 text-xs text-gray-500 select-none cursor-pointer">
+        <input
+          type="checkbox"
+          checked={showHidden}
+          onChange={(e) => setShowHidden(e.target.checked)}
+          className="accent-indigo-500"
+        />
+        <span>非表示を表示（{hiddenCount}件）</span>
+      </label>
+
       {/* 統合ボタン（2件以上選択時） */}
       {selectedIds.size >= 2 && (
         <button
@@ -912,14 +941,14 @@ function EventTypesTab({ tenantId }: { tenantId: string }) {
               {visibleTypes.map((t) => {
                 const isSelected = selectedIds.has(t.id);
                 return (
-                  <div key={t.id} className={`flex items-center justify-between rounded-xl px-3 py-2 gap-2 transition-colors ${isSelected ? "bg-emerald-50 border border-emerald-200" : "bg-gray-50 border border-transparent"}`}>
+                  <div key={t.id} className={`flex items-center justify-between rounded-xl px-3 py-2 gap-2 transition-colors ${isSelected ? "bg-emerald-50 border border-emerald-200" : t.hidden ? "bg-gray-100 border border-dashed border-gray-300 opacity-60" : "bg-gray-50 border border-transparent"}`}>
                     <input
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => toggleSelect(t.id)}
                       className="accent-emerald-500 shrink-0"
                     />
-                    <span className="text-sm font-medium text-gray-700 flex-1 min-w-0 truncate">{t.name}</span>
+                    <span className={`text-sm font-medium flex-1 min-w-0 truncate ${t.hidden ? "text-gray-400 line-through" : "text-gray-700"}`}>{t.name}</span>
                     <select
                       value={t.office_id ?? ""}
                       onChange={(e) => handleChangeOffice(t.id, e.target.value || null)}
@@ -930,7 +959,13 @@ function EventTypesTab({ tenantId }: { tenantId: string }) {
                         <option key={o.id} value={o.id}>{o.name}</option>
                       ))}
                     </select>
+                    <button onClick={() => handleToggleHidden(t.id, !t.hidden)}
+                      title={t.hidden ? "再表示する" : "非表示にする"}
+                      className={`p-1.5 transition-colors rounded-lg shrink-0 ${t.hidden ? "text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50" : "text-gray-300 hover:text-indigo-400 hover:bg-indigo-50"}`}>
+                      {t.hidden ? <Eye size={15} /> : <EyeOff size={15} />}
+                    </button>
                     <button onClick={() => handleDelete(t.id, t.name)}
+                      title="削除"
                       className="p-1.5 text-gray-300 hover:text-red-400 transition-colors rounded-lg hover:bg-red-50 shrink-0">
                       <Trash2 size={15} />
                     </button>
@@ -1614,6 +1649,28 @@ function SettingsTab({ tenantId, onLogout }: { tenantId: string; onLogout: () =>
     await updateClientSelectionEnabled(tenantId, val).catch(() => {});
   }
 
+  // メモ欄プリセット
+  const [memoPresetEnabled, setMemoPresetEnabled] = useState(false);
+  const [memoPresetText, setMemoPresetText] = useState("");
+  const [memoPresetSaving, setMemoPresetSaving] = useState(false);
+  const [memoPresetMessage, setMemoPresetMessage] = useState("");
+
+  useEffect(() => {
+    getMemoPreset(tenantId).then((p) => {
+      setMemoPresetEnabled(p.enabled);
+      setMemoPresetText(p.text);
+    }).catch(() => {});
+  }, [tenantId]);
+
+  async function handleSaveMemoPreset() {
+    setMemoPresetSaving(true); setMemoPresetMessage("");
+    try {
+      await updateMemoPreset(tenantId, { enabled: memoPresetEnabled, text: memoPresetText });
+      setMemoPresetMessage("✅ 保存しました");
+    } catch { setMemoPresetMessage("保存に失敗しました"); }
+    finally { setMemoPresetSaving(false); }
+  }
+
   // 発注メール設定
   const [orderEnabled, setOrderEnabled] = useState(false);
   const [orderTo, setOrderTo] = useState("");
@@ -1732,6 +1789,43 @@ function SettingsTab({ tenantId, onLogout }: { tenantId: string; onLogout: () =>
             <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${clientSelectionEnabled ? "translate-x-5" : ""}`} />
           </button>
         </div>
+      </div>
+
+      {/* メモ欄プリセット */}
+      <div className="border-t border-gray-100 pt-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">メモ欄プリセット</h3>
+            <p className="text-xs text-gray-400 mt-0.5">新規予定作成時、メモ欄に下記テキストを自動挿入</p>
+          </div>
+          <button
+            onClick={() => setMemoPresetEnabled(!memoPresetEnabled)}
+            className={`w-11 h-6 rounded-full transition-colors relative ${memoPresetEnabled ? "bg-indigo-500" : "bg-gray-200"}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${memoPresetEnabled ? "translate-x-5" : ""}`} />
+          </button>
+        </div>
+        {memoPresetEnabled && (
+          <textarea
+            value={memoPresetText}
+            onChange={(e) => setMemoPresetText(e.target.value)}
+            placeholder="予定&#10;【話す内容、渡すもの】&#10;&#10;結果&#10;【話した内容、渡したもの、リアクション等】"
+            rows={8}
+            className="w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-400 font-mono resize-y"
+          />
+        )}
+        {memoPresetMessage && (
+          <p className={`text-xs ${memoPresetMessage.includes("✅") ? "text-green-600" : "text-red-500"}`}>
+            {memoPresetMessage}
+          </p>
+        )}
+        <button
+          onClick={handleSaveMemoPreset}
+          disabled={memoPresetSaving}
+          className="w-full py-2.5 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-white font-medium rounded-xl flex items-center justify-center gap-2 text-sm"
+        >
+          {memoPresetSaving && <Loader2 size={14} className="animate-spin" />}プリセットを保存
+        </button>
       </div>
 
       {/* 発注メール設定 */}

@@ -5,17 +5,30 @@ export type EventType = {
   name: string;
   sort_order: number;
   office_id: string | null;
+  hidden: boolean;
   created_at: string;
 };
 
-export async function getEventTypes(tenantId: string): Promise<EventType[]> {
-  const { data, error } = await supabase
+export async function getEventTypes(
+  tenantId: string,
+  opts?: { includeHidden?: boolean },
+): Promise<EventType[]> {
+  let q = supabase
     .from("event_types")
     .select("*")
     .eq("tenant_id", tenantId)
     .order("sort_order");
+  if (!opts?.includeHidden) {
+    q = q.eq("hidden", false);
+  }
+  const { data, error } = await q;
   if (error) throw error;
   return data ?? [];
+}
+
+export async function setEventTypeHidden(id: string, hidden: boolean): Promise<void> {
+  const { error } = await supabase.from("event_types").update({ hidden }).eq("id", id);
+  if (error) throw error;
 }
 
 export async function addEventType(name: string, tenantId: string, officeId: string | null = null): Promise<EventType> {
