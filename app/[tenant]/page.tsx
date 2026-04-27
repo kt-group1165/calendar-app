@@ -30,6 +30,7 @@ import { getMembers, type Member } from "@/lib/members";
 import { getOffices, type Office } from "@/lib/offices";
 import { getGroups, type MemberGroup } from "@/lib/groups";
 import { getEventAreas, type EventArea } from "@/lib/event_areas";
+import { getEventTypes, type EventType } from "@/lib/event_types";
 import { getClientSelectionEnabled } from "@/lib/settings";
 import { useCurrentUser, signOut } from "@/lib/auth";
 
@@ -37,6 +38,8 @@ const LAST_SEEN_KEY = (tid: string) => `calendar_activity_last_seen_${tid}`;
 const LAST_BACKUP_KEY = (tid: string) => `calendar_last_backup_date_${tid}`;
 const USER_NAME_KEY = (tid: string) => `calendar_user_name_${tid}`;
 const IS_MASTER_KEY = (tid: string) => `calendar_is_master_${tid}`;
+// 用件種別フィルタ機能のON/OFF（個人設定・端末ごと）
+const EVENT_TYPE_FILTER_ENABLED_KEY = (tid: string) => `calendar_event_type_filter_enabled_${tid}`;
 
 type ViewMode = "month" | "week" | "day";
 
@@ -100,7 +103,11 @@ export default function TenantCalendarPage() {
   const [filterMembers, setFilterMembers] = useState<string[]>([]);
   const [filterGroups, setFilterGroups] = useState<string[]>([]);
   const [filterAreas, setFilterAreas] = useState<string[]>([]);
+  const [filterEventTypes, setFilterEventTypes] = useState<string[]>([]);
   const [eventAreas, setEventAreas] = useState<EventArea[]>([]);
+  const [eventTypes, setEventTypes] = useState<EventType[]>([]);
+  // 用件種別フィルタ機能のON/OFF（個人設定）：master=ON、それ以外=OFFがデフォルト
+  const [eventTypeFilterEnabled, setEventTypeFilterEnabledState] = useState(false);
 
   const [clientSelectionEnabled, setClientSelectionEnabled] = useState(true);
 
@@ -139,6 +146,7 @@ export default function TenantCalendarPage() {
     getOffices(tenantId).then(setOffices).catch(() => {});
     getGroups(tenantId).then(setGroups).catch(() => {});
     getEventAreas(tenantId).then(setEventAreas).catch(() => {});
+    getEventTypes(tenantId).then(setEventTypes).catch(() => {});
     getClientSelectionEnabled(tenantId).then(setClientSelectionEnabled).catch(() => {});
 
     // 1日1回、アプリを開いたときに自動バックアップCSVをダウンロード
@@ -268,10 +276,41 @@ export default function TenantCalendarPage() {
     );
   }
 
+  function toggleFilterEventType(name: string) {
+    setFilterEventTypes((prev) =>
+      prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
+    );
+  }
+
   function clearAllFilters() {
     setFilterMembers([]);
     setFilterGroups([]);
     setFilterAreas([]);
+    setFilterEventTypes([]);
+  }
+
+  // 用件種別フィルタ機能のON/OFF（個人設定）読み込み
+  // 既定値: master=ON、それ以外=OFF
+  useEffect(() => {
+    if (!tenantId) return;
+    if (authUser.loading) return;
+    const stored = typeof window !== "undefined"
+      ? localStorage.getItem(EVENT_TYPE_FILTER_ENABLED_KEY(tenantId))
+      : null;
+    if (stored !== null) {
+      setEventTypeFilterEnabledState(stored === "true");
+    } else {
+      setEventTypeFilterEnabledState(isMaster);
+    }
+  }, [tenantId, isMaster, authUser.loading]);
+
+  // ON/OFFをlocalStorageに保存
+  function setEventTypeFilterEnabled(val: boolean) {
+    setEventTypeFilterEnabledState(val);
+    if (!val) setFilterEventTypes([]); // OFF時は選択解除
+    if (typeof window !== "undefined") {
+      localStorage.setItem(EVENT_TYPE_FILTER_ENABLED_KEY(tenantId), val ? "true" : "false");
+    }
   }
 
   const groupFilterNames = new Set(
@@ -300,7 +339,7 @@ export default function TenantCalendarPage() {
     );
   }, [events, currentOfficeId, officeMemberNames]);
 
-  const hasFilter = filterMembers.length > 0 || filterGroups.length > 0 || filterAreas.length > 0;
+  const hasFilter = filterMembers.length > 0 || filterGroups.length > 0 || filterAreas.length > 0 || filterEventTypes.length > 0;
   const displayEvents = !hasFilter
     ? officeFilteredEvents
     : officeFilteredEvents.filter((e) => {
@@ -312,7 +351,11 @@ export default function TenantCalendarPage() {
         const areaMatch = filterAreas.length === 0
           ? true
           : (e.area_id != null && filterAreas.includes(e.area_id));
-        return memberMatch && areaMatch;
+        // 用件種別で絞り込み
+        const typeMatch = filterEventTypes.length === 0
+          ? true
+          : (e.event_type ?? []).some((t) => filterEventTypes.includes(t));
+        return memberMatch && areaMatch && typeMatch;
       });
 
   async function handleSaveEvent(data: EventInsert) {
@@ -725,6 +768,42 @@ export default function TenantCalendarPage() {
         );
       })()}
 
+      {/* 用件種別フィルタバー（個人設定でON時のみ表示） */}
+      {eventTypeFilterEnabled && (() => {
+        // 表示用: 自事業所選択中はその事業所＋共有(NULL)、未選択は全て
+        // hidden=true は除外（getEventTypes が既に除外済み）
+        const displayTypes = currentOfficeId
+          ? eventTypes.filter((t) => t.office_id === currentOfficeId || t.office_id === null)
+          : eventTypes;
+        if (displayTypes.length === 0) return null;
+        // 同名種別はまとめる（事業所跨ぎを考慮）
+        const seenNames = new Set<string>();
+        const uniqueTypes = displayTypes.filter((t) => {
+          if (seenNames.has(t.name)) return false;
+          seenNames.add(t.name);
+          return true;
+        });
+        return (
+          <div className="bg-white border-b border-gray-100 px-3 py-1.5 flex items-center gap-2 overflow-x-auto">
+            <span className="shrink-0 text-[11px] text-gray-400 font-medium">用件種別</span>
+            {uniqueTypes.map((t) => {
+              const active = filterEventTypes.includes(t.name);
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => toggleFilterEventType(t.name)}
+                  className={`shrink-0 px-2.5 h-7 rounded-full text-xs font-medium transition-all border whitespace-nowrap ${
+                    active
+                      ? "bg-amber-500 text-white border-amber-500"
+                      : "bg-white text-amber-600 border-amber-300 hover:bg-amber-50"
+                  }`}
+                >{t.name}</button>
+              );
+            })}
+          </div>
+        );
+      })()}
+
       {supabaseError && (
         <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-700">
           ⚠️ 接続エラーが発生しました。ページを再読み込みしてください。
@@ -810,6 +889,15 @@ export default function TenantCalendarPage() {
             setShowAdmin(false);
             getGroups(tenantId).then(setGroups).catch(() => {});
             getEventAreas(tenantId).then(setEventAreas).catch(() => {});
+            getEventTypes(tenantId).then(setEventTypes).catch(() => {});
+            // 用件種別フィルタON/OFFの個人設定を再読込
+            const stored = typeof window !== "undefined"
+              ? localStorage.getItem(EVENT_TYPE_FILTER_ENABLED_KEY(tenantId))
+              : null;
+            if (stored !== null) {
+              setEventTypeFilterEnabledState(stored === "true");
+              if (stored !== "true") setFilterEventTypes([]);
+            }
           }}
           onLogout={handleMasterLogout}
         />

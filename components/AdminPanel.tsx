@@ -1649,6 +1649,20 @@ function SettingsTab({ tenantId, onLogout }: { tenantId: string; onLogout: () =>
     await updateClientSelectionEnabled(tenantId, val).catch(() => {});
   }
 
+  // 用件種別フィルタ機能のON/OFF（個人設定・端末ごと localStorage）
+  const EVENT_TYPE_FILTER_ENABLED_KEY = `calendar_event_type_filter_enabled_${tenantId}`;
+  const [eventTypeFilterEnabled, setEventTypeFilterEnabledLocal] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    const v = localStorage.getItem(EVENT_TYPE_FILTER_ENABLED_KEY);
+    return v === "true"; // localStorage に未保存なら false（デフォルトはpage.tsx側でロール判定）
+  });
+  function handleToggleEventTypeFilter(val: boolean) {
+    setEventTypeFilterEnabledLocal(val);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(EVENT_TYPE_FILTER_ENABLED_KEY, val ? "true" : "false");
+    }
+  }
+
   // メモ欄プリセット
   const [memoPresetEnabled, setMemoPresetEnabled] = useState(false);
   const [memoPresetText, setMemoPresetText] = useState("");
@@ -1787,6 +1801,22 @@ function SettingsTab({ tenantId, onLogout }: { tenantId: string; onLogout: () =>
             className={`w-11 h-6 rounded-full transition-colors relative ${clientSelectionEnabled ? "bg-indigo-500" : "bg-gray-200"}`}
           >
             <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${clientSelectionEnabled ? "translate-x-5" : ""}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* 用件種別フィルタ機能（個人設定・端末ごと） */}
+      <div className="border-t border-gray-100 pt-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">用件種別フィルタ</h3>
+            <p className="text-xs text-gray-400 mt-0.5">カレンダー上部に種別での絞り込みバーを表示する（個人設定・端末ごと）</p>
+          </div>
+          <button
+            onClick={() => handleToggleEventTypeFilter(!eventTypeFilterEnabled)}
+            className={`w-11 h-6 rounded-full transition-colors relative ${eventTypeFilterEnabled ? "bg-indigo-500" : "bg-gray-200"}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${eventTypeFilterEnabled ? "translate-x-5" : ""}`} />
           </button>
         </div>
       </div>
