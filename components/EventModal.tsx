@@ -10,7 +10,7 @@ import { getMembers, type Member } from "@/lib/members";
 import { getEventTypes, type EventType } from "@/lib/event_types";
 import { getEventAreas, type EventArea } from "@/lib/event_areas";
 import { getClients, getClientOfficeAssignments, createProvisionalClient, type Client, type ClientOfficeAssignment } from "@/lib/clients";
-import { getMemoPreset } from "@/lib/settings";
+import { getMemoPreset, getVisitTypeRequired, VISIT_TYPE_OPTIONS } from "@/lib/settings";
 
 function TimeSelect({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
   const parts = value ? value.split(":") : ["", ""];
@@ -452,6 +452,8 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
   const [location, setLocation] = useState(event?.location ?? base.location ?? "");
   const [assignees, setAssignees] = useState<string[]>(event?.assignees ?? base.assignees ?? []);
   const [eventType, setEventType] = useState<string[]>(event?.event_type ?? base.event_type ?? []);
+  const [visitType, setVisitType] = useState<string | null>(event?.visit_type ?? base.visit_type ?? null);
+  const [visitTypeRequired, setVisitTypeRequired] = useState(false);
   const [areaId, setAreaId] = useState<string | null>(event?.area_id ?? base.area_id ?? null);
   const [members, setMembers] = useState<Member[]>([]);
   const [eventTypes, setEventTypes] = useState<EventType[]>([]);
@@ -476,6 +478,7 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
     getEventAreas(tenantId).then(setEventAreas).catch(() => {});
     getClients(tenantId).then(setClients).catch(() => {});
     getClientOfficeAssignments(tenantId).then(setClientAssignments).catch(() => {});
+    getVisitTypeRequired(tenantId).then(setVisitTypeRequired).catch(() => {});
   }, [tenantId]);
 
   // メモ欄プリセット（新規作成時のみ、description が空のときだけ挿入）
@@ -737,6 +740,10 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
 
   async function handleSave() {
     if (!title.trim()) { alert("タイトルを入力してください"); return; }
+    if (visitTypeRequired && !visitType) {
+      alert("訪問種別を選択してください（ミーティング時訪問 / 個別訪問 / その他）");
+      return;
+    }
     setSaving(true);
     try {
       const allImages = [...(imageUrl ? [imageUrl] : []), ...imageUrls];
@@ -757,6 +764,7 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
         location: location.trim() || null,
         assignees,
         event_type: eventType,
+        visit_type: visitType,
         area_id: areaId,
         client_id: selectedClient?.id ?? null,
         created_by: event ? event.created_by : currentUser,
@@ -913,6 +921,29 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
                         : "bg-white text-gray-600 border-gray-200 hover:border-indigo-300"
                     }`}>
                     {t.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* 訪問種別（必須・テナント設定でON時のみ表示） */}
+          {visitTypeRequired && (
+            <div className={`rounded-xl p-3 space-y-2 ${visitType ? "bg-gray-50" : "bg-rose-50 border border-rose-200"}`}>
+              <div className="flex items-center gap-2 text-gray-500">
+                <MapPin size={16} />
+                <span className="text-sm font-medium">訪問種別</span>
+                <span className="text-xs text-rose-500 font-bold">※必須</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {VISIT_TYPE_OPTIONS.map((opt) => (
+                  <button key={opt} type="button" onClick={() => setVisitType(opt)}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
+                      visitType === opt
+                        ? "bg-rose-500 text-white border-rose-500"
+                        : "bg-white text-gray-600 border-gray-200 hover:border-rose-300"
+                    }`}>
+                    {opt}
                   </button>
                 ))}
               </div>

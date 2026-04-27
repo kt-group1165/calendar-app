@@ -459,6 +459,7 @@ export default function TenantCalendarPage() {
       notes: selectedEvent.notes,
       assignees: selectedEvent.assignees,
       event_type: selectedEvent.event_type,
+      visit_type: selectedEvent.visit_type,
       created_by: currentUser,
       updated_by: currentUser,
     });

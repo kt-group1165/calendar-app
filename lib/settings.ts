@@ -56,6 +56,27 @@ export async function updateMemoPreset(tenantId: string, preset: MemoPreset): Pr
   ]);
 }
 
+// ── 訪問種別 必須化 ─────────────────────────────────────
+// 予定作成・編集時に「ミーティング時訪問 / 個別訪問 / その他」の3択選択を
+// 必須にする機能。テナント単位でON/OFF。
+// 値は events.visit_type に保存。
+
+export const VISIT_TYPE_OPTIONS = [
+  "ミーティング時訪問",
+  "個別訪問",
+  "その他",
+] as const;
+export type VisitType = (typeof VISIT_TYPE_OPTIONS)[number];
+
+export async function getVisitTypeRequired(tenantId: string): Promise<boolean> {
+  const val = await getSetting("visit_type_required_enabled", tenantId);
+  return val === "true";
+}
+
+export async function updateVisitTypeRequired(tenantId: string, enabled: boolean): Promise<void> {
+  await setSetting("visit_type_required_enabled", enabled ? "true" : "false", tenantId);
+}
+
 // ── 発注メール設定 ─────────────────────────────────────
 
 export type OrderEmailSettings = {

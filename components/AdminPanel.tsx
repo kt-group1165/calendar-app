@@ -11,7 +11,7 @@ import { getOffices, type Office } from "@/lib/offices";
 import { getEventTypes, addEventType, deleteEventType, setEventTypeHidden, updateEventTypeOffice, mergeEventTypes, type EventType } from "@/lib/event_types";
 import { getEventAreas, addEventArea, updateEventArea, deleteEventArea, type EventArea } from "@/lib/event_areas";
 import { detectDuplicates, executeMerge, type DuplicateGroup } from "@/lib/staff_merge";
-import { verifyMasterPin, updateMasterPin, getOrderEmailSettings, updateOrderEmailSettings, getClientSelectionEnabled, updateClientSelectionEnabled, getMemoPreset, updateMemoPreset } from "@/lib/settings";
+import { verifyMasterPin, updateMasterPin, getOrderEmailSettings, updateOrderEmailSettings, getClientSelectionEnabled, updateClientSelectionEnabled, getMemoPreset, updateMemoPreset, getVisitTypeRequired, updateVisitTypeRequired } from "@/lib/settings";
 import { getEventsByDateRange, getAllEvents, importEventsFromCSV } from "@/lib/events";
 import { getGroups, addGroup, deleteGroup, updateGroup, type MemberGroup } from "@/lib/groups";
 import { getClients, getClientOfficeAssignments, type Client, type ClientOfficeAssignment } from "@/lib/clients";
@@ -1669,6 +1669,18 @@ function SettingsTab({ tenantId, onLogout }: { tenantId: string; onLogout: () =>
   const [memoPresetSaving, setMemoPresetSaving] = useState(false);
   const [memoPresetMessage, setMemoPresetMessage] = useState("");
 
+  // 訪問種別 必須化
+  const [visitTypeRequired, setVisitTypeRequired] = useState(false);
+
+  useEffect(() => {
+    getVisitTypeRequired(tenantId).then(setVisitTypeRequired).catch(() => {});
+  }, [tenantId]);
+
+  async function handleToggleVisitTypeRequired(val: boolean) {
+    setVisitTypeRequired(val);
+    await updateVisitTypeRequired(tenantId, val).catch(() => {});
+  }
+
   useEffect(() => {
     getMemoPreset(tenantId).then((p) => {
       setMemoPresetEnabled(p.enabled);
@@ -1817,6 +1829,22 @@ function SettingsTab({ tenantId, onLogout }: { tenantId: string; onLogout: () =>
             className={`w-11 h-6 rounded-full transition-colors relative ${eventTypeFilterEnabled ? "bg-indigo-500" : "bg-gray-200"}`}
           >
             <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${eventTypeFilterEnabled ? "translate-x-5" : ""}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* 訪問種別 必須化 */}
+      <div className="border-t border-gray-100 pt-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700">訪問種別 必須化</h3>
+            <p className="text-xs text-gray-400 mt-0.5">予定作成・編集時に「ミーティング時訪問 / 個別訪問 / その他」の選択を必須にする</p>
+          </div>
+          <button
+            onClick={() => handleToggleVisitTypeRequired(!visitTypeRequired)}
+            className={`w-11 h-6 rounded-full transition-colors relative ${visitTypeRequired ? "bg-indigo-500" : "bg-gray-200"}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${visitTypeRequired ? "translate-x-5" : ""}`} />
           </button>
         </div>
       </div>
