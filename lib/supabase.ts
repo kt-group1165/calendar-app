@@ -21,7 +21,7 @@ export type Event = {
   notes: string | null;
   assignees: string[];
   event_type: string[];
-  visit_type: string | null;
+  visit_other_detail: string | null;
   office_id: string | null;
   area_id: string | null;
   client_id: string | null;

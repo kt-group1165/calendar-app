@@ -452,7 +452,7 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
   const [location, setLocation] = useState(event?.location ?? base.location ?? "");
   const [assignees, setAssignees] = useState<string[]>(event?.assignees ?? base.assignees ?? []);
   const [eventType, setEventType] = useState<string[]>(event?.event_type ?? base.event_type ?? []);
-  const [visitType, setVisitType] = useState<string | null>(event?.visit_type ?? base.visit_type ?? null);
+  const [visitOtherDetail, setVisitOtherDetail] = useState<string>(event?.visit_other_detail ?? base.visit_other_detail ?? "");
   const [visitTypeRequired, setVisitTypeRequired] = useState(false);
   const [areaId, setAreaId] = useState<string | null>(event?.area_id ?? base.area_id ?? null);
   const [members, setMembers] = useState<Member[]>([]);
@@ -740,9 +740,16 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
 
   async function handleSave() {
     if (!title.trim()) { alert("タイトルを入力してください"); return; }
-    if (visitTypeRequired && !visitType) {
-      alert("訪問種別を選択してください（ミーティング時訪問 / 個別訪問 / その他）");
-      return;
+    if (visitTypeRequired) {
+      const selectedRequired = eventType.filter((t) => (VISIT_TYPE_OPTIONS as readonly string[]).includes(t));
+      if (selectedRequired.length === 0) {
+        alert("用件種別を選択してください（ミーティング時訪問 / 個別訪問 / その他）");
+        return;
+      }
+      if (selectedRequired.includes("その他") && !visitOtherDetail.trim()) {
+        alert("「その他」を選んだ場合は内容を入力してください");
+        return;
+      }
     }
     setSaving(true);
     try {
@@ -764,7 +771,7 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
         location: location.trim() || null,
         assignees,
         event_type: eventType,
-        visit_type: visitType,
+        visit_other_detail: eventType.includes("その他") ? (visitOtherDetail.trim() || null) : null,
         area_id: areaId,
         client_id: selectedClient?.id ?? null,
         created_by: event ? event.created_by : currentUser,
@@ -905,49 +912,86 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
             </div>
           )}
 
-          {/* 用件種別 */}
-          {visibleEventTypes.length > 0 && (
-            <div className="bg-gray-50 rounded-xl p-3 space-y-2">
-              <div className="flex items-center gap-2 text-gray-500">
-                <Tag size={16} />
-                <span className="text-sm font-medium">用件種別</span>
+          {/* 用件種別（必須化テナントでは3択のみ排他選択＋「その他」記述欄） */}
+          {visitTypeRequired ? (
+            (() => {
+              const requiredSelected = eventType.filter((t) => (VISIT_TYPE_OPTIONS as readonly string[]).includes(t));
+              const isAnySelected = requiredSelected.length > 0;
+              const isOtherSelected = eventType.includes("その他");
+              return (
+                <div className={`rounded-xl p-3 space-y-2 ${isAnySelected ? "bg-gray-50" : "bg-rose-50 border border-rose-200"}`}>
+                  <div className="flex items-center gap-2 text-gray-500">
+                    <Tag size={16} />
+                    <span className="text-sm font-medium">用件種別</span>
+                    <span className="text-xs text-rose-500 font-bold">※必須</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {VISIT_TYPE_OPTIONS.map((opt) => {
+                      const active = eventType.includes(opt);
+                      return (
+                        <button
+                          key={opt}
+                          type="button"
+                          onClick={() => {
+                            // 排他選択：他の必須種別を除外して自分だけON/OFF
+                            setEventType((prev) => {
+                              const withoutRequired = prev.filter((t) => !(VISIT_TYPE_OPTIONS as readonly string[]).includes(t));
+                              return active ? withoutRequired : [...withoutRequired, opt];
+                            });
+                            // 「その他」以外を選んだら detail はリセット
+                            if (opt !== "その他") setVisitOtherDetail("");
+                          }}
+                          className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
+                            active
+                              ? "bg-indigo-500 text-white border-indigo-500"
+                              : "bg-white text-gray-600 border-gray-200 hover:border-indigo-300"
+                          }`}
+                        >
+                          {opt}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {isOtherSelected && (
+                    <div className="space-y-1 pt-1">
+                      <p className="text-xs text-gray-500">
+                        「その他」の内容 <span className="text-rose-500 font-bold">※必須</span>
+                      </p>
+                      <input
+                        type="text"
+                        value={visitOtherDetail}
+                        onChange={(e) => setVisitOtherDetail(e.target.value)}
+                        placeholder="例: 商品納品、書類受け渡し 等"
+                        className={`w-full text-sm border-2 rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-400 ${
+                          visitOtherDetail.trim() ? "border-gray-200 bg-white" : "border-rose-300 bg-rose-50"
+                        }`}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })()
+          ) : (
+            visibleEventTypes.length > 0 && (
+              <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+                <div className="flex items-center gap-2 text-gray-500">
+                  <Tag size={16} />
+                  <span className="text-sm font-medium">用件種別</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {visibleEventTypes.map((t) => (
+                    <button key={t.id} onClick={() => toggleEventType(t.name)}
+                      className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
+                        eventType.includes(t.name)
+                          ? "bg-indigo-500 text-white border-indigo-500"
+                          : "bg-white text-gray-600 border-gray-200 hover:border-indigo-300"
+                      }`}>
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {visibleEventTypes.map((t) => (
-                  <button key={t.id} onClick={() => toggleEventType(t.name)}
-                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
-                      eventType.includes(t.name)
-                        ? "bg-indigo-500 text-white border-indigo-500"
-                        : "bg-white text-gray-600 border-gray-200 hover:border-indigo-300"
-                    }`}>
-                    {t.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 訪問種別（必須・テナント設定でON時のみ表示） */}
-          {visitTypeRequired && (
-            <div className={`rounded-xl p-3 space-y-2 ${visitType ? "bg-gray-50" : "bg-rose-50 border border-rose-200"}`}>
-              <div className="flex items-center gap-2 text-gray-500">
-                <MapPin size={16} />
-                <span className="text-sm font-medium">訪問種別</span>
-                <span className="text-xs text-rose-500 font-bold">※必須</span>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {VISIT_TYPE_OPTIONS.map((opt) => (
-                  <button key={opt} type="button" onClick={() => setVisitType(opt)}
-                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors border ${
-                      visitType === opt
-                        ? "bg-rose-500 text-white border-rose-500"
-                        : "bg-white text-gray-600 border-gray-200 hover:border-rose-300"
-                    }`}>
-                    {opt}
-                  </button>
-                ))}
-              </div>
-            </div>
+            )
           )}
 
           {/* カラー（手動選択） */}
