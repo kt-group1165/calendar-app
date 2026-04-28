@@ -479,15 +479,62 @@ export async function getUnreadActivityCount(since: string, tenantId: string = "
   return count ?? 0;
 }
 
-export async function searchEventsByTitle(query: string, tenantId: string): Promise<Event[]> {
+// タイトル・メモ(description)・備考(notes)・場所(location)・「その他」内容
+// (visit_other_detail) を横断検索。担当者(assignees)・用件種別(event_type) は
+// 配列なのでクライアント側で部分一致を併せて拾う。
+export async function searchEvents(query: string, tenantId: string): Promise<Event[]> {
+  const q = query.trim();
+  if (!q) return [];
+  // PostgREST の or() はカンマ・括弧を区切り文字に使うので除去
+  const safe = q.replace(/[(),]/g, " ");
+  const pattern = `%${safe}%`;
+
   const { data, error } = await supabase
     .from("events")
     .select("*")
     .eq("tenant_id", tenantId)
-    .ilike("title", `%${query}%`)
     .is("deleted_at", null)
+    .or(
+      [
+        `title.ilike.${pattern}`,
+        `description.ilike.${pattern}`,
+        `notes.ilike.${pattern}`,
+        `location.ilike.${pattern}`,
+        `visit_other_detail.ilike.${pattern}`,
+      ].join(",")
+    )
     .order("start_date", { ascending: false })
-    .limit(50);
+    .limit(100);
   if (error) throw error;
-  return data ?? [];
+  const primary = (data ?? []) as Event[];
+
+  // 担当者(string[]) ・用件種別(string[]) はサーバ側で部分一致しづらいので
+  // 直近500件をプルしてクライアントで補完。重複は ID で排除。
+  const lowered = safe.toLowerCase();
+  let fromArrays: Event[] = [];
+  try {
+    const { data: arrData } = await supabase
+      .from("events")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .is("deleted_at", null)
+      .order("start_date", { ascending: false })
+      .limit(500);
+    fromArrays = ((arrData ?? []) as Event[]).filter((e) =>
+      (e.assignees ?? []).some((a) => a.toLowerCase().includes(lowered)) ||
+      (e.event_type ?? []).some((t) => t.toLowerCase().includes(lowered))
+    );
+  } catch {
+    fromArrays = [];
+  }
+
+  const map = new Map<string, Event>();
+  for (const e of primary) map.set(e.id, e);
+  for (const e of fromArrays) if (!map.has(e.id)) map.set(e.id, e);
+  return Array.from(map.values())
+    .sort((a, b) => (a.start_date < b.start_date ? 1 : -1))
+    .slice(0, 100);
 }
+
+// 後方互換エイリアス
+export const searchEventsByTitle = searchEvents;
