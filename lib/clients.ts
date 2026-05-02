@@ -142,8 +142,35 @@ export async function setClientOfficeAssignment(
 
 export type ClientInsert = Omit<Client, "id" | "created_at" | "updated_at">;
 
+// テナント単位のメモを client_memos から取得して Map<client_id, body> で返す
+// scope='tenant' の最新（updated_at desc）1 件のみ採用
+async function fetchTenantMemos(tenantId: string): Promise<Map<string, string>> {
+  const PAGE = 1000;
+  const map = new Map<string, string>();
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("client_memos")
+      .select("client_id, body, updated_at")
+      .eq("tenant_id", tenantId)
+      .eq("scope", "tenant")
+      .order("updated_at", { ascending: false })
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    for (const row of data as { client_id: string; body: string; updated_at: string }[]) {
+      // 最新 (desc 順なので最初に出現したもの) のみ保持
+      if (!map.has(row.client_id)) map.set(row.client_id, row.body);
+    }
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return map;
+}
+
 // 利用者取得（全件・ページング）
 // 削除済み（deleted_at IS NOT NULL）は除外
+// memo は廃止予定の clients.memo カラムではなく client_memos テーブルから取得
 export async function getClients(tenantId: string): Promise<Client[]> {
   const PAGE = 1000;
   const all: Client[] = [];
@@ -162,19 +189,112 @@ export async function getClients(tenantId: string): Promise<Client[]> {
     if (data.length < PAGE) break;
     from += PAGE;
   }
+  // memo を client_memos から merge
+  const memoMap = await fetchTenantMemos(tenantId);
+  for (const c of all) {
+    c.memo = memoMap.get(c.id) ?? null;
+  }
   return all;
 }
 
-export async function replaceAllClients(clients: ClientInsert[], tenantId: string): Promise<void> {
-  // テナントの全件削除
-  await supabase.from("clients").delete().eq("tenant_id", tenantId);
-  // バッチ挿入（500件ずつ）
-  const BATCH = 500;
-  for (let i = 0; i < clients.length; i += BATCH) {
-    const batch = clients.slice(i, i + BATCH).map((c) => ({ ...c, tenant_id: tenantId }));
-    const { error } = await supabase.from("clients").insert(batch);
+// memo upsert（既存 tenant メモがあれば UPDATE、なければ INSERT）
+// body が空文字 / null の場合は削除
+export async function upsertClientMemo(
+  clientId: string,
+  tenantId: string,
+  body: string | null,
+): Promise<void> {
+  const trimmed = body?.trim() || null;
+  // 既存の tenant スコープメモを検索
+  const { data: existing } = await supabase
+    .from("client_memos")
+    .select("id")
+    .eq("client_id", clientId)
+    .eq("tenant_id", tenantId)
+    .eq("scope", "tenant")
+    .order("updated_at", { ascending: false })
+    .limit(1);
+  const existingId = existing?.[0]?.id as string | undefined;
+
+  if (!trimmed) {
+    // 空文字 / null → 削除
+    if (existingId) {
+      const { error } = await supabase.from("client_memos").delete().eq("id", existingId);
+      if (error) throw error;
+    }
+    return;
+  }
+  if (existingId) {
+    const { error } = await supabase
+      .from("client_memos")
+      .update({ body: trimmed })
+      .eq("id", existingId);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase.from("client_memos").insert({
+      client_id: clientId,
+      tenant_id: tenantId,
+      scope: "tenant",
+      body: trimmed,
+    });
     if (error) throw error;
   }
+}
+
+// バッチ insert 後に memo を client_memos へ書き戻すヘルパー
+// CSV 由来の ClientInsert.memo を user_number でキーにして対応付け
+async function bulkInsertTenantMemos(
+  tenantId: string,
+  inserted: { id: string; user_number: string }[],
+  source: ClientInsert[],
+): Promise<void> {
+  const userNumToMemo = new Map<string, string>();
+  for (const c of source) {
+    const m = (c.memo ?? "").trim();
+    if (m) userNumToMemo.set(c.user_number, m);
+  }
+  if (userNumToMemo.size === 0) return;
+
+  const memoRows = inserted
+    .map((row) => {
+      const body = userNumToMemo.get(row.user_number);
+      return body
+        ? { client_id: row.id, tenant_id: tenantId, scope: "tenant", body }
+        : null;
+    })
+    .filter((r): r is { client_id: string; tenant_id: string; scope: string; body: string } => r !== null);
+
+  const BATCH = 500;
+  for (let i = 0; i < memoRows.length; i += BATCH) {
+    const { error } = await supabase
+      .from("client_memos")
+      .insert(memoRows.slice(i, i + BATCH));
+    if (error) throw error;
+  }
+}
+
+export async function replaceAllClients(clients: ClientInsert[], tenantId: string): Promise<void> {
+  // テナントの全件削除（client_memos は CASCADE で連動削除される）
+  await supabase.from("clients").delete().eq("tenant_id", tenantId);
+  // バッチ挿入（500件ずつ）。memo は clients ではなく client_memos へ書き戻す
+  const BATCH = 500;
+  const insertedAll: { id: string; user_number: string }[] = [];
+  for (let i = 0; i < clients.length; i += BATCH) {
+    const batch = clients.slice(i, i + BATCH).map((c) => {
+      // memo を剥がして clients INSERT 用 payload に整形
+      const { memo: _memo, ...rest } = c;
+      void _memo;
+      return { ...rest, tenant_id: tenantId };
+    });
+    const { data, error } = await supabase
+      .from("clients")
+      .insert(batch)
+      .select("id, user_number");
+    if (error) throw error;
+    insertedAll.push(...((data ?? []) as { id: string; user_number: string }[]));
+  }
+  // memo を client_memos へ書き戻す
+  await bulkInsertTenantMemos(tenantId, insertedAll, clients);
 }
 
 // 指定した事業所スコープの利用者のみを置換する（他事業所データは保持）
@@ -213,19 +333,32 @@ export async function replaceClientsForOffice(
     }
   }
 
-  // バッチ挿入
+  // バッチ挿入（memo は clients ではなく client_memos へ書き戻す）
   const BATCH = 500;
   const insertedIds: string[] = [];
+  const insertedAll: { id: string; user_number: string }[] = [];
   for (let i = 0; i < clients.length; i += BATCH) {
-    const batch = clients.slice(i, i + BATCH).map((c) => ({
-      ...c,
-      tenant_id: tenantId,
-      office_id: officeId, // 後方互換
-    }));
-    const { data, error } = await supabase.from("clients").insert(batch).select("id");
+    const batch = clients.slice(i, i + BATCH).map((c) => {
+      // memo を剥がして clients INSERT 用 payload に整形
+      const { memo: _memo, ...rest } = c;
+      void _memo;
+      return {
+        ...rest,
+        tenant_id: tenantId,
+        office_id: officeId, // 後方互換
+      };
+    });
+    const { data, error } = await supabase
+      .from("clients")
+      .insert(batch)
+      .select("id, user_number");
     if (error) throw error;
-    (data ?? []).forEach((r: { id: string }) => insertedIds.push(r.id));
+    (data ?? []).forEach((r: { id: string; user_number: string }) => {
+      insertedIds.push(r.id);
+      insertedAll.push(r);
+    });
   }
+  await bulkInsertTenantMemos(tenantId, insertedAll, clients);
 
   // 事業所紐付け（officeId指定時のみ）
   if (officeId && insertedIds.length > 0) {
