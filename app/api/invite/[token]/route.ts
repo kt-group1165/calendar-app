@@ -56,23 +56,28 @@ export async function GET(_request: Request, context: RouteContext) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
-  // office 名を解決（UI 表示用）。tenant 名も併せて取得。
+  // office 名 + tenant 名（resource embedding は明示 FK 不在のため使わず別引き）
   const { data: office } = await admin
     .from("offices")
-    .select("name, tenant_id, tenants(short_name)")
+    .select("name, tenant_id")
     .eq("id", inv.office_id)
     .maybeSingle();
 
-  type TenantRel = { short_name: string | null } | { short_name: string | null }[] | null;
-  const tenantRel = (office as { tenants?: TenantRel } | null)?.tenants ?? null;
-  const tenantName = Array.isArray(tenantRel)
-    ? (tenantRel[0]?.short_name ?? null)
-    : (tenantRel?.short_name ?? null);
+  const officeRow = office as { name: string | null; tenant_id: string | null } | null;
+  let tenantName: string | null = null;
+  if (officeRow?.tenant_id) {
+    const { data: tenant } = await admin
+      .from("tenants")
+      .select("name")
+      .eq("id", officeRow.tenant_id)
+      .maybeSingle();
+    tenantName = (tenant as { name?: string } | null)?.name ?? null;
+  }
 
   return NextResponse.json({
     display_name: inv.display_name,
     role: inv.role,
-    office_name: (office as { name?: string } | null)?.name ?? null,
+    office_name: officeRow?.name ?? null,
     tenant_name: tenantName,
     expires_at: inv.expires_at,
   });

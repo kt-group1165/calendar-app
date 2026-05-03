@@ -84,25 +84,31 @@ export default function AdminStaffPage() {
 
       // 自分が見える office を取得（offices_visible_read policy が enforce）。
       // tenant 名も join。
-      const { data: officeRows, error: officeError } = await supabase
-        .from("offices")
-        .select("id, name, tenant_id, tenants(short_name)")
-        .order("tenant_id", { ascending: true })
-        .order("sort_order", { ascending: true });
-      if (officeError) throw officeError;
+      // offices と tenants を別々に引いてから client side で join。
+      // offices.tenant_id (TEXT) → tenants.id の FK は PostgREST が認識できない
+      // ことがあるため（明示 FK が無い）、resource embedding は使わない。
+      const [officesRes, tenantsRes] = await Promise.all([
+        supabase
+          .from("offices")
+          .select("id, name, tenant_id")
+          .order("tenant_id", { ascending: true })
+          .order("sort_order", { ascending: true }),
+        supabase.from("tenants").select("id, name"),
+      ]);
+      if (officesRes.error) throw officesRes.error;
+      if (tenantsRes.error) throw tenantsRes.error;
 
-      type TenantRel = { short_name: string | null } | { short_name: string | null }[] | null;
-      type OfficeRow = { id: string; name: string; tenant_id: string; tenants?: TenantRel };
-      const officeOpts: OfficeOption[] = ((officeRows ?? []) as OfficeRow[]).map((r) => {
-        const rel = r.tenants ?? null;
-        const tenantName = Array.isArray(rel) ? (rel[0]?.short_name ?? null) : (rel?.short_name ?? null);
-        return {
-          id: r.id,
-          name: r.name,
-          tenant_id: r.tenant_id,
-          tenant_name: tenantName,
-        };
-      });
+      type OfficeRow = { id: string; name: string; tenant_id: string };
+      type TenantRow = { id: string; name: string };
+      const tenantNameById = new Map(
+        ((tenantsRes.data ?? []) as TenantRow[]).map((t) => [t.id, t.name] as const)
+      );
+      const officeOpts: OfficeOption[] = ((officesRes.data ?? []) as OfficeRow[]).map((r) => ({
+        id: r.id,
+        name: r.name,
+        tenant_id: r.tenant_id,
+        tenant_name: tenantNameById.get(r.tenant_id) ?? null,
+      }));
       setOffices(officeOpts);
 
       // 自分が見える招待一覧（staff_invitations_admin_read policy が enforce）
