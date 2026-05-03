@@ -1,65 +1,96 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { CalendarDays, Mail, Lock, Loader2, ArrowRight } from "lucide-react";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowRight, CalendarDays, CheckCircle2, Loader2, Lock, User } from "lucide-react";
 import { getSupabase } from "@/lib/supabase-browser";
+import { isValidLoginId, loginIdToSyntheticEmail } from "@/lib/login_id";
 
-type Mode = "magic" | "password";
+// /login
+//
+// Phase 2-7 以降:
+//   - 単一の「ログイン ID または メールアドレス」入力欄
+//     - 文字列に @ があれば実 email として扱う（group_admin / 旧アカウント互換）
+//     - なければ login_id として扱い、`<id>@kt-staff.invalid` に派生
+//   - パスワード認証のみ（magic link は廃止）
+//   - PIN モードへのフォールバックは §14 で別途削除予定（移行期は残す）
 
 export default function LoginPage() {
+  // Next.js 16 の static generation で useSearchParams を使うには Suspense
+  // 境界が必要。ページ本体を子コンポーネントに分離する。
+  return (
+    <Suspense fallback={<LoginFallback />}>
+      <LoginInner />
+    </Suspense>
+  );
+}
+
+function LoginFallback() {
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-white flex items-center justify-center">
+      <Loader2 size={24} className="animate-spin text-indigo-400" />
+    </div>
+  );
+}
+
+function LoginInner() {
   const router = useRouter();
-  const [mode, setMode] = useState<Mode>("magic");
-  const [email, setEmail] = useState("");
+  const search = useSearchParams();
+  const nextPath = search.get("next") ?? "/";
+  const presetLoginId = search.get("login_id") ?? "";
+  const inviteJustDone = search.get("hint") === "invite_done";
+
+  const [identifier, setIdentifier] = useState(presetLoginId);
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [message, setMessage] = useState<{ type: "success" | "error" | "info"; text: string } | null>(
+    inviteJustDone
+      ? { type: "info", text: "アカウントを作成しました。設定したパスワードでログインしてください。" }
+      : null
+  );
 
-  async function handleMagicLink() {
-    if (!email.trim()) return;
+  // 既ログインなら飛ばす
+  useEffect(() => {
+    const supabase = getSupabase();
+    supabase.auth.getUser().then((res: { data: { user: unknown } }) => {
+      if (res.data.user) router.replace(nextPath);
+    });
+  }, [router, nextPath]);
+
+  function resolveEmail(value: string): string | null {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (trimmed.includes("@")) return trimmed; // 実 email
+    if (isValidLoginId(trimmed)) return loginIdToSyntheticEmail(trimmed);
+    return null;
+  }
+
+  async function handleSubmit() {
+    const email = resolveEmail(identifier);
+    if (!email || !password) return;
+
     setLoading(true);
     setMessage(null);
     try {
       const supabase = getSupabase();
-      const origin = typeof window !== "undefined" ? window.location.origin : "";
-      const { error } = await supabase.auth.signInWithOtp({
-        email: email.trim(),
-        options: { emailRedirectTo: `${origin}/auth/callback` },
-      });
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
-        setMessage({ type: "error", text: error.message });
+        setMessage({ type: "error", text: "ログイン ID（またはメール）かパスワードが正しくありません" });
       } else {
-        setMessage({ type: "success", text: "📧 ログインリンクをメールで送信しました。リンクをタップしてください。" });
+        router.replace(nextPath);
       }
     } finally {
       setLoading(false);
     }
   }
 
-  async function handlePassword() {
-    if (!email.trim() || !password) return;
-    setLoading(true);
-    setMessage(null);
-    try {
-      const supabase = getSupabase();
-      const { error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-      if (error) {
-        setMessage({ type: "error", text: "メールまたはパスワードが正しくありません" });
-      } else {
-        router.push("/");
-      }
-    } finally {
-      setLoading(false);
-    }
-  }
+  const identifierLooksValid =
+    identifier.trim().length > 0 &&
+    (identifier.includes("@") || isValidLoginId(identifier.trim()));
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-white flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm space-y-6">
-        {/* ロゴ */}
         <div className="text-center space-y-2">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-500 rounded-2xl shadow-lg mb-2">
             <CalendarDays size={32} className="text-white" />
@@ -68,80 +99,67 @@ export default function LoginPage() {
           <p className="text-sm text-gray-400">カレンダーアプリにサインイン</p>
         </div>
 
-        {/* モード切替タブ */}
-        <div className="bg-gray-100 rounded-xl p-1 flex gap-1">
-          <button
-            onClick={() => { setMode("magic"); setMessage(null); }}
-            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${
-              mode === "magic" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500"
-            }`}
-          >
-            <Mail size={14} className="inline mr-1" />リンクで
-          </button>
-          <button
-            onClick={() => { setMode("password"); setMessage(null); }}
-            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${
-              mode === "password" ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500"
-            }`}
-          >
-            <Lock size={14} className="inline mr-1" />パスワード
-          </button>
-        </div>
-
-        {/* フォーム */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
           <div>
-            <label className="text-xs text-gray-400 mb-1 block">メールアドレス</label>
+            <label className="text-xs text-gray-400 mb-1 block">
+              <User size={11} className="inline mr-1" />
+              ログイン ID または メールアドレス
+            </label>
             <input
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="name@example.com"
+              type="text"
+              autoComplete="username"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+              placeholder="hanako.s または name@example.com"
               className="w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-400"
             />
           </div>
 
-          {mode === "password" && (
-            <div>
-              <label className="text-xs text-gray-400 mb-1 block">パスワード</label>
-              <input
-                type="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handlePassword()}
-                className="w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-400"
-              />
-            </div>
-          )}
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">
+              <Lock size={11} className="inline mr-1" />
+              パスワード
+            </label>
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+              className="w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-400"
+            />
+          </div>
 
           {message && (
-            <div className={`text-xs p-2.5 rounded-xl ${
-              message.type === "success" ? "bg-green-50 text-green-700" : "bg-red-50 text-red-600"
-            }`}>
-              {message.text}
+            <div
+              className={`text-xs p-2.5 rounded-xl flex items-start gap-2 ${
+                message.type === "success" || message.type === "info"
+                  ? "bg-emerald-50 text-emerald-700"
+                  : "bg-red-50 text-red-600"
+              }`}
+            >
+              {message.type !== "error" && <CheckCircle2 size={12} className="shrink-0 mt-0.5" />}
+              <span>{message.text}</span>
             </div>
           )}
 
           <button
-            onClick={mode === "magic" ? handleMagicLink : handlePassword}
-            disabled={loading || !email.trim() || (mode === "password" && !password)}
+            onClick={handleSubmit}
+            disabled={loading || !identifierLooksValid || !password}
             className="w-full py-3 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-white font-semibold rounded-xl flex items-center justify-center gap-2 transition-colors"
           >
             {loading ? <Loader2 size={16} className="animate-spin" /> : null}
-            {mode === "magic" ? "ログインリンクを送信" : "ログイン"}
+            ログイン
             {!loading && <ArrowRight size={16} />}
           </button>
 
-          <p className="text-xs text-gray-400 text-center">
-            {mode === "magic"
-              ? "メールに送られるリンクをタップしてログインします（パスワード不要）"
-              : "パスワードを忘れた場合は管理者に連絡してください"}
+          <p className="text-xs text-gray-400 text-center leading-relaxed">
+            パスワードを忘れた場合は管理者に連絡してください<br />
+            <span className="text-gray-300">（招待を再発行してもらう運用）</span>
           </p>
         </div>
 
-        {/* PIN モードで続ける（移行期間中のフォールバック） */}
+        {/* PIN モード（§14 で削除予定の移行期フォールバック） */}
         <div className="text-center">
           <button
             onClick={() => router.push("/")}

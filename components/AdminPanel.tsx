@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { X, Users, Download, BarChart2, Settings, Plus, Trash2, Loader2, Lock, Tag, User, Search, ChevronUp, ChevronDown, FileUp, UserPlus, Building2, MapPin, Merge, Eye, EyeOff } from "lucide-react";
+import { X, Users, Download, BarChart2, Settings, Plus, Trash2, Loader2, Lock, Tag, User, Search, ChevronUp, ChevronDown, FileUp, Building2, MapPin, Merge, Eye, EyeOff } from "lucide-react";
 import { format, startOfMonth, endOfMonth, addMonths, subMonths } from "date-fns";
 import { ja } from "date-fns/locale";
 import { supabase } from "@/lib/supabase";
@@ -15,9 +15,11 @@ import { verifyMasterPin, updateMasterPin, getOrderEmailSettings, updateOrderEma
 import { getEventsByDateRange, getAllEvents, importEventsFromCSV } from "@/lib/events";
 import { getGroups, addGroup, deleteGroup, updateGroup, type MemberGroup } from "@/lib/groups";
 import { getClients, getClientOfficeAssignments, type Client, type ClientOfficeAssignment } from "@/lib/clients";
-import UsersTab from "@/components/UsersTab";
 
-type Tab = "members" | "groups" | "types" | "areas" | "merge" | "clients" | "users" | "csv" | "analytics" | "settings";
+// スタッフ招待 UI は Phase 2-7 で /admin/staff に移設済（独立ページ）。
+// SettingsTab 内の「スタッフ管理を開く」リンクから遷移する。
+
+type Tab = "members" | "groups" | "types" | "areas" | "merge" | "clients" | "csv" | "analytics" | "settings";
 
 const COLORS = [
   "#6366f1","#ec4899","#f97316","#10b981","#3b82f6","#8b5cf6","#ef4444","#f59e0b",
@@ -36,7 +38,6 @@ export default function AdminPanel({ tenantId, onClose, onLogout }: Props) {
     { key: "areas" as Tab, icon: MapPin, label: "エリア" },
     { key: "merge" as Tab, icon: Merge, label: "スタッフ統合" },
     { key: "clients" as Tab, icon: User, label: "利用者" },
-    { key: "users" as Tab, icon: UserPlus, label: "ユーザー" },
     { key: "csv" as Tab, icon: Download, label: "CSV" },
     { key: "analytics" as Tab, icon: BarChart2, label: "分析" },
     { key: "settings" as Tab, icon: Settings, label: "設定" },
@@ -72,7 +73,6 @@ export default function AdminPanel({ tenantId, onClose, onLogout }: Props) {
         {tab === "areas" && <AreasTab tenantId={tenantId} />}
         {tab === "merge" && <StaffMergeTab tenantId={tenantId} />}
         {tab === "clients" && <ClientsTab tenantId={tenantId} />}
-        {tab === "users" && <UsersTab tenantId={tenantId} />}
         {tab === "csv" && <CsvTab tenantId={tenantId} />}
         {tab === "analytics" && <AnalyticsTab tenantId={tenantId} />}
         {tab === "settings" && <SettingsTab tenantId={tenantId} onLogout={onLogout} />}
@@ -1762,6 +1762,21 @@ function SettingsTab({ tenantId, onLogout }: { tenantId: string; onLogout: () =>
           ))}
         </div>
       )}
+
+      {/* スタッフ管理（招待 UI への入口） */}
+      <button
+        onClick={() => router.push("/admin/staff")}
+        className="w-full flex items-center gap-3 px-4 py-3 bg-indigo-50 hover:bg-indigo-100 rounded-xl text-left transition-colors"
+      >
+        <div className="w-9 h-9 bg-white rounded-full flex items-center justify-center shrink-0">
+          <Users size={16} className="text-indigo-500" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-gray-800">スタッフ管理</p>
+          <p className="text-xs text-gray-500">招待の発行・取消、ロール割当</p>
+        </div>
+        <span className="text-indigo-400 text-sm">→</span>
+      </button>
 
       <div className="space-y-3">
         <h3 className="text-sm font-semibold text-gray-700">マスターPIN変更</h3>
