@@ -1,3 +1,4 @@
+import { getMaxUserNumber } from "@kt/shared/user-number";
 import { supabase } from "./supabase";
 
 export type Client = {
@@ -27,34 +28,10 @@ export type Client = {
   updated_at: string;
 };
 
-// テナント内の user_number の数値最大値を取得（ページング対応）
-//   Supabase のデフォルト 1000件制限を回避するため、ページングで全件走査する
-async function getMaxUserNumber(tenantId: string): Promise<number> {
-  const PAGE = 1000;
-  let from = 0;
-  let maxNum = 0;
-  while (true) {
-    const { data, error } = await supabase
-      .from("clients")
-      .select("user_number")
-      .eq("tenant_id", tenantId)
-      .range(from, from + PAGE - 1);
-    if (error) throw error;
-    if (!data || data.length === 0) break;
-    for (const row of data) {
-      const n = parseInt((row as { user_number: string | null }).user_number ?? "0");
-      if (!isNaN(n) && n > maxNum) maxNum = n;
-    }
-    if (data.length < PAGE) break;
-    from += PAGE;
-  }
-  return maxNum;
-}
-
 // カレンダー画面から新規利用者を自由入力で仮登録する。
 //   - 発注システム側にも同じ clients 行として共有される
 //   - is_provisional=true で印を付け、後で本登録時に外す
-//   - user_number は NOT NULL 制約があるため、テナント内の最大値+1 を採番
+//   - user_number は NOT NULL 制約があるため、テナント内の最大値+1 を採番（@kt/shared 共通 util）
 //   - unique 制約衝突時は自動で +1 してリトライ（並行挿入対策）
 export async function createProvisionalClient(
   tenantId: string,
@@ -64,7 +41,7 @@ export async function createProvisionalClient(
   careOfficeId?: string | null,
   careOfficeName?: string | null,
 ): Promise<Client> {
-  let candidate = (await getMaxUserNumber(tenantId)) + 1;
+  let candidate = (await getMaxUserNumber(supabase, tenantId)) + 1;
   const MAX_RETRY = 10;
 
   for (let i = 0; i < MAX_RETRY; i++) {
