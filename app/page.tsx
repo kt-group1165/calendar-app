@@ -22,17 +22,14 @@ export default function HomePage() {
       const { data: { user } } = await supabase.auth.getUser();
       setAuthUser(user);
 
-      // テナント一覧（RLS により、認証済みなら所属テナントのみ、匿名なら全件）
-      // テナントが 1 件も存在しなければ初回セットアップへ。
-      // user_tenants は RLS の関係で匿名では count=0 になるため、tenants の有無で判定する。
+      // テナント一覧（新 RLS により、認証済みなら所属テナントのみ、匿名なら
+      // anon read policy 経由の最小限のみ）。
+      // 初期セットアップ画面（旧 /setup）は Phase 2-5b で削除済。最初の
+      // group_admin 投入は SQL（phase2_05_04_seed_admin_user.sql）で行う。
       try {
         const list = await getTenants();
         const nonDefault = list.filter((t) => t.id !== "default");
         setTenants(nonDefault);
-        if (nonDefault.length === 0 && !user) {
-          router.replace("/setup");
-          return;
-        }
       } catch {
         // ignore
       } finally {

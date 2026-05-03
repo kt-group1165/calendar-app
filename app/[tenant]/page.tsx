@@ -121,7 +121,8 @@ export default function TenantCalendarPage() {
   useEffect(() => {
     if (!tenantId || authUser.loading) return;
     if (authUser.authUser) {
-      // Auth モード：user_tenants から取得した情報を使用
+      // Auth モード：新 4 階層 RLS から derive した role / member_id を使用
+      // （useCurrentUser 側で auth_user_admin_tenants() rpc + user_offices で解決）
       setCurrentUser(authUser.name ?? authUser.authUser.email ?? "");
       setIsMaster(authUser.role === "master");
     }

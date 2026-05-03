@@ -9,7 +9,7 @@ export type Role = "master" | "member";
 export type CurrentUser = {
   name: string | null;       // 表示用（Auth → members.name → email の順）
   authUser: User | null;     // Supabase Auth セッション（null なら匿名/PIN モード）
-  role: Role | null;         // このテナントでのロール
+  role: Role | null;         // このテナントでのロール（旧 calendar-app 概念。新 RLS では derive）
   memberId: string | null;   // 紐づく members.id
   loading: boolean;
 };
@@ -36,7 +36,7 @@ export function useCurrentUser(tenantId: string): CurrentUser {
       if (cancelled) return;
 
       if (!user) {
-        // 匿名モード（旧 PIN 方式互換）
+        // 匿名モード（旧 PIN 方式互換）。Phase 2-7 招待 UI 完成後に削除予定。
         if (typeof window !== "undefined") {
           const name = localStorage.getItem(USER_NAME_KEY(tenantId));
           const isMaster = localStorage.getItem(IS_MASTER_KEY(tenantId)) === "true";
@@ -51,19 +51,42 @@ export function useCurrentUser(tenantId: string): CurrentUser {
         return;
       }
 
-      // Auth セッションあり → user_tenants から role, member_id を解決
-      const { data: ut } = await supabase
-        .from("user_tenants")
-        .select("role, member_id")
-        .eq("user_id", user.id)
-        .eq("tenant_id", tenantId)
-        .maybeSingle();
+      // Auth セッションあり → 新 4 階層 RLS から role / member_id を derive
+      //   role:      auth_user_admin_tenants() rpc に tenantId が含まれれば 'master'、
+      //              そうでなく user_offices に行があれば 'member'、なければ null
+      //   member_id: user_offices.member_id (offices.tenant_id でフィルタ)
+      const [adminTenantsRes, officeRowRes] = await Promise.all([
+        supabase.rpc("auth_user_admin_tenants"),
+        supabase
+          .from("user_offices")
+          .select("member_id, offices!inner(tenant_id)")
+          .eq("user_id", user.id)
+          .eq("offices.tenant_id", tenantId)
+          .limit(1)
+          .maybeSingle(),
+      ]);
 
       if (cancelled) return;
 
-      let name: string | null = null;
-      let memberId: string | null = ut?.member_id ?? null;
+      // rpc が SETOF TEXT を返すと PostgREST は [{ auth_user_admin_tenants: 'kt-group' }, ...]
+      // または ['kt-group', ...] を返しうる。両方に対応。
+      type TenantRow = { auth_user_admin_tenants?: string } | string;
+      const rawAdmin = (adminTenantsRes.data ?? []) as TenantRow[];
+      const adminTenantIds = rawAdmin.map((r) =>
+        typeof r === "string" ? r : r.auth_user_admin_tenants ?? ""
+      );
 
+      type OfficeRow = { member_id: string | null };
+      const officeRow = officeRowRes.data as OfficeRow | null;
+
+      const isAdmin = adminTenantIds.includes(tenantId);
+      const hasOfficeAssignment = officeRow !== null;
+      const role: Role | null = isAdmin
+        ? "master"
+        : (hasOfficeAssignment ? "member" : null);
+      const memberId = officeRow?.member_id ?? null;
+
+      let name: string | null = null;
       if (memberId) {
         const { data: m } = await supabase
           .from("members")
@@ -80,7 +103,7 @@ export function useCurrentUser(tenantId: string): CurrentUser {
       setState({
         name,
         authUser: user,
-        role: (ut?.role as Role | undefined) ?? null,
+        role,
         memberId,
         loading: false,
       });
