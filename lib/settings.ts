@@ -1,22 +1,9 @@
 import { supabase } from "./supabase";
 
-export async function verifyMasterPin(pin: string, tenantId: string): Promise<boolean> {
-  const { data, error } = await supabase
-    .from("settings")
-    .select("value")
-    .eq("key", "master_pin")
-    .eq("tenant_id", tenantId)
-    .maybeSingle();
-  if (error || !data) return false;
-  return data.value === pin;
-}
-
-export async function updateMasterPin(newPin: string, tenantId: string): Promise<void> {
-  const { error } = await supabase
-    .from("settings")
-    .upsert({ key: "master_pin", tenant_id: tenantId, value: newPin }, { onConflict: "key,tenant_id" });
-  if (error) throw error;
-}
+// Phase 2-7 で master_pin / verifyMasterPin / updateMasterPin は廃止。
+// master 判定は user_groups / user_companies / user_offices による RLS に統一。
+// 旧 settings.master_pin 行は DB に残るが参照されないので無害（必要なら別途
+// migration で DELETE FROM settings WHERE key = 'master_pin'; を実行）。
 
 // ── 利用者選択機能 ────────────────────────────────────
 

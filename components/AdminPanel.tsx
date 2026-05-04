@@ -11,7 +11,7 @@ import { getOffices, type Office } from "@/lib/offices";
 import { getEventTypes, addEventType, deleteEventType, setEventTypeHidden, updateEventTypeOffice, mergeEventTypes, type EventType } from "@/lib/event_types";
 import { getEventAreas, addEventArea, updateEventArea, deleteEventArea, type EventArea } from "@/lib/event_areas";
 import { detectDuplicates, executeMerge, type DuplicateGroup } from "@/lib/staff_merge";
-import { verifyMasterPin, updateMasterPin, getOrderEmailSettings, updateOrderEmailSettings, getClientSelectionEnabled, updateClientSelectionEnabled, getMemoPreset, updateMemoPreset, getVisitTypeRequired, updateVisitTypeRequired } from "@/lib/settings";
+import { getOrderEmailSettings, updateOrderEmailSettings, getClientSelectionEnabled, updateClientSelectionEnabled, getMemoPreset, updateMemoPreset, getVisitTypeRequired, updateVisitTypeRequired } from "@/lib/settings";
 import { getEventsByDateRange, getAllEvents, importEventsFromCSV } from "@/lib/events";
 import { getGroups, addGroup, deleteGroup, updateGroup, type MemberGroup } from "@/lib/groups";
 import { getClients, getClientOfficeAssignments, type Client, type ClientOfficeAssignment } from "@/lib/clients";
@@ -27,9 +27,9 @@ const COLORS = [
   "#0ea5e9","#22c55e","#e11d48","#7c3aed","#0d9488","#ea580c","#475569","#c026d3",
 ];
 
-type Props = { tenantId: string; onClose: () => void; onLogout: () => void };
+type Props = { tenantId: string; onClose: () => void };
 
-export default function AdminPanel({ tenantId, onClose, onLogout }: Props) {
+export default function AdminPanel({ tenantId, onClose }: Props) {
   const [tab, setTab] = useState<Tab>("members");
   const tabs = [
     { key: "members" as Tab, icon: Users, label: "メンバー" },
@@ -75,7 +75,7 @@ export default function AdminPanel({ tenantId, onClose, onLogout }: Props) {
         {tab === "clients" && <ClientsTab tenantId={tenantId} />}
         {tab === "csv" && <CsvTab tenantId={tenantId} />}
         {tab === "analytics" && <AnalyticsTab tenantId={tenantId} />}
-        {tab === "settings" && <SettingsTab tenantId={tenantId} onLogout={onLogout} />}
+        {tab === "settings" && <SettingsTab tenantId={tenantId} />}
       </div>
     </div>
   );
@@ -1612,7 +1612,7 @@ function AnalyticsTab({ tenantId }: { tenantId: string }) {
 }
 
 // ── 設定 ─────────────────────────────────────
-function SettingsTab({ tenantId, onLogout }: { tenantId: string; onLogout: () => void }) {
+function SettingsTab({ tenantId }: { tenantId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const currentOfficeId = searchParams.get("office");
@@ -1630,11 +1630,6 @@ function SettingsTab({ tenantId, onLogout }: { tenantId: string; onLogout: () =>
     router.push(`/${tenantId}${qs ? `?${qs}` : ""}`);
   }
 
-  const [currentPin, setCurrentPin] = useState("");
-  const [newPin, setNewPin] = useState("");
-  const [confirmPin, setConfirmPin] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
   const [stats, setStats] = useState<{ events: number; comments: number; members: number } | null>(null);
 
   // 利用者選択機能
@@ -1731,20 +1726,6 @@ function SettingsTab({ tenantId, onLogout }: { tenantId: string; onLogout: () =>
     }).catch(() => {});
   }, []);
 
-  async function handleChangePin() {
-    if (!newPin.trim()) { setMessage("新しいPINを入力してください"); return; }
-    if (newPin !== confirmPin) { setMessage("PINが一致しません"); return; }
-    if (newPin.length < 4) { setMessage("PINは4文字以上にしてください"); return; }
-    setSaving(true); setMessage("");
-    try {
-      if (!await verifyMasterPin(currentPin, tenantId)) { setMessage("現在のPINが正しくありません"); return; }
-      await updateMasterPin(newPin, tenantId);
-      setMessage("✅ PINを変更しました");
-      setCurrentPin(""); setNewPin(""); setConfirmPin("");
-    } catch { setMessage("変更に失敗しました"); }
-    finally { setSaving(false); }
-  }
-
   return (
     <div className="p-4 space-y-5">
       {/* データ使用量 */}
@@ -1777,23 +1758,6 @@ function SettingsTab({ tenantId, onLogout }: { tenantId: string; onLogout: () =>
         </div>
         <span className="text-indigo-400 text-sm">→</span>
       </button>
-
-      <div className="space-y-3">
-        <h3 className="text-sm font-semibold text-gray-700">マスターPIN変更</h3>
-        {[
-          { p: "現在のPIN", v: currentPin, s: setCurrentPin },
-          { p: "新しいPIN（4文字以上）", v: newPin, s: setNewPin },
-          { p: "新しいPIN（確認）", v: confirmPin, s: setConfirmPin },
-        ].map(({ p, v, s }) => (
-          <input key={p} type="password" placeholder={p} value={v} onChange={(e) => s(e.target.value)}
-            className="w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:border-indigo-400" />
-        ))}
-        {message && <p className={`text-xs ${message.includes("✅") ? "text-green-600" : "text-red-500"}`}>{message}</p>}
-        <button onClick={handleChangePin} disabled={saving}
-          className="w-full py-2.5 bg-indigo-500 hover:bg-indigo-600 disabled:opacity-50 text-white font-medium rounded-xl flex items-center justify-center gap-2 text-sm">
-          {saving && <Loader2 size={14} className="animate-spin" />}PINを変更
-        </button>
-      </div>
 
       {/* 自事業所切替 */}
       <div className="border-t border-gray-100 pt-4 space-y-2">
@@ -1945,12 +1909,6 @@ function SettingsTab({ tenantId, onLogout }: { tenantId: string; onLogout: () =>
         </button>
       </div>
 
-      <div className="border-t border-gray-100 pt-4">
-        <button onClick={() => { if (confirm("マスターモードを解除しますか？")) onLogout(); }}
-          className="w-full py-2.5 border-2 border-red-100 text-red-400 hover:bg-red-50 font-medium rounded-xl text-sm">
-          マスターモードを解除
-        </button>
-      </div>
     </div>
   );
 }

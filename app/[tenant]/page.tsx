@@ -13,8 +13,6 @@ import WeekView from "@/components/WeekView";
 import DayView from "@/components/DayView";
 import EventModal from "@/components/EventModal";
 import EventDetailModal from "@/components/EventDetailModal";
-import UserNameModal from "@/components/UserNameModal";
-import MasterPinModal from "@/components/MasterPinModal";
 import TrashView from "@/components/TrashView";
 import AdminPanel from "@/components/AdminPanel";
 import ActivityLogView from "@/components/ActivityLogView";
@@ -36,8 +34,6 @@ import { useCurrentUser, signOut } from "@/lib/auth";
 
 const LAST_SEEN_KEY = (tid: string) => `calendar_activity_last_seen_${tid}`;
 const LAST_BACKUP_KEY = (tid: string) => `calendar_last_backup_date_${tid}`;
-const USER_NAME_KEY = (tid: string) => `calendar_user_name_${tid}`;
-const IS_MASTER_KEY = (tid: string) => `calendar_is_master_${tid}`;
 // 用件種別フィルタ機能のON/OFF（個人設定・端末ごと）
 const EVENT_TYPE_FILTER_ENABLED_KEY = (tid: string) => `calendar_event_type_filter_enabled_${tid}`;
 
@@ -84,7 +80,6 @@ export default function TenantCalendarPage() {
   const [isMaster, setIsMaster] = useState(false);
   const [showTrash, setShowTrash] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
-  const [showMasterPin, setShowMasterPin] = useState(false);
   const [duplicateData, setDuplicateData] = useState<EventInsert | null>(null);
 
   // 年月ピッカー
@@ -117,31 +112,19 @@ export default function TenantCalendarPage() {
   const [showMemo, setShowMemo] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  // Auth セッションが確定したら、そちらから currentUser / isMaster を同期
+  // Auth セッションから currentUser / isMaster を derive。
+  // 未ログイン時は middleware で /login へ redirect されているはず。
   useEffect(() => {
     if (!tenantId || authUser.loading) return;
     if (authUser.authUser) {
-      // Auth モード：新 4 階層 RLS から derive した role / member_id を使用
-      // （useCurrentUser 側で auth_user_admin_tenants() rpc + user_offices で解決）
       setCurrentUser(authUser.name ?? authUser.authUser.email ?? "");
       setIsMaster(authUser.role === "master");
     }
-    // 未ログイン時は下の localStorage 読み取り useEffect にまかせる
   }, [authUser.loading, authUser.authUser, authUser.name, authUser.role, tenantId]);
 
   useEffect(() => {
     if (!tenantId) return;
-    // 認証状態が確定するまで待つ（localStorage 読み取りのフラッシュを防ぐ）
     if (authUser.loading) return;
-
-    // Auth 済み → localStorage の PIN 情報は無視
-    if (!authUser.authUser) {
-      // PIN モード（匿名）：従来通り localStorage から
-      const name = localStorage.getItem(USER_NAME_KEY(tenantId));
-      const master = localStorage.getItem(IS_MASTER_KEY(tenantId)) === "true";
-      setCurrentUser(name ?? "");
-      if (master) setIsMaster(true);
-    }
     cleanupOldDeletedEvents(tenantId).catch(() => {});
     getMembers(tenantId).then(setMembers).catch(() => {});
     getOffices(tenantId).then(setOffices).catch(() => {});
@@ -188,28 +171,6 @@ export default function TenantCalendarPage() {
       getUnreadActivityCount(lastSeen, tenantId).then(setUnreadCount).catch(() => {});
     }
   }, [tenantId, authUser.loading, authUser.authUser]);
-
-  function handleUserNameSave(name: string, master: boolean) {
-    localStorage.setItem(USER_NAME_KEY(tenantId), name);
-    if (master) {
-      localStorage.setItem(IS_MASTER_KEY(tenantId), "true");
-      setIsMaster(true);
-    }
-    setCurrentUser(name);
-  }
-
-  function handleMasterLoginSuccess() {
-    localStorage.setItem(IS_MASTER_KEY(tenantId), "true");
-    setIsMaster(true);
-    setShowMasterPin(false);
-    setShowAdmin(true);
-  }
-
-  function handleMasterLogout() {
-    localStorage.removeItem(IS_MASTER_KEY(tenantId));
-    setIsMaster(false);
-    setShowAdmin(false);
-  }
 
   const loadEvents = useCallback(async () => {
     if (!tenantId) return;
@@ -467,13 +428,9 @@ export default function TenantCalendarPage() {
     setShowAddModal(true);
   }
 
-  // 認証状態が確定するまでは何も描画しない（localStorage フラッシュ防止）
+  // 認証状態が確定するまでは何も描画しない
   if (authUser.loading) return null;
   if (currentUser === null) return null;
-  // Auth 未使用かつ名前未登録 → UserNameModal で従来の PIN フローへ
-  if (!authUser.authUser && currentUser === "") {
-    return <UserNameModal tenantId={tenantId} officeId={currentOfficeId} onSave={handleUserNameSave} />;
-  }
 
   return (
     <div className="flex flex-col h-dvh max-h-dvh bg-[#f8f9fa]">
@@ -641,11 +598,13 @@ export default function TenantCalendarPage() {
             className="p-2 rounded-xl hover:bg-gray-100 transition-colors" title="ゴミ箱">
             <Trash2 size={18} className="text-gray-400" />
           </button>
-          <button
-            onClick={() => isMaster ? setShowAdmin(true) : setShowMasterPin(true)}
-            className="p-2 rounded-xl hover:bg-gray-100 transition-colors" title="管理">
-            <Settings size={18} className={isMaster ? "text-indigo-500" : "text-gray-400"} />
-          </button>
+          {isMaster && (
+            <button
+              onClick={() => setShowAdmin(true)}
+              className="p-2 rounded-xl hover:bg-gray-100 transition-colors" title="管理">
+              <Settings size={18} className="text-indigo-500" />
+            </button>
+          )}
           {authUser.authUser && (
             <button
               onClick={async () => {
@@ -901,15 +860,6 @@ export default function TenantCalendarPage() {
               if (stored !== "true") setFilterEventTypes([]);
             }
           }}
-          onLogout={handleMasterLogout}
-        />
-      )}
-
-      {showMasterPin && (
-        <MasterPinModal
-          tenantId={tenantId}
-          onSuccess={handleMasterLoginSuccess}
-          onClose={() => setShowMasterPin(false)}
         />
       )}
 

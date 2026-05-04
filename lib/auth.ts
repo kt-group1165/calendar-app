@@ -4,18 +4,23 @@ import { useState, useEffect } from "react";
 import type { User } from "@supabase/supabase-js";
 import { getSupabase } from "./supabase-browser";
 
+// Phase 2-7 以降:
+//   - PIN モード（localStorage 経路の匿名利用）は廃止。
+//     全ユーザは Supabase Auth セッション持ち。
+//   - role / member_id は新 4 階層 RLS から derive：
+//     - role:      auth_user_admin_tenants() rpc に tenantId が含まれれば 'master'、
+//                  そうでなく user_offices に行があれば 'member'、なければ null
+//     - member_id: user_offices.member_id (offices.tenant_id でフィルタ)
+
 export type Role = "master" | "member";
 
 export type CurrentUser = {
-  name: string | null;       // 表示用（Auth → members.name → email の順）
-  authUser: User | null;     // Supabase Auth セッション（null なら匿名/PIN モード）
-  role: Role | null;         // このテナントでのロール（旧 calendar-app 概念。新 RLS では derive）
+  name: string | null;       // 表示用（members.name → user_metadata.display_name → email の順）
+  authUser: User | null;     // Supabase Auth セッション。未ログインなら null（middleware が /login へ追放）
+  role: Role | null;         // このテナントでのロール
   memberId: string | null;   // 紐づく members.id
   loading: boolean;
 };
-
-const USER_NAME_KEY = (tid: string) => `calendar_user_name_${tid}`;
-const IS_MASTER_KEY = (tid: string) => `calendar_is_master_${tid}`;
 
 export function useCurrentUser(tenantId: string): CurrentUser {
   const [state, setState] = useState<CurrentUser>({
@@ -36,25 +41,12 @@ export function useCurrentUser(tenantId: string): CurrentUser {
       if (cancelled) return;
 
       if (!user) {
-        // 匿名モード（旧 PIN 方式互換）。Phase 2-7 招待 UI 完成後に削除予定。
-        if (typeof window !== "undefined") {
-          const name = localStorage.getItem(USER_NAME_KEY(tenantId));
-          const isMaster = localStorage.getItem(IS_MASTER_KEY(tenantId)) === "true";
-          setState({
-            name: name ?? "",
-            authUser: null,
-            role: isMaster ? "master" : (name ? "member" : null),
-            memberId: null,
-            loading: false,
-          });
-        }
+        // 未ログイン。middleware で /login へ redirect される想定だが、
+        // 念のため state を空で返す（呼出側が読み込み完了として扱う）。
+        setState({ name: null, authUser: null, role: null, memberId: null, loading: false });
         return;
       }
 
-      // Auth セッションあり → 新 4 階層 RLS から role / member_id を derive
-      //   role:      auth_user_admin_tenants() rpc に tenantId が含まれれば 'master'、
-      //              そうでなく user_offices に行があれば 'member'、なければ null
-      //   member_id: user_offices.member_id (offices.tenant_id でフィルタ)
       const [adminTenantsRes, officeRowRes] = await Promise.all([
         supabase.rpc("auth_user_admin_tenants"),
         supabase
@@ -111,7 +103,6 @@ export function useCurrentUser(tenantId: string): CurrentUser {
 
     load();
 
-    // セッション変化を監視
     const { data: listener } = supabase.auth.onAuthStateChange(() => {
       load();
     });
@@ -125,18 +116,6 @@ export function useCurrentUser(tenantId: string): CurrentUser {
   return state;
 }
 
-// PIN モード用（既存互換）: localStorage に名前と master フラグを保存
-export function savePinModeUser(tenantId: string, name: string, isMaster: boolean) {
-  localStorage.setItem(USER_NAME_KEY(tenantId), name);
-  if (isMaster) localStorage.setItem(IS_MASTER_KEY(tenantId), "true");
-}
-
-export function clearPinModeUser(tenantId: string) {
-  localStorage.removeItem(USER_NAME_KEY(tenantId));
-  localStorage.removeItem(IS_MASTER_KEY(tenantId));
-}
-
-// Auth ログアウト
 export async function signOut() {
   const supabase = getSupabase();
   await supabase.auth.signOut();

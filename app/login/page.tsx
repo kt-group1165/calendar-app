@@ -158,16 +158,6 @@ function LoginInner() {
             <span className="text-gray-300">（招待を再発行してもらう運用）</span>
           </p>
         </div>
-
-        {/* PIN モード（§14 で削除予定の移行期フォールバック） */}
-        <div className="text-center">
-          <button
-            onClick={() => router.push("/")}
-            className="text-xs text-gray-400 hover:text-indigo-500 underline underline-offset-2"
-          >
-            ログインせずに続ける（従来のPIN方式）
-          </button>
-        </div>
       </div>
     </div>
   );

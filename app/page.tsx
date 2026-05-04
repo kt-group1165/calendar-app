@@ -2,11 +2,17 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, ChevronRight, Loader2, LogIn, LogOut, User as UserIcon } from "lucide-react";
+import { CalendarDays, ChevronRight, Loader2, LogOut, User as UserIcon } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { getTenants, type Tenant } from "@/lib/tenants";
 import { getSupabase } from "@/lib/supabase-browser";
 import { signOut } from "@/lib/auth";
+
+// ホーム画面（テナント一覧）。
+// Phase 2-7 以降:
+//   - PIN モードは廃止、未認証ユーザは middleware が /login へ追放するため
+//     ここに到達した時点で必ず authUser がいる。
+//   - tenant 一覧は新 RLS 経由で「自分が見える tenant」のみが返る。
 
 export default function HomePage() {
   const router = useRouter();
@@ -18,18 +24,16 @@ export default function HomePage() {
     (async () => {
       const supabase = getSupabase();
 
-      // 認証状態取得
       const { data: { user } } = await supabase.auth.getUser();
       setAuthUser(user);
+      if (!user) {
+        router.replace("/login?next=/");
+        return;
+      }
 
-      // テナント一覧（新 RLS により、認証済みなら所属テナントのみ、匿名なら
-      // anon read policy 経由の最小限のみ）。
-      // 初期セットアップ画面（旧 /setup）は Phase 2-5b で削除済。最初の
-      // group_admin 投入は SQL（phase2_05_04_seed_admin_user.sql）で行う。
       try {
         const list = await getTenants();
-        const nonDefault = list.filter((t) => t.id !== "default");
-        setTenants(nonDefault);
+        setTenants(list.filter((t) => t.id !== "default"));
       } catch {
         // ignore
       } finally {
@@ -41,16 +45,12 @@ export default function HomePage() {
   async function handleLogout() {
     if (!confirm("ログアウトしますか？")) return;
     await signOut();
-    setAuthUser(null);
-    // テナント一覧を再取得
-    const list = await getTenants();
-    setTenants(list.filter((t) => t.id !== "default"));
+    router.replace("/login");
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-white flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-sm space-y-6">
-        {/* ロゴ */}
         <div className="text-center space-y-2">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-500 rounded-2xl shadow-lg mb-2">
             <CalendarDays size={32} className="text-white" />
@@ -59,42 +59,25 @@ export default function HomePage() {
           <p className="text-sm text-gray-400">チームを選択してください</p>
         </div>
 
-        {/* 認証状態表示 */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3 flex items-center gap-2">
-          {authUser ? (
-            <>
-              <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center shrink-0">
-                <UserIcon size={14} className="text-indigo-500" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs text-gray-400">ログイン中</p>
-                <p className="text-sm font-medium text-gray-800 truncate">{authUser.email}</p>
-              </div>
-              <button
-                onClick={handleLogout}
-                className="p-2 rounded-xl hover:bg-red-50 text-gray-400 hover:text-red-400 shrink-0"
-                title="ログアウト"
-              >
-                <LogOut size={14} />
-              </button>
-            </>
-          ) : (
-            <>
-              <div className="flex-1 text-xs text-gray-400">
-                未ログイン（PINモードで利用中）
-              </div>
-              <button
-                onClick={() => router.push("/login")}
-                className="flex items-center gap-1 px-3 py-1.5 bg-indigo-500 hover:bg-indigo-600 text-white text-xs font-semibold rounded-lg shrink-0"
-              >
-                <LogIn size={12} />
-                ログイン
-              </button>
-            </>
-          )}
-        </div>
+        {authUser && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-3 flex items-center gap-2">
+            <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center shrink-0">
+              <UserIcon size={14} className="text-indigo-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-400">ログイン中</p>
+              <p className="text-sm font-medium text-gray-800 truncate">{authUser.email}</p>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="p-2 rounded-xl hover:bg-red-50 text-gray-400 hover:text-red-400 shrink-0"
+              title="ログアウト"
+            >
+              <LogOut size={14} />
+            </button>
+          </div>
+        )}
 
-        {/* テナント一覧 */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
           {loading ? (
             <div className="flex justify-center py-10">
@@ -102,9 +85,7 @@ export default function HomePage() {
             </div>
           ) : tenants.length === 0 ? (
             <p className="text-sm text-gray-400 text-center py-10">
-              {authUser
-                ? "所属するチームがありません。管理者に招待を依頼してください。"
-                : "チームが登録されていません"}
+              所属するチームがありません。管理者に招待を依頼してください。
             </p>
           ) : (
             <ul className="divide-y divide-gray-50">
