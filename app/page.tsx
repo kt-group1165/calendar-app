@@ -10,7 +10,7 @@ import { signOut } from "@/lib/auth";
 
 // ホーム画面（テナント一覧）。
 // Phase 2-7 以降:
-//   - PIN モードは廃止、未認証ユーザは middleware が /login へ追放するため
+//   - PIN モードは廃止、未認証ユーザは proxy が /login へ追放するため
 //     ここに到達した時点で必ず authUser がいる。
 //   - tenant 一覧は新 RLS 経由で「自分が見える tenant」のみが返る。
 

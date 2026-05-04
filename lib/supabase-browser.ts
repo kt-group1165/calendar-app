@@ -1,7 +1,7 @@
 import { createBrowserClient } from "@supabase/ssr";
 
 // ブラウザ側（Client Component）用の Supabase クライアント。
-// Cookie ベースでセッションを共有するので、middleware.ts / Server Component と一貫した auth 状態になる。
+// Cookie ベースでセッションを共有するので、proxy.ts / Server Component と一貫した auth 状態になる。
 export function createClient() {
   return createBrowserClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

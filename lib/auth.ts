@@ -16,7 +16,7 @@ export type Role = "master" | "member";
 
 export type CurrentUser = {
   name: string | null;       // 表示用（members.name → user_metadata.display_name → email の順）
-  authUser: User | null;     // Supabase Auth セッション。未ログインなら null（middleware が /login へ追放）
+  authUser: User | null;     // Supabase Auth セッション。未ログインなら null（proxy が /login へ追放）
   role: Role | null;         // このテナントでのロール
   memberId: string | null;   // 紐づく members.id
   // この tenant 内での自分の primary office.id。
@@ -48,7 +48,7 @@ export function useCurrentUser(tenantId: string): CurrentUser {
       if (cancelled) return;
 
       if (!user) {
-        // 未ログイン。middleware で /login へ redirect される想定だが、
+        // 未ログイン。proxy で /login へ redirect される想定だが、
         // 念のため state を空で返す（呼出側が読み込み完了として扱う）。
         setState({ name: null, authUser: null, role: null, memberId: null, primaryOfficeId: null, loading: false });
         return;

@@ -136,7 +136,7 @@ export default function TenantCalendarPage() {
   const [unreadCount, setUnreadCount] = useState(0);
 
   // Auth セッションから currentUser / isMaster を derive。
-  // 未ログイン時は middleware で /login へ redirect されているはず。
+  // 未ログイン時は proxy で /login へ redirect されているはず。
   useEffect(() => {
     if (!tenantId || authUser.loading) return;
     if (authUser.authUser) {

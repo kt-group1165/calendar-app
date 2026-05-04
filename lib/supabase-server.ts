@@ -22,7 +22,7 @@ export async function createClient() {
             });
           } catch {
             // Server Component から呼び出された場合は set に失敗することがある。
-            // middleware.ts でのセッション更新が成功していればここは無視してよい。
+            // proxy.ts でのセッション更新が成功していればここは無視してよい。
           }
         },
       },
