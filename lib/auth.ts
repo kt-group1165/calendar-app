@@ -19,6 +19,12 @@ export type CurrentUser = {
   authUser: User | null;     // Supabase Auth セッション。未ログインなら null（middleware が /login へ追放）
   role: Role | null;         // このテナントでのロール
   memberId: string | null;   // 紐づく members.id
+  // この tenant 内での自分の primary office.id。
+  //   - office_admin / member: user_offices.is_primary=true の行（無ければ最初の行）
+  //   - group_admin / company_admin: 通常 null（user_offices に直接行を持たないため）
+  // [tenant]/page.tsx で「URL に ?office= 無し かつ primaryOfficeId あり」のとき
+  // 自動で ?office=<id> へ遷移して自 office に絞った view を出す UX に使う。
+  primaryOfficeId: string | null;
   loading: boolean;
 };
 
@@ -28,6 +34,7 @@ export function useCurrentUser(tenantId: string): CurrentUser {
     authUser: null,
     role: null,
     memberId: null,
+    primaryOfficeId: null,
     loading: true,
   });
 
@@ -43,17 +50,21 @@ export function useCurrentUser(tenantId: string): CurrentUser {
       if (!user) {
         // 未ログイン。middleware で /login へ redirect される想定だが、
         // 念のため state を空で返す（呼出側が読み込み完了として扱う）。
-        setState({ name: null, authUser: null, role: null, memberId: null, loading: false });
+        setState({ name: null, authUser: null, role: null, memberId: null, primaryOfficeId: null, loading: false });
         return;
       }
 
       const [adminTenantsRes, officeRowRes] = await Promise.all([
         supabase.rpc("auth_user_admin_tenants"),
+        // primary office を選ぶ：is_primary=true を優先、無ければ最初の row。
+        // 同じユーザが複数 office に居る場合に「どれを default 表示にするか」の決定。
         supabase
           .from("user_offices")
-          .select("member_id, offices!inner(tenant_id)")
+          .select("office_id, member_id, is_primary, offices!inner(tenant_id)")
           .eq("user_id", user.id)
           .eq("offices.tenant_id", tenantId)
+          .order("is_primary", { ascending: false })
+          .order("created_at", { ascending: true })
           .limit(1)
           .maybeSingle(),
       ]);
@@ -68,7 +79,7 @@ export function useCurrentUser(tenantId: string): CurrentUser {
         typeof r === "string" ? r : r.auth_user_admin_tenants ?? ""
       );
 
-      type OfficeRow = { member_id: string | null };
+      type OfficeRow = { office_id: string; member_id: string | null; is_primary: boolean };
       const officeRow = officeRowRes.data as OfficeRow | null;
 
       const isAdmin = adminTenantIds.includes(tenantId);
@@ -77,6 +88,7 @@ export function useCurrentUser(tenantId: string): CurrentUser {
         ? "master"
         : (hasOfficeAssignment ? "member" : null);
       const memberId = officeRow?.member_id ?? null;
+      const primaryOfficeId = officeRow?.office_id ?? null;
 
       let name: string | null = null;
       if (memberId) {
@@ -97,6 +109,7 @@ export function useCurrentUser(tenantId: string): CurrentUser {
         authUser: user,
         role,
         memberId,
+        primaryOfficeId,
         loading: false,
       });
     }

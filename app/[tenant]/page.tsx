@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
 import {
   format, addMonths, subMonths, addWeeks, subWeeks, addDays, subDays,
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameDay, isSameMonth, isToday,
@@ -59,11 +59,34 @@ function getDateRange(date: Date, mode: ViewMode) {
 export default function TenantCalendarPage() {
   const params = useParams<{ tenant: string }>();
   const tenantId = params.tenant as string;
+  const router = useRouter();
   const searchParams = useSearchParams();
   const currentOfficeId = searchParams.get("office"); // nullなら全事業所表示
 
-  // Auth セッションがある場合はそれを優先（PIN モード互換ロジックは下で維持）
   const authUser = useCurrentUser(tenantId);
+
+  // 自 office 自動絞り込み：office_admin / member（user_offices 行を持つユーザ）が
+  // ?office= 無しで /[tenant] に来たら、自分の primary office を URL に乗せる。
+  // group_admin / company_admin は user_offices 行を持たず primaryOfficeId が
+  // null になるので、この redirect の対象外（tenant-wide view のまま）。
+  // 1 セッション 1 回だけ実行（リダイレクト後ユーザが手動で「全事業所」に戻した
+  // 場合に毎回戻されないように）。
+  const autoOfficeRedirectDoneRef = useRef(false);
+  useEffect(() => {
+    if (autoOfficeRedirectDoneRef.current) return;
+    if (authUser.loading) return;
+    if (!authUser.authUser) return;
+    if (currentOfficeId) {
+      autoOfficeRedirectDoneRef.current = true;
+      return;
+    }
+    if (authUser.primaryOfficeId) {
+      autoOfficeRedirectDoneRef.current = true;
+      const params = new URLSearchParams(Array.from(searchParams.entries()));
+      params.set("office", authUser.primaryOfficeId);
+      router.replace(`/${tenantId}?${params.toString()}`);
+    }
+  }, [authUser.loading, authUser.authUser, authUser.primaryOfficeId, currentOfficeId, router, searchParams, tenantId]);
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>("month");
