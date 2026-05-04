@@ -58,20 +58,22 @@ export async function POST(request: Request) {
   }
   const callerId = userData.user.id;
 
-  // 事前チェック: 呼出ユーザが指定 office を「見える」か。
-  // 失敗 = 招待権限なし or office_id 不正。同じエラーで返してオラクル化を避ける。
-  const { data: visibleRows, error: visibleError } = await supabase.rpc(
-    "auth_visible_office_ids"
+  // 事前チェック: 呼出ユーザが指定 office に対して admin 権限を持つか。
+  //   auth_admin_office_ids() = group_admin / company_admin / office_admin
+  //   が招待発行可能な office 集合（member は含まない）。
+  //   defense in depth: RLS policy も同関数で enforce している。
+  const { data: adminRows, error: adminError } = await supabase.rpc(
+    "auth_admin_office_ids"
   );
-  if (visibleError) {
-    return NextResponse.json({ error: "visibility_check_failed" }, { status: 500 });
+  if (adminError) {
+    return NextResponse.json({ error: "permission_check_failed" }, { status: 500 });
   }
-  type VisibleRow = { auth_visible_office_ids?: string } | string;
-  const visibleIds = ((visibleRows ?? []) as VisibleRow[]).map((r) =>
-    typeof r === "string" ? r : r.auth_visible_office_ids ?? ""
+  type AdminRow = { auth_admin_office_ids?: string } | string;
+  const adminOfficeIds = ((adminRows ?? []) as AdminRow[]).map((r) =>
+    typeof r === "string" ? r : r.auth_admin_office_ids ?? ""
   );
-  if (!visibleIds.includes(office_id)) {
-    return NextResponse.json({ error: "office_not_visible" }, { status: 403 });
+  if (!adminOfficeIds.includes(office_id)) {
+    return NextResponse.json({ error: "office_not_allowed" }, { status: 403 });
   }
 
   // 招待発行

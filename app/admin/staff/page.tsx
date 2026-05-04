@@ -84,31 +84,42 @@ export default function AdminStaffPage() {
 
       // 自分が見える office を取得（offices_visible_read policy が enforce）。
       // tenant 名も join。
-      // offices と tenants を別々に引いてから client side で join。
+      // offices, tenants, admin 可能 office 集合を並列取得し、client-side で join + filter。
       // offices.tenant_id (TEXT) → tenants.id の FK は PostgREST が認識できない
       // ことがあるため（明示 FK が無い）、resource embedding は使わない。
-      const [officesRes, tenantsRes] = await Promise.all([
+      // admin_office_ids は §13-2 に従い「招待発行可能な office」だけに絞るため。
+      const [officesRes, tenantsRes, adminRes] = await Promise.all([
         supabase
           .from("offices")
           .select("id, name, tenant_id")
           .order("tenant_id", { ascending: true })
           .order("sort_order", { ascending: true }),
         supabase.from("tenants").select("id, name"),
+        supabase.rpc("auth_admin_office_ids"),
       ]);
       if (officesRes.error) throw officesRes.error;
       if (tenantsRes.error) throw tenantsRes.error;
+      if (adminRes.error) throw adminRes.error;
 
       type OfficeRow = { id: string; name: string; tenant_id: string };
       type TenantRow = { id: string; name: string };
+      type AdminRow = { auth_admin_office_ids?: string } | string;
       const tenantNameById = new Map(
         ((tenantsRes.data ?? []) as TenantRow[]).map((t) => [t.id, t.name] as const)
       );
-      const officeOpts: OfficeOption[] = ((officesRes.data ?? []) as OfficeRow[]).map((r) => ({
-        id: r.id,
-        name: r.name,
-        tenant_id: r.tenant_id,
-        tenant_name: tenantNameById.get(r.tenant_id) ?? null,
-      }));
+      const adminOfficeIds = new Set(
+        ((adminRes.data ?? []) as AdminRow[]).map((r) =>
+          typeof r === "string" ? r : r.auth_admin_office_ids ?? ""
+        )
+      );
+      const officeOpts: OfficeOption[] = ((officesRes.data ?? []) as OfficeRow[])
+        .filter((r) => adminOfficeIds.has(r.id))
+        .map((r) => ({
+          id: r.id,
+          name: r.name,
+          tenant_id: r.tenant_id,
+          tenant_name: tenantNameById.get(r.tenant_id) ?? null,
+        }));
       setOffices(officeOpts);
 
       // 自分が見える招待一覧（staff_invitations_admin_read policy が enforce）
@@ -361,11 +372,12 @@ function NewInvitationModal({
       if (!res.ok) {
         const messages: Record<string, string> = {
           unauthenticated: "ログインセッションが切れました。再ログインしてください。",
-          office_not_visible: "この事業所への招待権限がありません。",
+          office_not_allowed: "この事業所への招待権限がありません（office_admin 以上が必要）。",
           display_name_invalid: "表示名が不正です（1〜64 文字）。",
           office_id_invalid: "事業所が選択されていません。",
           role_invalid: "ロールが不正です。",
           insert_failed: "招待の発行に失敗しました（権限不足の可能性）。",
+          permission_check_failed: "権限チェックに失敗しました。",
         };
         setErrorMsg(messages[json.error] ?? `エラー: ${json.error ?? res.statusText}`);
         return;
