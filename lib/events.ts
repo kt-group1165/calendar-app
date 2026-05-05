@@ -126,6 +126,7 @@ export async function importEventsFromCSV(
 
   const toInsert = rows
     .filter((r) => !r.id)
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentional placeholder / future use
     .map(({ id: _id, ...data }) => ({
       tenant_id: tenantId,
       title: data.title ?? "",

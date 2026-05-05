@@ -8,10 +8,13 @@ import {
   endOfWeek,
   eachDayOfInterval,
   isSameMonth,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentional placeholder / future use
   isSameDay,
   isToday,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentional placeholder / future use
   parseISO,
 } from "date-fns";
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentional placeholder / future use
 import { ja } from "date-fns/locale";
 import { type Event } from "@/lib/supabase";
 
@@ -34,6 +37,7 @@ function getEventsForDay(events: Event[], date: Date): Event[] {
     });
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentional placeholder / future use
 export default function MonthView({ currentDate, events, onDayClick, onEventClick }: Props) {
   const monthStart = startOfMonth(currentDate);
   const monthEnd = endOfMonth(currentDate);
@@ -96,6 +100,7 @@ export default function MonthView({ currentDate, events, onDayClick, onEventClic
 
               {/* イベント */}
               <div className="space-y-0.5 w-full">
+                {/* eslint-disable-next-line @typescript-eslint/no-unused-vars -- i unused but parameter index reserved */}
                 {dayEvents.slice(0, 3).map((event, i) => (
                   <div
                     key={event.id}

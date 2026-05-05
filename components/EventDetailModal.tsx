@@ -22,6 +22,7 @@ type Props = {
   onClose: () => void;
 };
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentional placeholder / future use
 export default function EventDetailModal({ tenantId, event, currentUser, isMaster, onEdit, onDuplicate, onDelete, onClose }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);

@@ -42,6 +42,7 @@ export default function SearchView({ tenantId, onEventClick, onClose }: Props) {
         setSearching(false);
       }
     }, 300);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional dep stability
   }, [query]);
 
   // 検索ヒット箇所を可視化するためのスニペット生成

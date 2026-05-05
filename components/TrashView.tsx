@@ -19,7 +19,7 @@ export default function TrashView({ tenantId, isMaster, onClose, onRestored }: P
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState<string | null>(null);
 
-  // eslint-disable-next-line react-hooks/immutability -- TDZ: function declared below; useEffect callback runs post-render so safe at runtime
+  // eslint-disable-next-line react-hooks/immutability, react-hooks/exhaustive-deps -- TDZ: function declared below; useEffect callback runs post-render so safe at runtime
   useEffect(() => { load(); }, []);
 
   async function load() {

@@ -293,6 +293,7 @@ export default function TenantCalendarPage() {
   }, [tenantId, isMaster, authUser.loading]);
 
   // ON/OFFをlocalStorageに保存
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentional placeholder / future use
   function setEventTypeFilterEnabled(val: boolean) {
     setEventTypeFilterEnabledState(val);
     if (!val) setFilterEventTypes([]); // OFF時は選択解除

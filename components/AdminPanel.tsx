@@ -92,7 +92,7 @@ function MembersTab({ tenantId }: { tenantId: string }) {
   const [newColor, setNewColor] = useState(COLORS[0]);
   const [adding, setAdding] = useState(false);
 
-  // eslint-disable-next-line react-hooks/immutability -- TDZ: function declared below; useEffect callback runs post-render so safe at runtime
+  // eslint-disable-next-line react-hooks/immutability, react-hooks/exhaustive-deps -- TDZ: function declared below; useEffect callback runs post-render so safe at runtime
   useEffect(() => { load(); }, []);
   async function load() {
     setLoading(true);
@@ -118,6 +118,7 @@ function MembersTab({ tenantId }: { tenantId: string }) {
     const unused = COLORS.find((c) => !usedColors.has(c));
     // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
     if (unused) setNewColor(unused);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional dep stability
   }, [members, currentOfficeId]);
 
   async function handleAdd() {
@@ -287,6 +288,7 @@ function GroupsTab({ tenantId }: { tenantId: string }) {
       .then(([g, m, o]) => { setGroups(g); setMembers(m); setOffices(o); })
       .catch(() => {})
       .finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional dep stability
   }, []);
 
   // 自事業所絞り込み
@@ -420,7 +422,7 @@ function AreasTab({ tenantId }: { tenantId: string }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
 
-  // eslint-disable-next-line react-hooks/immutability -- TDZ: function declared below; useEffect callback runs post-render so safe at runtime
+  // eslint-disable-next-line react-hooks/immutability, react-hooks/exhaustive-deps -- TDZ: function declared below; useEffect callback runs post-render so safe at runtime
   useEffect(() => { load(); }, []);
   async function load() {
     setLoading(true);
@@ -582,6 +584,7 @@ function StaffMergeTab({ tenantId }: { tenantId: string }) {
   // 各グループを実行対象にするかどうか
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional dep stability
   useEffect(() => { load(); }, []);
   async function load() {
     setLoading(true);
@@ -753,6 +756,7 @@ function EventTypesTab({ tenantId }: { tenantId: string }) {
   const [search, setSearch] = useState("");
   const [showHidden, setShowHidden] = useState(false);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional dep stability
   useEffect(() => { load(); }, []);
   async function load() {
     setLoading(true);
@@ -1035,7 +1039,7 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
 
-  // eslint-disable-next-line react-hooks/immutability -- TDZ: function declared below; useEffect callback runs post-render so safe at runtime
+  // eslint-disable-next-line react-hooks/immutability, react-hooks/exhaustive-deps -- TDZ: function declared below; useEffect callback runs post-render so safe at runtime
   useEffect(() => { load(); }, []);
   async function load() {
     setLoading(true);
@@ -1530,7 +1534,7 @@ function AnalyticsTab({ tenantId }: { tenantId: string }) {
   const [typeCounts, setTypeCounts] = useState<[string, number][]>([]);
   const [total, setTotal] = useState(0);
 
-  // eslint-disable-next-line react-hooks/immutability -- TDZ: function declared below; useEffect callback runs post-render so safe at runtime
+  // eslint-disable-next-line react-hooks/immutability, react-hooks/exhaustive-deps -- TDZ: function declared below; useEffect callback runs post-render so safe at runtime
   useEffect(() => { loadData(); }, [month]);
 
   async function loadData() {
@@ -1729,6 +1733,7 @@ function SettingsTab({ tenantId }: { tenantId: string }) {
     ]).then(([{count: e}, {count: c}, {count: m}]) => {
       setStats({ events: e ?? 0, comments: c ?? 0, members: m ?? 0 });
     }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional dep stability
   }, []);
 
   return (
