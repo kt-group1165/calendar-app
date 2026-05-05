@@ -34,6 +34,7 @@ export default function EventDetailModal({ tenantId, event, currentUser, isMaste
   const [eventAreas, setEventAreas] = useState<EventArea[]>([]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/immutability -- TDZ: function declared below; useEffect callback runs post-render so safe at runtime
     loadComments();
     getOrderEmailSettings(tenantId).then((s) => {
       if (s.enabled) setOrderEmailSettings(s);

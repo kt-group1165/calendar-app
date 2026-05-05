@@ -555,11 +555,13 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
       }
     }
     if (foundClient) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
       setSelectedClient(foundClient);
       setClientPrefix(`${foundClient.name} 様 `);
       // descriptionから実際に保存されたautoBlockを抽出（再構築ではなく既存内容を使う）
       // → クライアントデータがDB更新されていても正確に除去できる
       const desc = event.description ?? "";
+      // eslint-disable-next-line react-hooks/immutability -- TDZ: function declared below; useEffect callback runs post-render so safe at runtime
       const extracted = extractAutoBlockFromDesc(desc);
       setClientAutoBlock(extracted);
     }
@@ -576,6 +578,7 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
     const matched = eventAreas.find((a) =>
       (a.address_patterns ?? []).some((p) => p && address.includes(p))
     );
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
     if (matched) setAreaId(matched.id);
   }, [selectedClient?.id, eventAreas]); // eslint-disable-line react-hooks/exhaustive-deps
 

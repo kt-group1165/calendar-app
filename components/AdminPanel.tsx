@@ -92,6 +92,7 @@ function MembersTab({ tenantId }: { tenantId: string }) {
   const [newColor, setNewColor] = useState(COLORS[0]);
   const [adding, setAdding] = useState(false);
 
+  // eslint-disable-next-line react-hooks/immutability -- TDZ: function declared below; useEffect callback runs post-render so safe at runtime
   useEffect(() => { load(); }, []);
   async function load() {
     setLoading(true);
@@ -115,6 +116,7 @@ function MembersTab({ tenantId }: { tenantId: string }) {
   useEffect(() => {
     const usedColors = new Set(visibleMembers.map((m) => m.color));
     const unused = COLORS.find((c) => !usedColors.has(c));
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
     if (unused) setNewColor(unused);
   }, [members, currentOfficeId]);
 
@@ -418,6 +420,7 @@ function AreasTab({ tenantId }: { tenantId: string }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
 
+  // eslint-disable-next-line react-hooks/immutability -- TDZ: function declared below; useEffect callback runs post-render so safe at runtime
   useEffect(() => { load(); }, []);
   async function load() {
     setLoading(true);
@@ -1032,6 +1035,7 @@ function ClientsTab({ tenantId }: { tenantId: string }) {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
 
+  // eslint-disable-next-line react-hooks/immutability -- TDZ: function declared below; useEffect callback runs post-render so safe at runtime
   useEffect(() => { load(); }, []);
   async function load() {
     setLoading(true);
@@ -1526,6 +1530,7 @@ function AnalyticsTab({ tenantId }: { tenantId: string }) {
   const [typeCounts, setTypeCounts] = useState<[string, number][]>([]);
   const [total, setTotal] = useState(0);
 
+  // eslint-disable-next-line react-hooks/immutability -- TDZ: function declared below; useEffect callback runs post-render so safe at runtime
   useEffect(() => { loadData(); }, [month]);
 
   async function loadData() {

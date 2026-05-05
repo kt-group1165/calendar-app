@@ -19,6 +19,7 @@ export default function TrashView({ tenantId, isMaster, onClose, onRestored }: P
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState<string | null>(null);
 
+  // eslint-disable-next-line react-hooks/immutability -- TDZ: function declared below; useEffect callback runs post-render so safe at runtime
   useEffect(() => { load(); }, []);
 
   async function load() {
@@ -55,6 +56,10 @@ export default function TrashView({ tenantId, isMaster, onClose, onRestored }: P
 
   function daysLeft(deletedAt: string): number {
     const expiry = new Date(new Date(deletedAt).getTime() + 10 * 24 * 60 * 60 * 1000);
+    // 表示用の残日数 (近似値で十分)。React Compiler の purity rule は Date.now を
+    // 警告するが、この計算は render-pure である必要は無い (再 render 都度ズレる
+    // のは許容)。
+    // eslint-disable-next-line react-hooks/purity -- transient countdown display
     return Math.max(0, Math.ceil((expiry.getTime() - Date.now()) / (24 * 60 * 60 * 1000)));
   }
 

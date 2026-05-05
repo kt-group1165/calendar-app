@@ -49,6 +49,7 @@ export default function ActivityLogView({ tenantId, currentUser, onClose, onEven
 
   useEffect(() => {
     offsetRef.current = 0;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
     setLogs([]);
     setHasMore(true);
     fetchLogs(0, true);

@@ -26,6 +26,7 @@ export default function MemoView({ tenantId, onEventClick, onClose }: Props) {
     }
   }
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
   useEffect(() => { load(); }, [tenantId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (

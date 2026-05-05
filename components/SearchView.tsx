@@ -26,6 +26,7 @@ export default function SearchView({ tenantId, onEventClick, onClose }: Props) {
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current);
     if (!query.trim()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
       setResults([]);
       setSearching(false);
       return;

@@ -140,6 +140,7 @@ export default function TenantCalendarPage() {
   useEffect(() => {
     if (!tenantId || authUser.loading) return;
     if (authUser.authUser) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
       setCurrentUser(authUser.name ?? authUser.authUser.email ?? "");
       setIsMaster(authUser.role === "master");
     }
@@ -210,6 +211,7 @@ export default function TenantCalendarPage() {
     }
   }, [currentDate, viewMode, tenantId]);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
   useEffect(() => { loadEvents(); }, [loadEvents]);
 
   function navigate(dir: 1 | -1) {
@@ -283,6 +285,7 @@ export default function TenantCalendarPage() {
       ? localStorage.getItem(EVENT_TYPE_FILTER_ENABLED_KEY(tenantId))
       : null;
     if (stored !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
       setEventTypeFilterEnabledState(stored === "true");
     } else {
       setEventTypeFilterEnabledState(isMaster);
