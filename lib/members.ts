@@ -14,29 +14,48 @@ export async function updateMemberOffice(id: string, officeId: string | null): P
   if (error) throw error;
 }
 
-export async function getMembers(tenantId: string): Promise<Member[]> {
-  const { data, error } = await supabase
+// officeId 指定時は更に office_id でも絞り込む (Phase 3c additive)
+export async function getMembers(tenantId: string, officeId?: string): Promise<Member[]> {
+  let q = supabase
     .from("members")
     .select("*")
-    .eq("tenant_id", tenantId)
+    .eq("tenant_id", tenantId);
+  if (officeId) q = q.eq("office_id", officeId);
+  const { data, error } = await q
     .order("sort_order", { nullsFirst: false })
     .order("name");
   if (error) throw error;
   return data ?? [];
 }
 
-export async function addMember(name: string, color: string = "#6366f1", tenantId: string): Promise<Member> {
-  const { data: existing } = await supabase
+// officeId 指定時は INSERT 時の office_id にも反映 (Phase 3c additive)
+export async function addMember(
+  name: string,
+  color: string = "#6366f1",
+  tenantId: string,
+  officeId?: string,
+): Promise<Member> {
+  let existingQuery = supabase
     .from("members")
     .select("sort_order")
-    .eq("tenant_id", tenantId)
+    .eq("tenant_id", tenantId);
+  if (officeId) existingQuery = existingQuery.eq("office_id", officeId);
+  const { data: existing } = await existingQuery
     .order("sort_order", { ascending: false })
     .limit(1);
   const maxOrder = existing?.[0]?.sort_order ?? 0;
 
+  const insertPayload: { name: string; color: string; sort_order: number; tenant_id: string; office_id?: string } = {
+    name,
+    color,
+    sort_order: maxOrder + 1,
+    tenant_id: tenantId,
+  };
+  if (officeId) insertPayload.office_id = officeId;
+
   const { data, error } = await supabase
     .from("members")
-    .insert({ name, color, sort_order: maxOrder + 1, tenant_id: tenantId })
+    .insert(insertPayload)
     .select()
     .single();
   if (error) throw error;
