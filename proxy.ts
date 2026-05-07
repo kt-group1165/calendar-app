@@ -42,7 +42,26 @@ function isAdminRoute(pathname: string): boolean {
   return false;
 }
 
+// Phase A2 (2026-05-07) — care-chiba tenant を kt-group に統合済み。
+//   旧 URL `/care-chiba/...` をブックマークしているユーザ向けに `/kt-group`
+//   へ rewrite。?office= は付けない（[tenant]/page.tsx 側の primaryOfficeId
+//   auto-redirect が走るため）。
+const LEGACY_TENANT_REDIRECTS: Record<string, string> = {
+  "care-chiba": "kt-group",
+};
+
 export async function proxy(request: NextRequest) {
+  // 旧 tenant 互換 redirect: `/care-chiba` または `/care-chiba/foo` を `/kt-group...`
+  // に振替。query string も維持。
+  const pathname = request.nextUrl.pathname;
+  for (const [oldId, newId] of Object.entries(LEGACY_TENANT_REDIRECTS)) {
+    if (pathname === `/${oldId}` || pathname.startsWith(`/${oldId}/`)) {
+      const target = request.nextUrl.clone();
+      target.pathname = pathname.replace(`/${oldId}`, `/${newId}`);
+      return NextResponse.redirect(target);
+    }
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -67,7 +86,6 @@ export async function proxy(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
 
   // 認証必須ルートで未ログインなら /login へ
-  const pathname = request.nextUrl.pathname;
   if (!user && !isPublicPath(pathname)) {
     // Soft-launch: tenant routes (/[tenant]/**) は一時的に公開。
     // admin 系 (/admin/**, /api/admin/**, /api/backup) は引き続き保護。
