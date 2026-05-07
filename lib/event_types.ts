@@ -9,15 +9,21 @@ export type EventType = {
   created_at: string;
 };
 
+// officeId 指定時は更に絞り込む。office_id IS NULL の tenant 共通 type と
+// 当該 office 専用 type の両方を返すため、`office_id.is.null,office_id.eq.<id>`
+// の or 条件を使う (Phase 3c additive)
 export async function getEventTypes(
   tenantId: string,
-  opts?: { includeHidden?: boolean },
+  opts?: { includeHidden?: boolean; officeId?: string },
 ): Promise<EventType[]> {
   let q = supabase
     .from("event_types")
     .select("*")
-    .eq("tenant_id", tenantId)
-    .order("sort_order");
+    .eq("tenant_id", tenantId);
+  if (opts?.officeId) {
+    q = q.or(`office_id.is.null,office_id.eq.${opts.officeId}`);
+  }
+  q = q.order("sort_order");
   if (!opts?.includeHidden) {
     q = q.eq("hidden", false);
   }
@@ -64,18 +70,22 @@ export async function deleteEventType(id: string): Promise<void> {
 //   全予定の event_type 配列から mergeNames の名前を targetName に置換
 //   重複した targetName は1つにまとめる
 //   mergeNames の種別マスタを削除
+// officeId 指定時は events 側の絞り込みにも適用 (Phase 3c additive)
 export async function mergeEventTypes(
   tenantId: string,
   targetName: string,
   mergeIds: string[],
   mergeNames: string[],
+  officeId?: string,
 ): Promise<{ updatedEvents: number; deletedTypes: number }> {
   // 該当する予定を全件取得（event_type配列に対象名のいずれかを含むもの）
-  const { data: events, error: evErr } = await supabase
+  let evQ = supabase
     .from("events")
     .select("id, event_type")
     .eq("tenant_id", tenantId)
     .overlaps("event_type", mergeNames);
+  if (officeId) evQ = evQ.eq("office_id", officeId);
+  const { data: events, error: evErr } = await evQ;
   if (evErr) throw evErr;
 
   let updatedEvents = 0;

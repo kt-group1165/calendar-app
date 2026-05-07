@@ -10,12 +10,16 @@ export type EventArea = {
   created_at: string;
 };
 
-export async function getEventAreas(tenantId: string): Promise<EventArea[]> {
-  const { data, error } = await supabase
+// officeId 指定時は office_id IS NULL (tenant 共通) と当該 office の両方を返す (Phase 3c additive)
+export async function getEventAreas(tenantId: string, officeId?: string): Promise<EventArea[]> {
+  let q = supabase
     .from("event_areas")
     .select("*")
-    .eq("tenant_id", tenantId)
-    .order("sort_order", { ascending: true });
+    .eq("tenant_id", tenantId);
+  if (officeId) {
+    q = q.or(`office_id.is.null,office_id.eq.${officeId}`);
+  }
+  const { data, error } = await q.order("sort_order", { ascending: true });
   if (error) throw error;
   return data ?? [];
 }
