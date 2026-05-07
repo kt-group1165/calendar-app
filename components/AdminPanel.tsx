@@ -1725,8 +1725,10 @@ function SettingsTab({ tenantId }: { tenantId: string }) {
   }
 
   useEffect(() => {
+    // events は tenant_id 列を Phase 5b で DROP 済。RLS (scope_office_ids) で
+    // 自動的に visible 範囲に絞られるので filter 不要。
     Promise.all([
-      supabase.from("events").select("*", { count: "exact", head: true }).eq("tenant_id", tenantId).is("deleted_at", null),
+      supabase.from("events").select("*", { count: "exact", head: true }).is("deleted_at", null),
       supabase.from("comments").select("*", { count: "exact", head: true }),
       supabase.from("members").select("*", { count: "exact", head: true }).eq("tenant_id", tenantId),
     ]).then(([{count: e}, {count: c}, {count: m}]) => {
