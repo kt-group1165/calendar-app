@@ -33,6 +33,7 @@ export type Client = {
 //   - is_provisional=true で印を付け、後で本登録時に外す
 //   - user_number は NOT NULL 制約があるため、テナント内の最大値+1 を採番（@kt/shared 共通 util）
 //   - unique 制約衝突時は自動で +1 してリトライ（並行挿入対策）
+// officeId 指定時は clients.office_id にも反映 (Phase 3c additive)
 export async function createProvisionalClient(
   tenantId: string,
   name: string,
@@ -40,6 +41,7 @@ export async function createProvisionalClient(
   phone?: string | null,
   careOfficeId?: string | null,
   careOfficeName?: string | null,
+  officeId?: string,
 ): Promise<Client> {
   let candidate = (await getMaxUserNumber(supabase, tenantId)) + 1;
   const MAX_RETRY = 10;
@@ -55,6 +57,7 @@ export async function createProvisionalClient(
       care_manager_org: careOfficeName || null,
       is_provisional: true,
     };
+    if (officeId) payload.office_id = officeId;
     const { data, error } = await supabase
       .from("clients")
       .insert(payload)
@@ -148,16 +151,21 @@ async function fetchTenantMemos(tenantId: string): Promise<Map<string, string>> 
 // 利用者取得（全件・ページング）
 // 削除済み（deleted_at IS NOT NULL）は除外
 // memo は廃止予定の clients.memo カラムではなく client_memos テーブルから取得
-export async function getClients(tenantId: string): Promise<Client[]> {
+// officeId 指定時は clients.office_id で絞り込む。client_office_assignments
+// による多対多紐付けはここでは見ない (kaigo-app 専用フローなので)。
+// (Phase 3c additive)
+export async function getClients(tenantId: string, officeId?: string): Promise<Client[]> {
   const PAGE = 1000;
   const all: Client[] = [];
   let from = 0;
   while (true) {
-    const { data, error } = await supabase
+    let q = supabase
       .from("clients")
       .select("*")
       .eq("tenant_id", tenantId)
-      .is("deleted_at", null)
+      .is("deleted_at", null);
+    if (officeId) q = q.eq("office_id", officeId);
+    const { data, error } = await q
       .order("furigana", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw error;
