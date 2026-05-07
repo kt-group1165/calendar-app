@@ -11,6 +11,12 @@ import { NextResponse, type NextRequest } from "next/server";
 //
 //   毎リクエストで getUser() を呼ぶことでセッション Cookie が自動延長される
 //   副作用も維持。
+//
+// Soft-launch (ソフトローンチ) 用フラグ:
+//   SOFT_LAUNCH_PUBLIC_TENANTS = true の間は /[tenant]/** をログインなしでアクセス
+//   できるようにする。admin / api/admin / api/backup は引き続き保護。
+//   実運用に切替えるときは false に戻すだけで完全な auth gate に復帰。
+const SOFT_LAUNCH_PUBLIC_TENANTS = true;
 
 const PUBLIC_PATHS = new Set<string>(["/", "/login"]);
 const PUBLIC_PREFIXES = [
@@ -19,10 +25,19 @@ const PUBLIC_PREFIXES = [
   "/auth/",          // /auth/callback（magic link 等）
 ];
 
+const ADMIN_PREFIXES = ["/admin", "/api/admin", "/api/backup"];
+
 function isPublicPath(pathname: string): boolean {
   if (PUBLIC_PATHS.has(pathname)) return true;
   for (const prefix of PUBLIC_PREFIXES) {
     if (pathname.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
+function isAdminRoute(pathname: string): boolean {
+  for (const p of ADMIN_PREFIXES) {
+    if (pathname === p || pathname.startsWith(p + "/")) return true;
   }
   return false;
 }
@@ -54,6 +69,11 @@ export async function proxy(request: NextRequest) {
   // 認証必須ルートで未ログインなら /login へ
   const pathname = request.nextUrl.pathname;
   if (!user && !isPublicPath(pathname)) {
+    // Soft-launch: tenant routes (/[tenant]/**) は一時的に公開。
+    // admin 系 (/admin/**, /api/admin/**, /api/backup) は引き続き保護。
+    if (SOFT_LAUNCH_PUBLIC_TENANTS && !isAdminRoute(pathname)) {
+      return response;
+    }
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", pathname + request.nextUrl.search);
     return NextResponse.redirect(loginUrl);
