@@ -13,6 +13,7 @@ import OrderEmailModal from "@/components/OrderEmailModal";
 
 type Props = {
   tenantId: string;
+  officeId?: string; // Phase 3c: 詳細表示時のエリア候補絞込
   event: Event;
   currentUser: string;
   isMaster?: boolean;
@@ -23,7 +24,7 @@ type Props = {
 };
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentional placeholder / future use
-export default function EventDetailModal({ tenantId, event, currentUser, isMaster, onEdit, onDuplicate, onDelete, onClose }: Props) {
+export default function EventDetailModal({ tenantId, officeId, event, currentUser, isMaster, onEdit, onDuplicate, onDelete, onClose }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -40,8 +41,8 @@ export default function EventDetailModal({ tenantId, event, currentUser, isMaste
     getOrderEmailSettings(tenantId).then((s) => {
       if (s.enabled) setOrderEmailSettings(s);
     }).catch(() => {});
-    getEventAreas(tenantId).then(setEventAreas).catch(() => {});
-  }, [event.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    getEventAreas(tenantId, officeId).then(setEventAreas).catch(() => {});
+  }, [event.id, officeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const areaName = event.area_id
     ? eventAreas.find((a) => a.id === event.area_id)?.name ?? null

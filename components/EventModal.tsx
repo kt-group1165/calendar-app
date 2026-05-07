@@ -234,11 +234,12 @@ function ProvisionalRegisterModal({ defaultName, tenantId, onCancel, onRegister 
 }
 
 // ── 利用者選択コンポーネント（DB選択 + 新規仮登録 + 直接入力）──────────
-function ClientSelector({ clients, selected, manualName, tenantId, onSelect, onManualName, onClientCreated }: {
+function ClientSelector({ clients, selected, manualName, tenantId, officeId, onSelect, onManualName, onClientCreated }: {
   clients: Client[];
   selected: Client | null;
   manualName: string;
   tenantId: string;
+  officeId?: string | null; // Phase 3c: 仮登録時の office_id 自動設定用
   onSelect: (c: Client | null) => void;
   onManualName: (name: string) => void;
   onClientCreated: (c: Client) => void;
@@ -277,7 +278,10 @@ function ClientSelector({ clients, selected, manualName, tenantId, onSelect, onM
 
   async function handleProvisionalRegister(name: string, address: string, phone: string, careOfficeId: string | null, careOfficeName: string | null) {
     try {
-      const created = await createProvisionalClient(tenantId, name, address || null, phone || null, careOfficeId, careOfficeName);
+      const created = await createProvisionalClient(
+        tenantId, name, address || null, phone || null, careOfficeId, careOfficeName,
+        officeId ?? undefined,
+      );
       onClientCreated(created);
       onSelect(created);
       setProvisionalOpen(false);
@@ -473,13 +477,16 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    getMembers(tenantId).then(setMembers).catch(() => {});
-    getEventTypes(tenantId).then(setEventTypes).catch(() => {});
-    getEventAreas(tenantId).then(setEventAreas).catch(() => {});
-    getClients(tenantId).then(setClients).catch(() => {});
+    // Phase 3c: officeId 指定時はそれぞれ office で絞り込み
+    // (clients は client_office_assignments を別途参照するためフィルタしない)
+    const office = officeId ?? undefined;
+    getMembers(tenantId, office).then(setMembers).catch(() => {});
+    getEventTypes(tenantId, { officeId: office }).then(setEventTypes).catch(() => {});
+    getEventAreas(tenantId, office).then(setEventAreas).catch(() => {});
+    getClients(tenantId).then(setClients).catch(() => {}); // assignments 経由で別途 filter
     getClientOfficeAssignments(tenantId).then(setClientAssignments).catch(() => {});
     getVisitTypeRequired(tenantId).then(setVisitTypeRequired).catch(() => {});
-  }, [tenantId]);
+  }, [tenantId, officeId]);
 
   // メモ欄プリセット（新規作成時のみ、description が空のときだけ挿入）
   useEffect(() => {
@@ -814,6 +821,7 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
             selected={selectedClient}
             manualName={manualClientName}
             tenantId={tenantId}
+            officeId={officeId}
             onSelect={handleSelectClient}
             onManualName={handleManualClientName}
             onClientCreated={(c) => setClients((prev) => [...prev, c])}

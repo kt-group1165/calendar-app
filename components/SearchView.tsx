@@ -8,11 +8,12 @@ import { type Event } from "@/lib/supabase";
 
 type Props = {
   tenantId: string;
+  officeId?: string; // Phase 3c: office 絞込時はその office の予定のみ
   onEventClick: (event: Event) => void;
   onClose: () => void;
 };
 
-export default function SearchView({ tenantId, onEventClick, onClose }: Props) {
+export default function SearchView({ tenantId, officeId, onEventClick, onClose }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Event[]>([]);
   const [searching, setSearching] = useState(false);
@@ -34,7 +35,7 @@ export default function SearchView({ tenantId, onEventClick, onClose }: Props) {
     setSearching(true);
     timerRef.current = setTimeout(async () => {
       try {
-        const data = await searchEvents(query.trim(), tenantId);
+        const data = await searchEvents(query.trim(), tenantId, officeId);
         setResults(data);
       } catch {
         setResults([]);
@@ -43,7 +44,7 @@ export default function SearchView({ tenantId, onEventClick, onClose }: Props) {
       }
     }, 300);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional dep stability
-  }, [query]);
+  }, [query, officeId]);
 
   // 検索ヒット箇所を可視化するためのスニペット生成
   // タイトル以外で一致したフィールドを優先表示

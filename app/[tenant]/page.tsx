@@ -833,6 +833,7 @@ export default function TenantCalendarPage() {
       {showDetailModal && selectedEvent && (
         <EventDetailModal
           tenantId={tenantId}
+          officeId={currentOfficeId ?? undefined}
           event={selectedEvent}
           currentUser={currentUser}
           isMaster={isMaster}
@@ -855,6 +856,7 @@ export default function TenantCalendarPage() {
       {showSearch && (
         <SearchView
           tenantId={tenantId}
+          officeId={currentOfficeId ?? undefined}
           onEventClick={(event) => {
             setShowSearch(false);
             setSelectedEvent(event);
@@ -867,6 +869,7 @@ export default function TenantCalendarPage() {
       {showTrash && (
         <TrashView
           tenantId={tenantId}
+          officeId={currentOfficeId ?? undefined}
           isMaster={isMaster}
           onClose={() => setShowTrash(false)}
           onRestored={loadEvents}
@@ -897,6 +900,7 @@ export default function TenantCalendarPage() {
       {showMemo && (
         <MemoView
           tenantId={tenantId}
+          officeId={currentOfficeId ?? undefined}
           onEventClick={(memo) => {
             setShowMemo(false);
             setEditingEvent(memo);

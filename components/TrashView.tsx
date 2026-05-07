@@ -9,12 +9,13 @@ import { getDeletedEvents, restoreEvent, permanentDeleteEvent } from "@/lib/even
 
 type Props = {
   tenantId: string;
+  officeId?: string; // Phase 3c: office 絞込時はその office の削除済のみ
   isMaster: boolean;
   onClose: () => void;
   onRestored: () => void;
 };
 
-export default function TrashView({ tenantId, isMaster, onClose, onRestored }: Props) {
+export default function TrashView({ tenantId, officeId, isMaster, onClose, onRestored }: Props) {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState<string | null>(null);
@@ -25,7 +26,7 @@ export default function TrashView({ tenantId, isMaster, onClose, onRestored }: P
   async function load() {
     setLoading(true);
     try {
-      const data = await getDeletedEvents(tenantId);
+      const data = await getDeletedEvents(tenantId, officeId);
       setEvents(data);
     } finally {
       setLoading(false);
