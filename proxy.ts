@@ -46,8 +46,14 @@ function isAdminRoute(pathname: string): boolean {
 //   旧 URL `/care-chiba/...` をブックマークしているユーザ向けに `/kt-group`
 //   へ rewrite。?office= は付けない（[tenant]/page.tsx 側の primaryOfficeId
 //   auto-redirect が走るため）。
+// Phase 8 (2026-05-08) — office-centric 統合に伴い、4 office-tenants を kt-group に
+// 統合済。旧 URL は kt-group へ redirect (?office= 自動選択は primaryOfficeId に委譲)。
 const LEGACY_TENANT_REDIRECTS: Record<string, string> = {
   "care-chiba": "kt-group",
+  "hana-mutsumi": "kt-group",
+  "hana-hanamigawa": "kt-group",
+  "mutsumi-takashina": "kt-group",
+  "links": "kt-group",
 };
 
 export async function proxy(request: NextRequest) {
