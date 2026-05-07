@@ -33,6 +33,7 @@ type InviteMeta = {
   office_name: string | null;
   tenant_name: string | null;
   expires_at: string;
+  login_id: string | null;  // null の場合は invitee が consume 時に決める (旧挙動)
 };
 
 export default function InvitePage() {
@@ -45,12 +46,15 @@ export default function InvitePage() {
   const [loadingMeta, setLoadingMeta] = useState(true);
 
   const [initialPassword, setInitialPassword] = useState("");
-  const [loginId, setLoginId] = useState("");
+  const [loginIdInput, setLoginIdInput] = useState("");  // invitation の login_id が無い場合の fallback 入力
   const [newPassword, setNewPassword] = useState("");
   const [showInit, setShowInit] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // invitation 側で確定済の login_id があればそちらを優先、無ければ invitee 入力。
+  const effectiveLoginId = meta?.login_id ?? loginIdInput;
 
   useEffect(() => {
     if (!token) return;
@@ -66,7 +70,7 @@ export default function InvitePage() {
       .finally(() => setLoadingMeta(false));
   }, [token]);
 
-  const loginIdOk = isValidLoginId(loginId);
+  const loginIdOk = isValidLoginId(effectiveLoginId);
   const newPwOk = newPassword.length >= 8;
   const formOk = initialPassword.length > 0 && loginIdOk && newPwOk;
 
@@ -80,7 +84,7 @@ export default function InvitePage() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           initial_password: initialPassword,
-          login_id: loginId,
+          login_id: effectiveLoginId,
           new_password: newPassword,
         }),
       });
@@ -105,7 +109,7 @@ export default function InvitePage() {
       });
       if (signInError) {
         // アカウントは作成済だがセッション作成失敗。/login へ誘導。
-        router.replace(`/login?login_id=${encodeURIComponent(loginId)}&hint=invite_done`);
+        router.replace(`/login?login_id=${encodeURIComponent(effectiveLoginId)}&hint=invite_done`);
         return;
       }
       router.replace("/");
@@ -166,26 +170,42 @@ export default function InvitePage() {
             autoComplete="one-time-code"
           />
 
-          <div>
-            <label className="text-xs font-semibold text-gray-500 mb-1 block">
-              ログイン ID（自分で決める）
-            </label>
-            <input
-              type="text"
-              value={loginId}
-              onChange={(e) => setLoginId(e.target.value.toLowerCase())}
-              placeholder="例: hanako.s"
-              autoComplete="username"
-              className={`w-full text-sm border-2 rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-400 ${
-                loginId.length > 0 && !loginIdOk ? "border-red-200 bg-red-50/30" : "border-gray-200"
-              }`}
-            />
-            <p className="text-[10px] text-gray-400 mt-1">
-              英小文字で始める · 英小・数字・ピリオド・ハイフン · 4〜24 文字
-              <br />
-              ※ 次回以降このログイン ID とパスワードでログインします
-            </p>
-          </div>
+          {meta.login_id ? (
+            // admin が招待発行時に login_id を確定済 → readonly 表示
+            <div>
+              <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                ログイン ID（管理者が指定）
+              </label>
+              <div className="w-full text-sm border-2 border-gray-100 bg-gray-50 rounded-xl px-3 py-2 font-mono text-gray-700 select-all">
+                {meta.login_id}
+              </div>
+              <p className="text-[10px] text-gray-400 mt-1">
+                ※ 次回以降このログイン ID と、下で設定するパスワードでログインします
+              </p>
+            </div>
+          ) : (
+            // 旧挙動: invitation 側に login_id が無い場合は invitee が決める
+            <div>
+              <label className="text-xs font-semibold text-gray-500 mb-1 block">
+                ログイン ID（自分で決める）
+              </label>
+              <input
+                type="text"
+                value={loginIdInput}
+                onChange={(e) => setLoginIdInput(e.target.value.toLowerCase())}
+                placeholder="例: hanako.s"
+                autoComplete="username"
+                className={`w-full text-sm border-2 rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-400 ${
+                  loginIdInput.length > 0 && !loginIdOk ? "border-red-200 bg-red-50/30" : "border-gray-200"
+                }`}
+              />
+              <p className="text-[10px] text-gray-400 mt-1">
+                英小文字で始める · 英小・数字・ピリオド・ハイフン · 4〜24 文字
+                <br />
+                ※ 次回以降このログイン ID とパスワードでログインします
+              </p>
+            </div>
+          )}
 
           <PasswordField
             label="新しいパスワード（8 文字以上）"

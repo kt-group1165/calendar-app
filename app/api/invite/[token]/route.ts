@@ -48,7 +48,7 @@ export async function GET(_request: Request, context: RouteContext) {
 
   const { data: inv } = await admin
     .from("staff_invitations")
-    .select("display_name, office_id, role, expires_at, consumed_at")
+    .select("display_name, office_id, role, expires_at, consumed_at, login_id")
     .eq("token", token)
     .maybeSingle();
 
@@ -80,6 +80,9 @@ export async function GET(_request: Request, context: RouteContext) {
     office_name: officeRow?.name ?? null,
     tenant_name: tenantName,
     expires_at: inv.expires_at,
+    // 招待発行時に admin が login_id を確定済の場合は invitee に readonly 表示。
+    // null の場合は従来挙動 (invitee が consume 時に決める)。
+    login_id: (inv as { login_id?: string | null }).login_id ?? null,
   });
 }
 
@@ -96,7 +99,7 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const { initial_password, login_id, new_password } = (body ?? {}) as {
+  const { initial_password, login_id: bodyLoginId, new_password } = (body ?? {}) as {
     initial_password?: unknown;
     login_id?: unknown;
     new_password?: unknown;
@@ -105,9 +108,8 @@ export async function POST(request: Request, context: RouteContext) {
   if (typeof initial_password !== "string" || initial_password.length === 0) {
     return NextResponse.json({ error: "initial_password_required" }, { status: 400 });
   }
-  if (typeof login_id !== "string" || !isValidLoginId(login_id)) {
-    return NextResponse.json({ error: "login_id_invalid" }, { status: 400 });
-  }
+  // login_id は invitation 側に確定済の場合はそちらを優先 (下で判定)。
+  // body の login_id は invitation 側が NULL の場合の fallback。
   if (typeof new_password !== "string" || new_password.length < 8 || new_password.length > 128) {
     return NextResponse.json({ error: "new_password_invalid" }, { status: 400 });
   }
@@ -117,13 +119,19 @@ export async function POST(request: Request, context: RouteContext) {
   // 1) invitation 取得 + 妥当性検証 ----------------------------------
   const { data: rawInv } = await admin
     .from("staff_invitations")
-    .select("token, display_name, office_id, role, member_id, initial_password_hash, expires_at, consumed_at")
+    .select("token, display_name, office_id, role, member_id, login_id, initial_password_hash, expires_at, consumed_at")
     .eq("token", token)
     .maybeSingle();
 
-  const inv = rawInv as InvitationRow | null;
+  const inv = rawInv as (InvitationRow & { login_id?: string | null }) | null;
   if (!inv || inv.consumed_at !== null || new Date(inv.expires_at) <= new Date()) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+
+  // 1b) 確定 login_id 決定: invitation 側が優先、無ければ body の login_id を使う
+  const login_id = inv.login_id ?? (typeof bodyLoginId === "string" ? bodyLoginId : "");
+  if (!isValidLoginId(login_id)) {
+    return NextResponse.json({ error: "login_id_invalid" }, { status: 400 });
   }
 
   // 2) initial_password 検証 ----------------------------------------

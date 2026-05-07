@@ -38,6 +38,7 @@ type InvitationListItem = {
   created_at: string;
   expires_at: string;
   consumed_at: string | null;
+  consumed_user_id: string | null;
 };
 
 type OfficeOption = {
@@ -62,6 +63,8 @@ export default function AdminStaffPage() {
     invite_url: string;
     initial_password: string;
     display_name: string;
+    login_id: string | null;
+    login_id_was_renamed: boolean;
     expires_at: string | null;
   } | null>(null);
 
@@ -125,7 +128,7 @@ export default function AdminStaffPage() {
       // 自分が見える招待一覧（staff_invitations_admin_read policy が enforce）
       const { data: invRows, error: invError } = await supabase
         .from("staff_invitations")
-        .select("token, display_name, office_id, role, created_at, expires_at, consumed_at")
+        .select("token, display_name, office_id, role, created_at, expires_at, consumed_at, consumed_user_id")
         .order("created_at", { ascending: false });
       if (invError) throw invError;
 
@@ -138,6 +141,7 @@ export default function AdminStaffPage() {
         created_at: string;
         expires_at: string;
         consumed_at: string | null;
+        consumed_user_id: string | null;
       };
       setInvitations(
         ((invRows ?? []) as InvRow[]).map((r) => ({
@@ -149,6 +153,7 @@ export default function AdminStaffPage() {
           created_at: r.created_at,
           expires_at: r.expires_at,
           consumed_at: r.consumed_at,
+          consumed_user_id: r.consumed_user_id,
         }))
       );
     } catch (e) {
@@ -164,18 +169,64 @@ export default function AdminStaffPage() {
     reload();
   }, [authChecked, authUser]);
 
-  async function handleDelete(token: string, displayName: string) {
-    if (!confirm(`「${displayName}」の招待を取り消しますか？\n（既に使用された招待は履歴として残ります）`)) return;
+  // 招待 (未 consume) の取消: staff_invitations を delete するだけ。
+  async function handleCancelInvitation(token: string, displayName: string) {
+    if (!confirm(`「${displayName}」の招待を取り消しますか？\n（招待 URL は無効になります）`)) return;
     const supabase = getSupabase();
     const { error: deleteError } = await supabase
       .from("staff_invitations")
       .delete()
       .eq("token", token);
     if (deleteError) {
-      alert(`削除に失敗しました: ${deleteError.message}`);
+      alert(`取消に失敗しました: ${deleteError.message}`);
       return;
     }
     reload();
+  }
+
+  // consume 済アカウントの削除: API 経由で auth.users を消す + 残った
+  // staff_invitations 行も合わせて削除 (履歴 不要のため)。
+  async function handleDeleteAccount(
+    token: string,
+    userId: string,
+    displayName: string
+  ) {
+    if (!confirm(
+      `「${displayName}」のアカウントを完全に削除しますか？\n\n` +
+      `・このスタッフはログインできなくなります\n` +
+      `・カレンダーの予定（既に書かれたもの）は残ります\n` +
+      `・members 一覧の表示名は残ります\n\n` +
+      `本当に削除する場合のみ OK を押してください。`
+    )) return;
+
+    try {
+      const res = await fetch("/api/admin/staff/delete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        const messages: Record<string, string> = {
+          unauthenticated: "ログインセッションが切れました。再ログインしてください。",
+          permission_denied: "このアカウントを削除する権限がありません。",
+          cannot_delete_self: "自分自身のアカウントは削除できません。",
+          delete_failed: "削除に失敗しました。",
+          target_lookup_failed: "対象ユーザーの取得に失敗しました。",
+          service_key_missing: "サーバ設定エラー (管理者にお問合せください)。",
+        };
+        alert(messages[json.error] ?? `エラー: ${json.error ?? res.statusText}`);
+        return;
+      }
+
+      // 削除成功 → staff_invitations も合わせて消す
+      const supabase = getSupabase();
+      await supabase.from("staff_invitations").delete().eq("token", token);
+
+      reload();
+    } catch (e) {
+      alert(`通信エラー: ${e instanceof Error ? e.message : "不明"}`);
+    }
   }
 
   if (!authChecked) {
@@ -235,7 +286,12 @@ export default function AdminStaffPage() {
         ) : (
           <ul className="bg-white border border-gray-100 rounded-2xl divide-y divide-gray-50 overflow-hidden">
             {invitations.map((inv) => (
-              <InvitationRow key={inv.token} inv={inv} onDelete={handleDelete} />
+              <InvitationRow
+                key={inv.token}
+                inv={inv}
+                onCancelInvitation={handleCancelInvitation}
+                onDeleteAccount={handleDeleteAccount}
+              />
             ))}
           </ul>
         )}
@@ -269,10 +325,12 @@ export default function AdminStaffPage() {
 // ── 一覧の 1 行 ────────────────────────────────────────────────────
 function InvitationRow({
   inv,
-  onDelete,
+  onCancelInvitation,
+  onDeleteAccount,
 }: {
   inv: InvitationListItem;
-  onDelete: (token: string, displayName: string) => void;
+  onCancelInvitation: (token: string, displayName: string) => void;
+  onDeleteAccount: (token: string, userId: string, displayName: string) => void;
 }) {
   const expired = new Date(inv.expires_at) <= new Date();
   const consumed = inv.consumed_at !== null;
@@ -309,15 +367,24 @@ function InvitationRow({
           </span>
         </div>
       </div>
-      {!consumed && (
+      {!consumed ? (
         <button
-          onClick={() => onDelete(inv.token, inv.display_name)}
+          onClick={() => onCancelInvitation(inv.token, inv.display_name)}
           className="p-2 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-400"
-          title="取り消し"
+          title="招待を取り消す (URL 無効化)"
         >
           <Trash2 size={14} />
         </button>
-      )}
+      ) : inv.consumed_user_id ? (
+        <button
+          onClick={() => onDeleteAccount(inv.token, inv.consumed_user_id!, inv.display_name)}
+          className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-[11px] font-semibold flex items-center gap-1"
+          title="このアカウントを完全に削除する (再ログイン不可になります)"
+        >
+          <Trash2 size={11} />
+          アカウント削除
+        </button>
+      ) : null}
     </li>
   );
 }
@@ -334,10 +401,13 @@ function NewInvitationModal({
     invite_url: string;
     initial_password: string;
     display_name: string;
+    login_id: string | null;
+    login_id_was_renamed: boolean;
     expires_at: string | null;
   }) => void;
 }) {
   const [displayName, setDisplayName] = useState("");
+  const [loginIdInput, setLoginIdInput] = useState("");  // 任意。空ならサーバ側で表示名から自動派生 (ASCII 抜出)。
   const [officeId, setOfficeId] = useState(offices[0]?.id ?? "");
   const [role, setRole] = useState<"office_admin" | "member">("member");
   const [submitting, setSubmitting] = useState(false);
@@ -367,6 +437,8 @@ function NewInvitationModal({
           display_name: displayName.trim(),
           office_id: officeId,
           role,
+          // 空文字なら body で省略 (サーバ側で表示名から自動派生)
+          ...(loginIdInput.trim() ? { login_id: loginIdInput.trim().toLowerCase() } : {}),
         }),
       });
       const json = await res.json();
@@ -377,8 +449,13 @@ function NewInvitationModal({
           display_name_invalid: "表示名が不正です（1〜64 文字）。",
           office_id_invalid: "事業所が選択されていません。",
           role_invalid: "ロールが不正です。",
+          login_id_invalid: "ログイン ID は英小文字で始まり、4〜24 文字（英小・数字・ピリオド・ハイフン可）にしてください。",
+          login_id_required: "表示名から ID を自動派生できませんでした。ログイン ID を明示的に入力してください。",
+          login_id_dedup_exhausted: "同じ login_id が大量に使われていて連番候補を使い切りました。別の base を試してください。",
           insert_failed: "招待の発行に失敗しました（権限不足の可能性）。",
           permission_check_failed: "権限チェックに失敗しました。",
+          service_key_missing: "サーバ設定エラー (管理者にお問合せください)。",
+          list_users_failed: "既存ユーザの取得に失敗しました。",
         };
         setErrorMsg(messages[json.error] ?? `エラー: ${json.error ?? res.statusText}`);
         return;
@@ -387,6 +464,8 @@ function NewInvitationModal({
         invite_url: json.invite_url,
         initial_password: json.initial_password,
         display_name: displayName.trim(),
+        login_id: json.login_id ?? null,
+        login_id_was_renamed: !!json.login_id_was_renamed,
         expires_at: json.expires_at ?? null,
       });
     } catch (e) {
@@ -422,6 +501,27 @@ function NewInvitationModal({
             />
             <p className="text-[10px] text-gray-400 mt-1">
               members 一覧やカレンダー上での表示に使われます。重複可。
+            </p>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-gray-500 mb-1 block">
+              ログイン ID（任意）
+            </label>
+            <input
+              type="text"
+              value={loginIdInput}
+              onChange={(e) => setLoginIdInput(e.target.value.toLowerCase())}
+              placeholder="例: kawashima  (空欄なら自動)"
+              maxLength={24}
+              className="w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-400 font-mono"
+            />
+            <p className="text-[10px] text-gray-400 mt-1">
+              英小文字始まり 4〜24 字（英小・数字・ピリオド・ハイフン）。
+              <br />
+              空欄なら表示名の英字から自動派生。重複時は <code>kawashima2</code> のように連番付与。
+              <br />
+              ※ ここで決まった ID をスタッフに伝えてください（次回以降のログインに必要）。
             </p>
           </div>
 
@@ -496,12 +596,19 @@ function IssuedModal({
   issued,
   onClose,
 }: {
-  issued: { invite_url: string; initial_password: string; display_name: string; expires_at: string | null };
+  issued: {
+    invite_url: string;
+    initial_password: string;
+    display_name: string;
+    login_id: string | null;
+    login_id_was_renamed: boolean;
+    expires_at: string | null;
+  };
   onClose: () => void;
 }) {
-  const [copiedField, setCopiedField] = useState<"url" | "pw" | "both" | null>(null);
+  const [copiedField, setCopiedField] = useState<"url" | "pw" | "id" | "both" | null>(null);
 
-  async function copy(text: string, field: "url" | "pw" | "both") {
+  async function copy(text: string, field: "url" | "pw" | "id" | "both") {
     try {
       await navigator.clipboard.writeText(text);
       setCopiedField(field);
@@ -511,7 +618,9 @@ function IssuedModal({
     }
   }
 
-  const combinedText = `招待リンク: ${issued.invite_url}\n初期パスワード: ${issued.initial_password}`;
+  const combinedText = issued.login_id
+    ? `招待リンク: ${issued.invite_url}\nログイン ID: ${issued.login_id}\n初期パスワード: ${issued.initial_password}`
+    : `招待リンク: ${issued.invite_url}\n初期パスワード: ${issued.initial_password}`;
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-3">
@@ -539,6 +648,26 @@ function IssuedModal({
             onCopy={() => copy(issued.invite_url, "url")}
             copied={copiedField === "url"}
           />
+          {issued.login_id && (
+            <>
+              <CopyableField
+                label={
+                  issued.login_id_was_renamed
+                    ? `ログイン ID  (希望が重複していたため自動リネーム)`
+                    : "ログイン ID"
+                }
+                value={issued.login_id}
+                mono
+                onCopy={() => copy(issued.login_id!, "id")}
+                copied={copiedField === "id"}
+              />
+              {issued.login_id_was_renamed && (
+                <p className="text-[10px] text-amber-600 -mt-2">
+                  既に同じ ID が使われていたので末尾に番号を付与しました。
+                </p>
+              )}
+            </>
+          )}
           <CopyableField
             label="初期パスワード"
             value={issued.initial_password}

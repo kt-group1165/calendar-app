@@ -42,3 +42,48 @@ export function syntheticEmailToLoginId(email: string): string | null {
   if (!isValidLoginId(local)) return null;
   return local;
 }
+
+// 表示名から login_id 候補を簡易抽出。
+//   - 先頭から ASCII 英小文字 / 数字 / `.` / `-` だけを抜き出して 4-24 字に整形
+//   - 漢字・カナ等は変換できないので捨てる (admin が手動で入力する想定)
+//   - 全く ASCII 英字が無ければ null を返す
+//
+// 用途: 招待発行 UI で表示名入力時の補助 placeholder。最終的な login_id は
+//       admin が編集できる + サーバ側で dedup される。
+export function extractLoginIdHint(displayName: string): string | null {
+  if (!displayName) return null;
+  // lowercase + ASCII 英字始まりの最長 prefix を取る
+  const lowered = displayName.toLowerCase();
+  // 英小文字 / 数字 / . / - / 半角スペースだけに絞る (空白は cut 用)
+  const cleaned = lowered.replace(/[^a-z0-9.\-\s]/g, "").trim();
+  if (!cleaned) return null;
+  // 最初の単語 (空白で区切る)
+  const first = cleaned.split(/\s+/)[0] ?? "";
+  if (!first) return null;
+  // 英小文字始まりに整形
+  let candidate = first.replace(/^[^a-z]+/, "");
+  if (candidate.length < 4) {
+    // 短すぎる場合は元の長さに padding
+    candidate = (candidate + "user").slice(0, 4);
+  }
+  candidate = candidate.slice(0, 24);
+  return isValidLoginId(candidate) ? candidate : null;
+}
+
+// 既に使われている login_id 集合に対して、base が衝突したら base2, base3, …
+// と連番を付けて空きを返す。base 自体が valid でなければ null を返す。
+//
+// 用途: サーバ側で staff_invitations に保存する login_id を確定するとき。
+//       takenSet は staff_invitations (未 consume) と auth.users 両方から
+//       事前に集めたもの。
+export function dedupLoginId(base: string, takenSet: Set<string>): string | null {
+  if (!isValidLoginId(base)) return null;
+  if (!takenSet.has(base)) return base;
+  // 連番付与: base2, base3, … (24 字超えたら null)
+  for (let n = 2; n < 1000; n++) {
+    const cand = `${base}${n}`;
+    if (cand.length > 24) return null;
+    if (!takenSet.has(cand)) return cand;
+  }
+  return null;
+}

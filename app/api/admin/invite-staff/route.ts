@@ -5,6 +5,12 @@ import {
   generateToken,
   hashPassword,
 } from "@/lib/invitations";
+import {
+  dedupLoginId,
+  extractLoginIdHint,
+  isValidLoginId,
+} from "@/lib/login_id";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 // POST /api/admin/invite-staff
 //
@@ -30,11 +36,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const { display_name, office_id, role, member_id } = (body ?? {}) as {
+  const { display_name, office_id, role, member_id, login_id } = (body ?? {}) as {
     display_name?: unknown;
     office_id?: unknown;
     role?: unknown;
     member_id?: unknown;
+    login_id?: unknown;
   };
 
   if (typeof display_name !== "string" || display_name.trim().length === 0 || display_name.length > 64) {
@@ -48,6 +55,17 @@ export async function POST(request: Request) {
   }
   if (member_id !== undefined && member_id !== null && typeof member_id !== "string") {
     return NextResponse.json({ error: "member_id_invalid" }, { status: 400 });
+  }
+  // login_id は optional。指定があれば format チェック、無ければ display_name から自動派生。
+  if (login_id !== undefined && login_id !== null && typeof login_id !== "string") {
+    return NextResponse.json({ error: "login_id_invalid" }, { status: 400 });
+  }
+  const requestedLoginId = typeof login_id === "string" && login_id.trim().length > 0
+    ? login_id.trim().toLowerCase()
+    : null;
+  // 指定があった場合は format 検証
+  if (requestedLoginId !== null && !isValidLoginId(requestedLoginId)) {
+    return NextResponse.json({ error: "login_id_invalid" }, { status: 400 });
   }
 
   const supabase = await createClient();
@@ -76,6 +94,62 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "office_not_allowed" }, { status: 403 });
   }
 
+  // login_id 確定: requested → 派生 → dedup
+  // 1) base 候補を決める
+  const baseLoginId = requestedLoginId ?? extractLoginIdHint(display_name.trim());
+  if (!baseLoginId) {
+    // display_name に英字が無く login_id も指定されなかったケース
+    return NextResponse.json(
+      {
+        error: "login_id_required",
+        message: "表示名から login_id を自動派生できませんでした。login_id を明示的に指定してください。",
+      },
+      { status: 400 }
+    );
+  }
+
+  // 2) 既に使われている login_id を集める (auth.users + 未 consume 招待)
+  //    auth.admin.listUsers は anon clients から見えないので service_role で別途。
+  const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!SERVICE_KEY) {
+    return NextResponse.json({ error: "service_key_missing" }, { status: 500 });
+  }
+  const admin = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    SERVICE_KEY,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+
+  const taken = new Set<string>();
+  // 2a) 既存 auth.users の synthetic email から逆引き
+  const { data: usersList, error: listError } = await admin.auth.admin.listUsers({ perPage: 1000 });
+  if (listError) {
+    return NextResponse.json({ error: "list_users_failed" }, { status: 500 });
+  }
+  for (const u of usersList?.users ?? []) {
+    const email = u.email ?? "";
+    const lid = email.endsWith("@kt-staff.invalid") ? email.split("@")[0] : null;
+    if (lid) taken.add(lid);
+  }
+  // 2b) 未 consume の招待からも収集 (発行済みだが未使用のものとも衝突を避ける)
+  const { data: pendingInvites } = await admin
+    .from("staff_invitations")
+    .select("login_id")
+    .is("consumed_at", null)
+    .not("login_id", "is", null);
+  for (const r of (pendingInvites ?? []) as { login_id: string | null }[]) {
+    if (r.login_id) taken.add(r.login_id);
+  }
+
+  // 3) base 自体が空いてれば base、衝突したら base2, base3, …
+  const finalLoginId = dedupLoginId(baseLoginId, taken);
+  if (!finalLoginId) {
+    return NextResponse.json(
+      { error: "login_id_dedup_exhausted", message: "login_id の連番候補を使い切りました (base + 1〜999)。別の base を指定してください。" },
+      { status: 409 }
+    );
+  }
+
   // 招待発行
   const token = generateToken();
   const initialPassword = generateInitialPassword();
@@ -87,6 +161,7 @@ export async function POST(request: Request) {
     office_id,
     role,
     member_id: member_id ?? null,
+    login_id: finalLoginId,
     initial_password_hash: initialPasswordHash,
     created_by: callerId,
     // expires_at は DB default (NOW() + 7d) に任せる
@@ -113,6 +188,8 @@ export async function POST(request: Request) {
     token,
     invite_url: inviteUrl,
     initial_password: initialPassword,
+    login_id: finalLoginId,
+    login_id_was_renamed: requestedLoginId !== null && requestedLoginId !== finalLoginId,
     expires_at: row?.expires_at ?? null,
   });
 }
