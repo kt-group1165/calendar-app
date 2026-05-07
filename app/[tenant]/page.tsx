@@ -149,15 +149,18 @@ export default function TenantCalendarPage() {
   useEffect(() => {
     if (!tenantId) return;
     if (authUser.loading) return;
-    cleanupOldDeletedEvents(tenantId).catch(() => {});
-    getMembers(tenantId).then(setMembers).catch(() => {});
+    // currentOfficeId が null = group_admin の tenant-wide view、null 以外 = office 絞込
+    const office = currentOfficeId ?? undefined;
+    cleanupOldDeletedEvents(tenantId, office).catch(() => {});
+    getMembers(tenantId, office).then(setMembers).catch(() => {});
     getOffices(tenantId).then(setOffices).catch(() => {});
     getGroups(tenantId).then(setGroups).catch(() => {});
-    getEventAreas(tenantId).then(setEventAreas).catch(() => {});
-    getEventTypes(tenantId).then(setEventTypes).catch(() => {});
+    getEventAreas(tenantId, office).then(setEventAreas).catch(() => {});
+    getEventTypes(tenantId, { officeId: office }).then(setEventTypes).catch(() => {});
     getClientSelectionEnabled(tenantId).then(setClientSelectionEnabled).catch(() => {});
 
     // 1日1回、アプリを開いたときに自動バックアップCSVをダウンロード
+    // バックアップは tenant 全件 (officeId 渡さない) で従来どおり
     const todayStr = new Date().toISOString().slice(0, 10);
     const lastBackup = localStorage.getItem(LAST_BACKUP_KEY(tenantId));
     if (lastBackup !== todayStr) {
@@ -194,14 +197,14 @@ export default function TenantCalendarPage() {
     } else {
       getUnreadActivityCount(lastSeen, tenantId).then(setUnreadCount).catch(() => {});
     }
-  }, [tenantId, authUser.loading, authUser.authUser]);
+  }, [tenantId, authUser.loading, authUser.authUser, currentOfficeId]);
 
   const loadEvents = useCallback(async () => {
     if (!tenantId) return;
     setLoading(true);
     try {
       const { start, end } = getDateRange(currentDate, viewMode);
-      setEvents(await getEventsByDateRange(start, end, tenantId));
+      setEvents(await getEventsByDateRange(start, end, tenantId, currentOfficeId ?? undefined));
       setSupabaseError(false);
     } catch {
       setSupabaseError(true);
@@ -209,7 +212,7 @@ export default function TenantCalendarPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentDate, viewMode, tenantId]);
+  }, [currentDate, viewMode, tenantId, currentOfficeId]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
   useEffect(() => { loadEvents(); }, [loadEvents]);
@@ -875,9 +878,10 @@ export default function TenantCalendarPage() {
           tenantId={tenantId}
           onClose={() => {
             setShowAdmin(false);
+            const office = currentOfficeId ?? undefined;
             getGroups(tenantId).then(setGroups).catch(() => {});
-            getEventAreas(tenantId).then(setEventAreas).catch(() => {});
-            getEventTypes(tenantId).then(setEventTypes).catch(() => {});
+            getEventAreas(tenantId, office).then(setEventAreas).catch(() => {});
+            getEventTypes(tenantId, { officeId: office }).then(setEventTypes).catch(() => {});
             // 用件種別フィルタON/OFFの個人設定を再読込
             const stored = typeof window !== "undefined"
               ? localStorage.getItem(EVENT_TYPE_FILTER_ENABLED_KEY(tenantId))
