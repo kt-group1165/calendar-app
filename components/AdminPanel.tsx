@@ -74,7 +74,7 @@ export default function AdminPanel({ tenantId, onClose }: Props) {
         {tab === "merge" && <StaffMergeTab tenantId={tenantId} />}
         {tab === "clients" && <ClientsTab tenantId={tenantId} />}
         {tab === "csv" && <CsvTab tenantId={tenantId} />}
-        {tab === "analytics" && <AnalyticsTab tenantId={tenantId} />}
+        {tab === "analytics" && <AnalyticsTab />}
         {tab === "settings" && <SettingsTab tenantId={tenantId} />}
       </div>
     </div>
@@ -1269,7 +1269,7 @@ function CsvTab({ tenantId }: { tenantId: string }) {
   async function handleExport() {
     setExporting(true);
     try {
-      const events = await getEventsByDateRange(startDate, endDate, tenantId);
+      const events = await getEventsByDateRange(startDate, endDate);
       downloadBlob(buildCsvBlob(CSV_HEADERS, eventsToCsvRows(events, eventAreas)), `予定_${startDate}_${endDate}.csv`);
     } finally { setExporting(false); }
   }
@@ -1277,7 +1277,7 @@ function CsvTab({ tenantId }: { tenantId: string }) {
   async function handleExportAll() {
     setExportingAll(true);
     try {
-      const events = await getAllEvents(tenantId);
+      const events = await getAllEvents();
       downloadBlob(buildCsvBlob(CSV_HEADERS, eventsToCsvRows(events, eventAreas)), `予定_全期間_${format(now, "yyyyMMdd")}.csv`);
     } finally { setExportingAll(false); }
   }
@@ -1359,7 +1359,6 @@ function CsvTab({ tenantId }: { tenantId: string }) {
       setImportProgress({ done: 0, total: dataRows.length });
       const result = await importEventsFromCSV(
         dataRows,
-        tenantId,
         (done, total) => setImportProgress({ done, total }),
         syncMode,
         importScope === "range" ? { startDate, endDate } : undefined,
@@ -1527,7 +1526,7 @@ function CsvTab({ tenantId }: { tenantId: string }) {
 }
 
 // ── 分析 ─────────────────────────────────────
-function AnalyticsTab({ tenantId }: { tenantId: string }) {
+function AnalyticsTab() {
   const [month, setMonth] = useState(new Date());
   const [loading, setLoading] = useState(false);
   const [assigneeCounts, setAssigneeCounts] = useState<[string, number][]>([]);
@@ -1542,7 +1541,7 @@ function AnalyticsTab({ tenantId }: { tenantId: string }) {
     try {
       const start = format(startOfMonth(month), "yyyy-MM-dd");
       const end = format(endOfMonth(month), "yyyy-MM-dd");
-      const events = await getEventsByDateRange(start, end, tenantId);
+      const events = await getEventsByDateRange(start, end);
       setTotal(events.length);
 
       const ac: Record<string, number> = {};

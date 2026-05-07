@@ -7,13 +7,12 @@ import { searchEvents } from "@/lib/events";
 import { type Event } from "@/lib/supabase";
 
 type Props = {
-  tenantId: string;
   officeId?: string; // Phase 3c: office 絞込時はその office の予定のみ
   onEventClick: (event: Event) => void;
   onClose: () => void;
 };
 
-export default function SearchView({ tenantId, officeId, onEventClick, onClose }: Props) {
+export default function SearchView({ officeId, onEventClick, onClose }: Props) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Event[]>([]);
   const [searching, setSearching] = useState(false);
@@ -35,7 +34,7 @@ export default function SearchView({ tenantId, officeId, onEventClick, onClose }
     setSearching(true);
     timerRef.current = setTimeout(async () => {
       try {
-        const data = await searchEvents(query.trim(), tenantId, officeId);
+        const data = await searchEvents(query.trim(), officeId);
         setResults(data);
       } catch {
         setResults([]);
@@ -43,7 +42,6 @@ export default function SearchView({ tenantId, officeId, onEventClick, onClose }
         setSearching(false);
       }
     }, 300);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional dep stability
   }, [query, officeId]);
 
   // 検索ヒット箇所を可視化するためのスニペット生成

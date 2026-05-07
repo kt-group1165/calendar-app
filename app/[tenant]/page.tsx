@@ -151,7 +151,7 @@ export default function TenantCalendarPage() {
     if (authUser.loading) return;
     // currentOfficeId が null = group_admin の tenant-wide view、null 以外 = office 絞込
     const office = currentOfficeId ?? undefined;
-    cleanupOldDeletedEvents(tenantId, office).catch(() => {});
+    cleanupOldDeletedEvents(office).catch(() => {});
     getMembers(tenantId, office).then(setMembers).catch(() => {});
     getOffices(tenantId).then(setOffices).catch(() => {});
     getGroups(tenantId).then(setGroups).catch(() => {});
@@ -164,7 +164,7 @@ export default function TenantCalendarPage() {
     const todayStr = new Date().toISOString().slice(0, 10);
     const lastBackup = localStorage.getItem(LAST_BACKUP_KEY(tenantId));
     if (lastBackup !== todayStr) {
-      getAllEvents(tenantId).then((evts) => {
+      getAllEvents().then((evts) => {
         const CSV_HEADERS = ["ID","タイトル","開始日","終了日","開始時刻","終了時刻","終日","用件種別","担当者","メモ","備考","住所","カラー","作成者","最終編集者","作成日時"];
         const rows = evts.map((e) => [
           e.id, e.title, e.start_date, e.end_date,
@@ -204,7 +204,7 @@ export default function TenantCalendarPage() {
     setLoading(true);
     try {
       const { start, end } = getDateRange(currentDate, viewMode);
-      setEvents(await getEventsByDateRange(start, end, tenantId, currentOfficeId ?? undefined));
+      setEvents(await getEventsByDateRange(start, end, currentOfficeId ?? undefined));
       setSupabaseError(false);
     } catch {
       setSupabaseError(true);
@@ -385,7 +385,7 @@ export default function TenantCalendarPage() {
       await updateEvent(editingEvent.id, enriched);
       logActivity(editingEvent.id, enriched.title, "updated", currentUser ?? "", editingEvent.assignees, enriched.assignees, tenantId).catch(() => {});
     } else {
-      const created = await createEvent(enriched, tenantId);
+      const created = await createEvent(enriched);
       logActivity(created.id, enriched.title, "created", currentUser ?? "", [], enriched.assignees, tenantId).catch(() => {});
     }
     setShowAddModal(false);
@@ -855,7 +855,6 @@ export default function TenantCalendarPage() {
 
       {showSearch && (
         <SearchView
-          tenantId={tenantId}
           officeId={currentOfficeId ?? undefined}
           onEventClick={(event) => {
             setShowSearch(false);
@@ -868,7 +867,6 @@ export default function TenantCalendarPage() {
 
       {showTrash && (
         <TrashView
-          tenantId={tenantId}
           officeId={currentOfficeId ?? undefined}
           isMaster={isMaster}
           onClose={() => setShowTrash(false)}
@@ -899,7 +897,6 @@ export default function TenantCalendarPage() {
 
       {showMemo && (
         <MemoView
-          tenantId={tenantId}
           officeId={currentOfficeId ?? undefined}
           onEventClick={(memo) => {
             setShowMemo(false);

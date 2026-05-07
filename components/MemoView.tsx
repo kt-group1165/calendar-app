@@ -8,27 +8,26 @@ import { format } from "date-fns";
 import { ja } from "date-fns/locale";
 
 type Props = {
-  tenantId: string;
   officeId?: string; // Phase 3c: office 絞込時はその office のメモのみ
   onEventClick: (event: Event) => void;
   onClose: () => void;
 };
 
-export default function MemoView({ tenantId, officeId, onEventClick, onClose }: Props) {
+export default function MemoView({ officeId, onEventClick, onClose }: Props) {
   const [memos, setMemos] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
 
   async function load() {
     setLoading(true);
     try {
-      setMemos(await getMemoEvents(tenantId, officeId));
+      setMemos(await getMemoEvents(officeId));
     } finally {
       setLoading(false);
     }
   }
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
-  useEffect(() => { load(); }, [tenantId, officeId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [officeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-[#f8f9fa]">

@@ -37,11 +37,9 @@ async function compressImage(file: File): Promise<File> {
 }
 
 // 全予定取得（削除済み除く・全期間・1000件超対応）
-// Phase 5b: tenant_id filter は RLS (scope_office_ids) に委譲。tenantId arg は
-//           legacy callers のため optional 化。
-// officeId 指定時は更に office_id でも絞り込む (Phase 3c additive)
-export async function getAllEvents(_tenantId: string | null = null, officeId?: string): Promise<Event[]> {
-  void _tenantId;
+// Phase 5b: tenant scoping は RLS (scope_office_ids) に委譲。officeId 指定時は
+//           更に office_id でも絞り込む。
+export async function getAllEvents(officeId?: string): Promise<Event[]> {
   const PAGE = 1000;
   const all: Event[] = [];
   let from = 0;
@@ -88,16 +86,13 @@ export async function getAllEventsAllTenants(): Promise<Event[]> {
 // syncMode=true の場合、CSV に無い既存予定をソフトデリート（ゴミ箱へ）
 //   ID一致の予定は deleted_at=null で復活するため、バックアップCSV再取り込みで復元可能
 // dateRange を指定すると、同期モードの削除対象を「期間内の予定のみ」に絞る（期間外は触らない）
-// Phase 5b: tenant_id は RLS (scope_office_ids) に委譲。tenantId arg は legacy
-//           callers のため optional 化 (実体使用無し)。
+// Phase 5b: tenant scoping は RLS (scope_office_ids) に委譲。
 export async function importEventsFromCSV(
   rows: Array<{ id?: string } & Partial<EventInsert>>,
-  _tenantId: string | null = null,
   onProgress?: (done: number, total: number) => void,
   syncMode: boolean = false,
   dateRange?: { startDate: string; endDate: string }
 ): Promise<{ updated: number; inserted: number; errors: number; deleted: number }> {
-  void _tenantId;
   const BATCH = 500;
   let updated = 0, inserted = 0, errors = 0, deleted = 0;
   const today = new Date().toISOString().slice(0, 10);
@@ -213,15 +208,12 @@ export async function importEventsFromCSV(
 }
 
 // 予定取得（削除済み・メモ除く）
-// Phase 5b: tenant_id は RLS (scope_office_ids) に委譲。tenantId arg は optional。
-// officeId 指定時は更に office_id でも絞り込む (Phase 3c additive)
+// Phase 5b: tenant scoping は RLS (scope_office_ids) に委譲。
 export async function getEventsByDateRange(
   startDate: string,
   endDate: string,
-  _tenantId: string | null = null,
   officeId?: string,
 ): Promise<Event[]> {
-  void _tenantId;
   let q = supabase
     .from("events")
     .select("*")
@@ -237,10 +229,8 @@ export async function getEventsByDateRange(
 }
 
 // メモ一覧取得（日付未定の予定）・ページング対応
-// Phase 5b: tenant_id は RLS に委譲。
-// officeId 指定時は更に office_id でも絞り込む (Phase 3c additive)
-export async function getMemoEvents(_tenantId: string | null = null, officeId?: string): Promise<Event[]> {
-  void _tenantId;
+// Phase 5b: tenant scoping は RLS に委譲。
+export async function getMemoEvents(officeId?: string): Promise<Event[]> {
   const PAGE = 1000;
   const all: Event[] = [];
   let from = 0;
@@ -275,9 +265,8 @@ export async function getEventById(id: string): Promise<Event | null> {
 }
 
 // 予定作成
-// Phase 5b: tenant_id は RLS に委譲。tenantId arg は legacy callers のため optional。
-export async function createEvent(event: EventInsert, _tenantId: string | null = null): Promise<Event> {
-  void _tenantId;
+// Phase 5b: tenant scoping は RLS に委譲。office_id 等は event payload に含める。
+export async function createEvent(event: EventInsert): Promise<Event> {
   const { data, error } = await supabase
     .from("events")
     .insert(event)
@@ -327,9 +316,8 @@ export async function permanentDeleteEvent(id: string, imageUrl: string | null):
 }
 
 // ゴミ箱内の予定取得・ページング対応
-// Phase 5b: tenant_id は RLS に委譲。
-export async function getDeletedEvents(_tenantId: string | null = null, officeId?: string): Promise<Event[]> {
-  void _tenantId;
+// Phase 5b: tenant scoping は RLS に委譲。
+export async function getDeletedEvents(officeId?: string): Promise<Event[]> {
   const PAGE = 1000;
   const all: Event[] = [];
   let from = 0;
@@ -352,9 +340,8 @@ export async function getDeletedEvents(_tenantId: string | null = null, officeId
 }
 
 // 10日以上経過した削除済みを自動完全削除
-// Phase 5b: tenant_id は RLS に委譲。
-export async function cleanupOldDeletedEvents(_tenantId: string | null = null, officeId?: string): Promise<void> {
-  void _tenantId;
+// Phase 5b: tenant scoping は RLS に委譲。
+export async function cleanupOldDeletedEvents(officeId?: string): Promise<void> {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 10);
   let q = supabase
@@ -509,10 +496,8 @@ export async function getUnreadActivityCount(since: string, tenantId: string = "
 // タイトル・メモ(description)・備考(notes)・場所(location)・「その他」内容
 // (visit_other_detail) を横断検索。担当者(assignees)・用件種別(event_type) は
 // 配列なのでクライアント側で部分一致を併せて拾う。
-// Phase 5b: tenant_id は RLS に委譲。
-// officeId 指定時は更に office_id でも絞り込む (Phase 3c additive)
-export async function searchEvents(query: string, _tenantId: string | null = null, officeId?: string): Promise<Event[]> {
-  void _tenantId;
+// Phase 5b: tenant scoping は RLS に委譲。officeId 指定時は更に絞り込む。
+export async function searchEvents(query: string, officeId?: string): Promise<Event[]> {
   const q = query.trim();
   if (!q) return [];
   // PostgREST の or() はカンマ・括弧を区切り文字に使うので除去
