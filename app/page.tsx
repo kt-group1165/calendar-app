@@ -33,7 +33,15 @@ export default function HomePage() {
 
       try {
         const list = await getTenants();
-        setTenants(list.filter((t) => t.id !== "default"));
+        const visible = list.filter((t) => t.id !== "default");
+        // tenant が 1 個しか見えないユーザは、選択画面を skip して
+        // 即その tenant のカレンダーへ。/[tenant] 側でさらに primary
+        // office (?office=…) への auto-redirect が走る。
+        if (visible.length === 1) {
+          router.replace(`/${visible[0].id}`);
+          return;
+        }
+        setTenants(visible);
       } catch {
         // ignore
       } finally {
