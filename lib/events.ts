@@ -37,16 +37,19 @@ async function compressImage(file: File): Promise<File> {
 }
 
 // 全予定取得（削除済み除く・全期間・1000件超対応）
-export async function getAllEvents(tenantId: string): Promise<Event[]> {
+// officeId 指定時は更に office_id でも絞り込む (Phase 3c additive)
+export async function getAllEvents(tenantId: string, officeId?: string): Promise<Event[]> {
   const PAGE = 1000;
   const all: Event[] = [];
   let from = 0;
   while (true) {
-    const { data, error } = await supabase
+    let q = supabase
       .from("events")
       .select("*")
       .eq("tenant_id", tenantId)
-      .is("deleted_at", null)
+      .is("deleted_at", null);
+    if (officeId) q = q.eq("office_id", officeId);
+    const { data, error } = await q
       .order("start_date", { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw error;
@@ -208,13 +211,21 @@ export async function importEventsFromCSV(
 }
 
 // 予定取得（削除済み・メモ除く）
-export async function getEventsByDateRange(startDate: string, endDate: string, tenantId: string): Promise<Event[]> {
-  const { data, error } = await supabase
+// officeId 指定時は更に office_id でも絞り込む (Phase 3c additive)
+export async function getEventsByDateRange(
+  startDate: string,
+  endDate: string,
+  tenantId: string,
+  officeId?: string,
+): Promise<Event[]> {
+  let q = supabase
     .from("events")
     .select("*")
     .eq("tenant_id", tenantId)
     .is("deleted_at", null)
-    .eq("is_memo", false)
+    .eq("is_memo", false);
+  if (officeId) q = q.eq("office_id", officeId);
+  const { data, error } = await q
     .lte("start_date", endDate)
     .gte("end_date", startDate)
     .order("start_date", { ascending: true });
@@ -223,17 +234,20 @@ export async function getEventsByDateRange(startDate: string, endDate: string, t
 }
 
 // メモ一覧取得（日付未定の予定）・ページング対応
-export async function getMemoEvents(tenantId: string): Promise<Event[]> {
+// officeId 指定時は更に office_id でも絞り込む (Phase 3c additive)
+export async function getMemoEvents(tenantId: string, officeId?: string): Promise<Event[]> {
   const PAGE = 1000;
   const all: Event[] = [];
   let from = 0;
   while (true) {
-    const { data, error } = await supabase
+    let q = supabase
       .from("events")
       .select("*")
       .eq("tenant_id", tenantId)
       .is("deleted_at", null)
-      .eq("is_memo", true)
+      .eq("is_memo", true);
+    if (officeId) q = q.eq("office_id", officeId);
+    const { data, error } = await q
       .order("created_at", { ascending: false })
       .range(from, from + PAGE - 1);
     if (error) throw error;
@@ -307,16 +321,19 @@ export async function permanentDeleteEvent(id: string, imageUrl: string | null):
 }
 
 // ゴミ箱内の予定取得・ページング対応
-export async function getDeletedEvents(tenantId: string): Promise<Event[]> {
+// officeId 指定時は更に office_id でも絞り込む (Phase 3c additive)
+export async function getDeletedEvents(tenantId: string, officeId?: string): Promise<Event[]> {
   const PAGE = 1000;
   const all: Event[] = [];
   let from = 0;
   while (true) {
-    const { data, error } = await supabase
+    let q = supabase
       .from("events")
       .select("*")
       .eq("tenant_id", tenantId)
-      .not("deleted_at", "is", null)
+      .not("deleted_at", "is", null);
+    if (officeId) q = q.eq("office_id", officeId);
+    const { data, error } = await q
       .order("deleted_at", { ascending: false })
       .range(from, from + PAGE - 1);
     if (error) throw error;
@@ -329,15 +346,18 @@ export async function getDeletedEvents(tenantId: string): Promise<Event[]> {
 }
 
 // 10日以上経過した削除済みを自動完全削除
-export async function cleanupOldDeletedEvents(tenantId: string): Promise<void> {
+// officeId 指定時は更に office_id でも絞り込む (Phase 3c additive)
+export async function cleanupOldDeletedEvents(tenantId: string, officeId?: string): Promise<void> {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 10);
-  const { data } = await supabase
+  let q = supabase
     .from("events")
     .select("id, image_url, image_urls")
     .eq("tenant_id", tenantId)
     .not("deleted_at", "is", null)
     .lt("deleted_at", cutoff.toISOString());
+  if (officeId) q = q.eq("office_id", officeId);
+  const { data } = await q;
   type DeletableRow = { id: string; image_url: string | null; image_urls: string[] | null };
   const rows = (data ?? []) as DeletableRow[];
   if (rows.length > 0) {
@@ -483,18 +503,21 @@ export async function getUnreadActivityCount(since: string, tenantId: string = "
 // タイトル・メモ(description)・備考(notes)・場所(location)・「その他」内容
 // (visit_other_detail) を横断検索。担当者(assignees)・用件種別(event_type) は
 // 配列なのでクライアント側で部分一致を併せて拾う。
-export async function searchEvents(query: string, tenantId: string): Promise<Event[]> {
+// officeId 指定時は更に office_id でも絞り込む (Phase 3c additive)
+export async function searchEvents(query: string, tenantId: string, officeId?: string): Promise<Event[]> {
   const q = query.trim();
   if (!q) return [];
   // PostgREST の or() はカンマ・括弧を区切り文字に使うので除去
   const safe = q.replace(/[(),]/g, " ");
   const pattern = `%${safe}%`;
 
-  const { data, error } = await supabase
+  let primaryQuery = supabase
     .from("events")
     .select("*")
     .eq("tenant_id", tenantId)
-    .is("deleted_at", null)
+    .is("deleted_at", null);
+  if (officeId) primaryQuery = primaryQuery.eq("office_id", officeId);
+  const { data, error } = await primaryQuery
     .or(
       [
         `title.ilike.${pattern}`,
@@ -514,11 +537,13 @@ export async function searchEvents(query: string, tenantId: string): Promise<Eve
   const lowered = safe.toLowerCase();
   let fromArrays: Event[] = [];
   try {
-    const { data: arrData } = await supabase
+    let arrQuery = supabase
       .from("events")
       .select("*")
       .eq("tenant_id", tenantId)
-      .is("deleted_at", null)
+      .is("deleted_at", null);
+    if (officeId) arrQuery = arrQuery.eq("office_id", officeId);
+    const { data: arrData } = await arrQuery
       .order("start_date", { ascending: false })
       .limit(500);
     fromArrays = ((arrData ?? []) as Event[]).filter((e) =>
