@@ -229,6 +229,29 @@ export default function AdminStaffPage() {
     }
   }
 
+  // dangling 招待の履歴削除: auth.users は既に存在しないので、
+  // staff_invitations 行だけを直接 DELETE する。
+  // RLS: staff_invitations_admin_delete (group_admin or office_admin で自分の office) が enforce。
+  async function handleDeleteHistory(token: string, displayName: string) {
+    if (!confirm(
+      `「${displayName}」の招待履歴を削除しますか？\n\n` +
+      `・このアカウントは既に削除されています (再ログインは元々不可)\n` +
+      `・staff_invitations の履歴行のみが消えます\n` +
+      `・カレンダーの予定 / members 一覧の表示名は影響を受けません\n\n` +
+      `本当に削除する場合のみ OK を押してください。`
+    )) return;
+    const supabase = getSupabase();
+    const { error: deleteError } = await supabase
+      .from("staff_invitations")
+      .delete()
+      .eq("token", token);
+    if (deleteError) {
+      alert(`履歴削除に失敗しました: ${deleteError.message}`);
+      return;
+    }
+    reload();
+  }
+
   if (!authChecked) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-white">
@@ -291,6 +314,7 @@ export default function AdminStaffPage() {
                 inv={inv}
                 onCancelInvitation={handleCancelInvitation}
                 onDeleteAccount={handleDeleteAccount}
+                onDeleteHistory={handleDeleteHistory}
               />
             ))}
           </ul>
@@ -327,13 +351,19 @@ function InvitationRow({
   inv,
   onCancelInvitation,
   onDeleteAccount,
+  onDeleteHistory,
 }: {
   inv: InvitationListItem;
   onCancelInvitation: (token: string, displayName: string) => void;
   onDeleteAccount: (token: string, userId: string, displayName: string) => void;
+  onDeleteHistory: (token: string, displayName: string) => void;
 }) {
   const expired = new Date(inv.expires_at) <= new Date();
   const consumed = inv.consumed_at !== null;
+  // dangling = 使用済だが consumed_user_id が NULL (auth.users が手動削除されると
+  // FK ON DELETE SET NULL で NULL 化)。アカウント削除 button は出せないので、
+  // 履歴行 (staff_invitations) を直接消す button を出す。
+  const dangling = consumed && !inv.consumed_user_id;
   const status = consumed
     ? { label: "使用済", color: "bg-gray-100 text-gray-500" }
     : expired
@@ -374,6 +404,15 @@ function InvitationRow({
           title="招待を取り消す (URL 無効化)"
         >
           <Trash2 size={14} />
+        </button>
+      ) : dangling ? (
+        <button
+          onClick={() => onDeleteHistory(inv.token, inv.display_name)}
+          className="px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-500 text-[11px] font-semibold flex items-center gap-1"
+          title="このアカウントは既に削除済 (auth.users 不在)。招待履歴行を消します"
+        >
+          <Trash2 size={11} />
+          履歴削除
         </button>
       ) : inv.consumed_user_id ? (
         <button
