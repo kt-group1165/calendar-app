@@ -330,7 +330,7 @@ export default function TenantCalendarPage() {
   // 事業所フィルター（URL ?office=<id>）
   const officeFilteredMembers = useMemo(() => {
     if (!currentOfficeId) return members;
-    return members.filter((m) => m.office_id === currentOfficeId);
+    return members.filter((m) => m.office_ids.includes(currentOfficeId));
   }, [members, currentOfficeId]);
   const officeMemberNames = useMemo(
     () => new Set(officeFilteredMembers.map((m) => m.name)),
@@ -374,7 +374,7 @@ export default function TenantCalendarPage() {
       if (currentOfficeId) return currentOfficeId;
       for (const assigneeName of data.assignees) {
         const m = members.find((mm) => mm.name === assigneeName);
-        if (m?.office_id) return m.office_id;
+        if (m?.primary_office_id) return m.primary_office_id;
       }
       return null;
     };

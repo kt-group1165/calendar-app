@@ -515,7 +515,7 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
   //   clients: client_office_assignments を参照して判定（kaigo-appと連動）
   //   ただし既存イベントで選択済みのメンバー/種別/利用者は必ず残す（編集時に消えないため）
   const visibleMembers = officeId
-    ? members.filter((m) => m.office_id === officeId || assignees.includes(m.name))
+    ? members.filter((m) => m.office_ids.includes(officeId) || assignees.includes(m.name))
     : members;
   const visibleEventTypes = officeId
     ? eventTypes.filter((t) => t.office_id === officeId || t.office_id === null || eventType.includes(t.name))

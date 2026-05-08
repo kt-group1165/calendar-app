@@ -105,7 +105,7 @@ function MembersTab({ tenantId }: { tenantId: string }) {
 
   // 自事業所のみ表示
   const visibleMembers = currentOfficeId
-    ? members.filter((m) => m.office_id === currentOfficeId)
+    ? members.filter((m) => m.office_ids.includes(currentOfficeId))
     : members;
 
   const currentOfficeName = currentOfficeId
@@ -131,6 +131,8 @@ function MembersTab({ tenantId }: { tenantId: string }) {
       if (currentOfficeId) {
         await updateMemberOffice(m.id, currentOfficeId);
         m.office_id = currentOfficeId;
+        m.office_ids = Array.from(new Set([...m.office_ids, currentOfficeId]));
+        m.primary_office_id = currentOfficeId;
       }
       setMembers((prev) => [...prev, m].sort((a, b) => a.name.localeCompare(b.name, "ja")));
       setNewName("");
@@ -293,7 +295,7 @@ function GroupsTab({ tenantId }: { tenantId: string }) {
 
   // 自事業所絞り込み
   const visibleMembers = currentOfficeId
-    ? members.filter((m) => m.office_id === currentOfficeId)
+    ? members.filter((m) => m.office_ids.includes(currentOfficeId))
     : members;
   const officeMemberNames = new Set(visibleMembers.map((m) => m.name));
   const visibleGroups = currentOfficeId
