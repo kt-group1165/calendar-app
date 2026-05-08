@@ -33,11 +33,18 @@ function mergeOffices(members: RawMember[], junction: RawMemberOffice[]): Member
   });
 }
 
-// officeId 指定時は member_offices.office_id 配列に officeId を含む member のみ返す
-export async function getMembers(tenantId: string, officeId?: string): Promise<Member[]> {
+// officeId 指定時は member_offices.office_id 配列に officeId を含む member のみ返す。
+// includeInactive 既定 false: members.status='active' のみ返す
+// (退職者を担当者 picker / カレンダー表示から除外)。退職者管理画面など全件必要なら true。
+export async function getMembers(
+  tenantId: string,
+  officeId?: string,
+  includeInactive: boolean = false,
+): Promise<Member[]> {
+  let memQuery = supabase.from("members").select("*").eq("tenant_id", tenantId);
+  if (!includeInactive) memQuery = memQuery.eq("status", "active");
   const [memRes, junRes] = await Promise.all([
-    supabase.from("members").select("*").eq("tenant_id", tenantId)
-      .order("sort_order", { nullsFirst: false }).order("name"),
+    memQuery.order("sort_order", { nullsFirst: false }).order("name"),
     supabase.from("member_offices").select("member_id, office_id, is_primary"),
   ]);
   if (memRes.error) throw memRes.error;
