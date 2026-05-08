@@ -207,7 +207,15 @@ export default function TenantCalendarPage() {
     setLoading(true);
     try {
       const { start, end } = getDateRange(currentDate, viewMode);
-      setEvents(await getEventsByDateRange(start, end, currentOfficeId ?? undefined));
+      // 単一 office 指定があればそれで絞り込み。
+      // role tenant (kt-group 以外) で office 未指定なら、当該 tenant 配下の office IDs で絞り込む
+      // (Phase 5b で events.tenant_id 列を DROP したため、role tenant view で
+      //  他 tenant の events が混ざっていた bug を解消)
+      let officeIds: string[] | undefined;
+      if (!currentOfficeId && tenantId !== "kt-group" && offices.length > 0) {
+        officeIds = offices.map((o) => o.id);
+      }
+      setEvents(await getEventsByDateRange(start, end, currentOfficeId ?? undefined, officeIds));
       setSupabaseError(false);
     } catch {
       setSupabaseError(true);
@@ -215,7 +223,7 @@ export default function TenantCalendarPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentDate, viewMode, tenantId, currentOfficeId]);
+  }, [currentDate, viewMode, tenantId, currentOfficeId, offices]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
   useEffect(() => { loadEvents(); }, [loadEvents]);

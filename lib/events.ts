@@ -213,13 +213,20 @@ export async function getEventsByDateRange(
   startDate: string,
   endDate: string,
   officeId?: string,
+  // role tenant 等で「複数 office を allowed list で絞り込む」場合に使う。
+  // officeId (単一) と排他的: 単一指定があればそちら優先。
+  officeIds?: string[],
 ): Promise<Event[]> {
   let q = supabase
     .from("events")
     .select("*")
     .is("deleted_at", null)
     .eq("is_memo", false);
-  if (officeId) q = q.eq("office_id", officeId);
+  if (officeId) {
+    q = q.eq("office_id", officeId);
+  } else if (officeIds && officeIds.length > 0) {
+    q = q.in("office_id", officeIds);
+  }
   const { data, error } = await q
     .lte("start_date", endDate)
     .gte("end_date", startDate)
