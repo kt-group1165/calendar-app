@@ -25,6 +25,11 @@ export default function HomePage() {
   const [offices, setOffices] = useState<Office[]>([]);
   const [loading, setLoading] = useState(true);
   const [authUser, setAuthUser] = useState<User | null>(null);
+  // 全社ビュー (group tenant) を見せるべきか。group_admin / company_admin
+  // のように特定 office を持たないユーザには「全 office まとめて表示」が有用だが、
+  // 通常 staff (user_offices に primary office あり) は primary に遷移するだけで
+  // 終わるので冗長。auth_user_admin_tenants() に group tenant が含まれてるかで判定。
+  const [showGroupView, setShowGroupView] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -38,14 +43,23 @@ export default function HomePage() {
       }
 
       try {
-        const [tList, oList] = await Promise.all([
+        const [tList, oList, adminTenantsRes] = await Promise.all([
           getTenants(),
           // kt-group の福祉用具/本社 office を取得 (RLS で自分が見える分だけ返る)
           getOffices("kt-group").catch(() => [] as Office[]),
+          // 自分が admin として扱える tenant の集合
+          supabase.rpc("auth_user_admin_tenants"),
         ]);
         const visible = tList.filter((t) => t.tenant_type !== "test");
         setTenants(visible);
         setOffices(oList);
+        type AdminRow = { auth_user_admin_tenants?: string } | string;
+        const adminTenantIds = ((adminTenantsRes.data ?? []) as AdminRow[]).map((r) =>
+          typeof r === "string" ? r : r.auth_user_admin_tenants ?? ""
+        );
+        const groupT = visible.find((t) => t.tenant_type === "group");
+        // group tenant の admin (group_admin / company_admin) なら「全社ビュー」表示
+        setShowGroupView(!!groupT && adminTenantIds.includes(groupT.id));
         // 役職 tenant も office も無く group tenant 1 個だけなら即遷移
         const onlyGroup = visible.length === 1 && visible[0].tenant_type === "group";
         if (onlyGroup && oList.length === 0) {
@@ -153,8 +167,8 @@ export default function HomePage() {
               </Section>
             )}
 
-            {/* 全社ビュー (group tenant) */}
-            {groupTenant && (
+            {/* 全社ビュー (group tenant) — admin のみ表示 */}
+            {groupTenant && showGroupView && (
               <Section title="全社ビュー" icon={<CalendarDays size={12} className="text-indigo-500" />}>
                 <Row
                   label={groupTenant.name}
