@@ -3,13 +3,14 @@ import { supabase } from "./supabase";
 export type Tenant = {
   id: string;
   name: string;
+  tenant_type: "group" | "role" | "office" | "test" | null;
   created_at: string;
 };
 
 export async function getTenants(): Promise<Tenant[]> {
   const { data, error } = await supabase
     .from("tenants")
-    .select("*")
+    .select("id, name, tenant_type, created_at")
     .order("created_at", { ascending: true });
   if (error) throw error;
   return data ?? [];

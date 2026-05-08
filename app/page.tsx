@@ -1,22 +1,28 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, ChevronRight, Loader2, LogOut, User as UserIcon } from "lucide-react";
+import { CalendarDays, ChevronRight, Loader2, LogOut, User as UserIcon, Building2, Briefcase } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { getTenants, type Tenant } from "@/lib/tenants";
+import { getOffices, type Office } from "@/lib/offices";
 import { getSupabase } from "@/lib/supabase-browser";
 import { signOut } from "@/lib/auth";
 
-// ホーム画面（テナント一覧）。
-// Phase 2-7 以降:
-//   - PIN モードは廃止、未認証ユーザは proxy が /login へ追放するため
-//     ここに到達した時点で必ず authUser がいる。
-//   - tenant 一覧は新 RLS 経由で「自分が見える tenant」のみが返る。
+// ホーム画面（テナント + office picker）。
+// Phase 8 (2026-05-08) — office-centric 統合に伴い top page を再設計:
+//   - 役職横断 tenants (sales-hq / honsha / fukuyogu-kanri 等) は引続きそのまま表示
+//   - 福祉用具事業所 (offices.service_type IN CALENDAR_SERVICE_TYPES) は kt-group 内の
+//     office を直接 picker に出す → /kt-group?office=<id> に遷移
+//   - kt-group 自体 (全 office まとめてビュー) も「全社」として表示
+//   - test tenants (default / test) は非表示
+// データ層は kt-group 1 tenant 統合、UI 層で見やすくグルーピング。
+// 設計: memory/project_phase_8_office_centric.md
 
 export default function HomePage() {
   const router = useRouter();
   const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [offices, setOffices] = useState<Office[]>([]);
   const [loading, setLoading] = useState(true);
   const [authUser, setAuthUser] = useState<User | null>(null);
 
@@ -32,16 +38,20 @@ export default function HomePage() {
       }
 
       try {
-        const list = await getTenants();
-        const visible = list.filter((t) => t.id !== "default");
-        // tenant が 1 個しか見えないユーザは、選択画面を skip して
-        // 即その tenant のカレンダーへ。/[tenant] 側でさらに primary
-        // office (?office=…) への auto-redirect が走る。
-        if (visible.length === 1) {
+        const [tList, oList] = await Promise.all([
+          getTenants(),
+          // kt-group の福祉用具/本社 office を取得 (RLS で自分が見える分だけ返る)
+          getOffices("kt-group").catch(() => [] as Office[]),
+        ]);
+        const visible = tList.filter((t) => t.tenant_type !== "test");
+        setTenants(visible);
+        setOffices(oList);
+        // 役職 tenant も office も無く group tenant 1 個だけなら即遷移
+        const onlyGroup = visible.length === 1 && visible[0].tenant_type === "group";
+        if (onlyGroup && oList.length === 0) {
           router.replace(`/${visible[0].id}`);
           return;
         }
-        setTenants(visible);
       } catch {
         // ignore
       } finally {
@@ -50,21 +60,35 @@ export default function HomePage() {
     })();
   }, [router]);
 
+  const roleTenants = useMemo(
+    () => tenants.filter((t) => t.tenant_type === "role"),
+    [tenants],
+  );
+  const groupTenant = useMemo(
+    () => tenants.find((t) => t.tenant_type === "group") ?? null,
+    [tenants],
+  );
+
   async function handleLogout() {
     if (!confirm("ログアウトしますか？")) return;
     await signOut();
     router.replace("/login");
   }
 
+  function goToOffice(officeId: string) {
+    if (!groupTenant) return;
+    router.push(`/${groupTenant.id}?office=${officeId}`);
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-white flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-sm space-y-6">
+      <div className="w-full max-w-sm space-y-4">
         <div className="text-center space-y-2">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-500 rounded-2xl shadow-lg mb-2">
             <CalendarDays size={32} className="text-white" />
           </div>
           <h1 className="text-2xl font-bold text-gray-800">カレンダー</h1>
-          <p className="text-sm text-gray-400">チームを選択してください</p>
+          <p className="text-sm text-gray-400">事業所またはチームを選択してください</p>
         </div>
 
         {authUser && (
@@ -86,37 +110,122 @@ export default function HomePage() {
           </div>
         )}
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          {loading ? (
-            <div className="flex justify-center py-10">
-              <Loader2 size={24} className="animate-spin text-indigo-400" />
-            </div>
-          ) : tenants.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-10">
+        {loading ? (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 flex justify-center py-10">
+            <Loader2 size={24} className="animate-spin text-indigo-400" />
+          </div>
+        ) : tenants.length === 0 && offices.length === 0 ? (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 py-10">
+            <p className="text-sm text-gray-400 text-center">
               所属するチームがありません。管理者に招待を依頼してください。
             </p>
-          ) : (
-            <ul className="divide-y divide-gray-50">
-              {tenants.map((t) => (
-                <li key={t.id}>
-                  <button
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* 福祉用具事業所セクション */}
+            {offices.length > 0 && (
+              <Section title="事業所" icon={<Building2 size={12} className="text-emerald-500" />}>
+                {offices.map((o) => (
+                  <Row
+                    key={o.id}
+                    label={o.name}
+                    sublabel={o.service_type ?? undefined}
+                    onClick={() => goToOffice(o.id)}
+                    iconBg="bg-emerald-100"
+                    iconColor="text-emerald-500"
+                  />
+                ))}
+              </Section>
+            )}
+
+            {/* 役職横断セクション */}
+            {roleTenants.length > 0 && (
+              <Section title="役職横断" icon={<Briefcase size={12} className="text-amber-500" />}>
+                {roleTenants.map((t) => (
+                  <Row
+                    key={t.id}
+                    label={t.name}
                     onClick={() => router.push(`/${t.id}`)}
-                    className="w-full flex items-center justify-between px-5 py-4 hover:bg-indigo-50 transition-colors active:bg-indigo-100"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 bg-indigo-100 rounded-xl flex items-center justify-center shrink-0">
-                        <CalendarDays size={18} className="text-indigo-500" />
-                      </div>
-                      <span className="text-sm font-semibold text-gray-800">{t.name}</span>
-                    </div>
-                    <ChevronRight size={16} className="text-gray-300" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+                    iconBg="bg-amber-100"
+                    iconColor="text-amber-500"
+                  />
+                ))}
+              </Section>
+            )}
+
+            {/* 全社ビュー (group tenant) */}
+            {groupTenant && (
+              <Section title="全社ビュー" icon={<CalendarDays size={12} className="text-indigo-500" />}>
+                <Row
+                  label={groupTenant.name}
+                  sublabel="全事業所をまとめて表示"
+                  onClick={() => router.push(`/${groupTenant.id}`)}
+                  iconBg="bg-indigo-100"
+                  iconColor="text-indigo-500"
+                />
+              </Section>
+            )}
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+function Section({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 px-2 mb-1.5">
+        {icon}
+        <h2 className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+          {title}
+        </h2>
+      </div>
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <ul className="divide-y divide-gray-50">{children}</ul>
+      </div>
+    </div>
+  );
+}
+
+function Row({
+  label,
+  sublabel,
+  onClick,
+  iconBg,
+  iconColor,
+}: {
+  label: string;
+  sublabel?: string;
+  onClick: () => void;
+  iconBg: string;
+  iconColor: string;
+}) {
+  return (
+    <li>
+      <button
+        onClick={onClick}
+        className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-indigo-50 transition-colors active:bg-indigo-100"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div className={`w-9 h-9 ${iconBg} rounded-xl flex items-center justify-center shrink-0`}>
+            <CalendarDays size={18} className={iconColor} />
+          </div>
+          <div className="text-left min-w-0">
+            <p className="text-sm font-semibold text-gray-800 truncate">{label}</p>
+            {sublabel && <p className="text-[10px] text-gray-400 truncate">{sublabel}</p>}
+          </div>
+        </div>
+        <ChevronRight size={16} className="text-gray-300 shrink-0" />
+      </button>
+    </li>
   );
 }
