@@ -468,11 +468,11 @@ export default function TenantCalendarPage() {
   return (
     <div className="flex flex-col h-dvh max-h-dvh bg-[#f8f9fa]">
       {/* ヘッダー */}
-      <header className="bg-white border-b border-gray-100 px-3 py-2 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-0.5">
+      <header className="bg-white border-b border-gray-100 px-2 py-2 flex items-center justify-between gap-1 shadow-sm">
+        <div className="flex items-center gap-0.5 shrink-0">
           <button onClick={() => setCurrentDate(new Date())}
-            className="p-2 rounded-xl hover:bg-gray-100 transition-colors" title="今日へ">
-            <Calendar size={20} className="text-indigo-500" />
+            className="p-1.5 sm:p-2 rounded-xl hover:bg-gray-100 transition-colors" title="今日へ">
+            <Calendar size={18} className="text-indigo-500 sm:size-5" />
           </button>
           <button onClick={() => navigate(-1)} className="hidden sm:flex p-2 rounded-xl hover:bg-gray-100 transition-colors">
             <ChevronLeft size={20} className="text-gray-600" />
@@ -483,22 +483,24 @@ export default function TenantCalendarPage() {
         </div>
 
         {/* 年月タイトル（タップでピッカー） */}
-        <div className="relative flex flex-col items-center">
+        <div className="relative flex flex-col items-center min-w-0 flex-1">
           <button
             onClick={() => { setPickerYear(currentDate.getFullYear()); setPickerMonth(currentDate.getMonth()); setShowDatePicker(!showDatePicker); }}
-            className="flex items-center gap-1 text-base font-bold text-gray-800 px-2 py-1 rounded-lg hover:bg-gray-100 transition-colors"
+            className="flex items-center gap-1 text-sm sm:text-base font-bold text-gray-800 px-2 py-0.5 rounded-lg hover:bg-gray-100 transition-colors whitespace-nowrap"
           >
             {getHeaderTitle()}
-            <ChevronDown size={14} className="text-gray-400" />
+            <ChevronDown size={14} className="text-gray-400 shrink-0" />
           </button>
           {currentOffice && (
             <button
               onClick={() => router.push("/")}
-              className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-medium leading-none -mt-0.5 inline-flex items-center gap-1 transition-colors"
+              className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-medium leading-none -mt-0.5 inline-flex items-center gap-1 transition-colors whitespace-nowrap max-w-full"
               title={`事業所選択に戻る (${currentOffice.name})`}
             >
-              {currentOffice.name.length > 10 ? `${currentOffice.name.slice(0, 10)}…` : currentOffice.name}
-              <ChevronDown size={10} className="rotate-90 -mr-0.5" />
+              <span className="truncate">
+                {currentOffice.name.length > 8 ? `${currentOffice.name.slice(0, 8)}…` : currentOffice.name}
+              </span>
+              <ChevronDown size={10} className="rotate-90 -mr-0.5 shrink-0" />
             </button>
           )}
 
@@ -594,12 +596,12 @@ export default function TenantCalendarPage() {
           )}
         </div>
 
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-0 shrink-0">
           {loading && <RefreshCw size={14} className="text-indigo-400 animate-spin mr-1" />}
-          <div className="flex bg-gray-100 rounded-xl p-0.5 gap-0.5">
+          <div className="flex bg-gray-100 rounded-lg p-0.5 gap-0.5 mr-0.5">
             {(["month", "week", "day"] as ViewMode[]).map((mode) => (
               <button key={mode} onClick={() => setViewMode(mode)}
-                className={`text-xs px-2 py-1 rounded-lg font-medium transition-colors ${
+                className={`text-[11px] sm:text-xs px-1.5 py-0.5 rounded-md font-medium transition-colors ${
                   viewMode === mode ? "bg-white text-indigo-600 shadow-sm" : "text-gray-500 hover:text-gray-700"
                 }`}>
                 {mode === "month" ? "月" : mode === "week" ? "週" : "日"}
@@ -608,26 +610,26 @@ export default function TenantCalendarPage() {
           </div>
           <button
             onClick={() => setShowSearch(true)}
-            className="p-2 rounded-xl hover:bg-gray-100 transition-colors ml-0.5"
+            className="p-1.5 sm:p-2 rounded-xl hover:bg-gray-100 transition-colors"
             title="検索"
           >
-            <Search size={18} className="text-gray-400" />
+            <Search size={16} className="text-gray-400 sm:size-[18px]" />
           </button>
           <button
             onClick={() => setShowMemo(true)}
-            className="p-2 rounded-xl hover:bg-gray-100 transition-colors ml-0.5"
+            className="p-1.5 sm:p-2 rounded-xl hover:bg-gray-100 transition-colors"
             title="メモ（日付未定）"
           >
-            <StickyNote size={18} className="text-gray-400" />
+            <StickyNote size={16} className="text-gray-400 sm:size-[18px]" />
           </button>
           <button
             onClick={handleOpenActivityLog}
-            className="p-2 rounded-xl hover:bg-gray-100 transition-colors ml-0.5 relative"
+            className="p-1.5 sm:p-2 rounded-xl hover:bg-gray-100 transition-colors relative"
             title="更新履歴"
           >
-            <Bell size={18} className={unreadCount > 0 ? "text-indigo-500" : "text-gray-400"} />
+            <Bell size={16} className={`${unreadCount > 0 ? "text-indigo-500" : "text-gray-400"} sm:size-[18px]`} />
             {unreadCount > 0 && (
-              <span className="absolute top-1 right-1 min-w-[14px] h-[14px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
+              <span className="absolute top-0.5 right-0.5 min-w-[14px] h-[14px] bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5 leading-none">
                 {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             )}
@@ -636,10 +638,10 @@ export default function TenantCalendarPage() {
           <div className="relative">
             <button
               onClick={() => setShowMoreMenu((v) => !v)}
-              className="p-2 rounded-xl hover:bg-gray-100 transition-colors ml-0.5"
+              className="p-1.5 sm:p-2 rounded-xl hover:bg-gray-100 transition-colors"
               title="その他"
             >
-              <MoreVertical size={18} className={isMaster ? "text-indigo-500" : "text-gray-400"} />
+              <MoreVertical size={16} className={`${isMaster ? "text-indigo-500" : "text-gray-400"} sm:size-[18px]`} />
             </button>
             {showMoreMenu && (
               <>
