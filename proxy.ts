@@ -103,6 +103,21 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
+  // user_metadata.password_change_required = true なら /change-password に強制 redirect
+  // (初回ログイン or admin によるパスワードリセット直後)
+  // 例外: /change-password 自体 と /login と /auth/callback と /api/* は除外
+  if (
+    user &&
+    (user.user_metadata as { password_change_required?: boolean } | null | undefined)?.password_change_required &&
+    !pathname.startsWith("/change-password") &&
+    !pathname.startsWith("/login") &&
+    !pathname.startsWith("/auth/") &&
+    !pathname.startsWith("/api/")
+  ) {
+    const url = new URL("/change-password", request.url);
+    return NextResponse.redirect(url);
+  }
+
   return response;
 }
 

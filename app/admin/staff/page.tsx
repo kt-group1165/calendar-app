@@ -349,6 +349,35 @@ export default function AdminStaffPage() {
     }
   }
 
+  // パスワードリセット: 新パスワード生成 + 強制変更 flag set
+  async function handleResetPassword(userId: string, displayName: string) {
+    if (!confirm(
+      `「${displayName}」のパスワードをリセットしますか？\n\n` +
+      `・新しいパスワードがランダム生成されます\n` +
+      `・本人は次回ログイン時に強制でパスワード変更を求められます\n` +
+      `・新パスワードはこの画面に 1 度だけ表示されます (本人に伝達してください)`
+    )) return;
+    try {
+      const res = await fetch("/api/admin/staff/reset-password", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        alert(`リセット失敗: ${json.error ?? res.statusText}`);
+        return;
+      }
+      // 新パスワードを表示する modal を出すのが理想だが、まずはシンプルに alert
+      window.prompt(
+        `「${displayName}」の新パスワード (この画面を閉じると 2 度と表示されません):`,
+        json.password,
+      );
+    } catch (e) {
+      alert(`通信エラー: ${e instanceof Error ? e.message : "不明"}`);
+    }
+  }
+
   // 復帰: 停止状態から再活性化
   async function handleRestore(userId: string, displayName: string) {
     if (!confirm(`「${displayName}」のアカウントを復帰させますか？\n\n・login 可能に戻る\n・members.status='active' / payroll の在職区分=「在職者」`)) return;
@@ -461,6 +490,7 @@ export default function AdminStaffPage() {
                 onDeleteHistory={handleDeleteHistory}
                 onStop={handleStop}
                 onRestore={handleRestore}
+                onResetPassword={handleResetPassword}
               />
             ))}
           </ul>
@@ -500,6 +530,7 @@ function InvitationRow({
   onDeleteHistory,
   onStop,
   onRestore,
+  onResetPassword,
 }: {
   inv: InvitationListItem;
   onCancelInvitation: (token: string, displayName: string) => void;
@@ -507,6 +538,7 @@ function InvitationRow({
   onDeleteHistory: (token: string, displayName: string) => void;
   onStop: (userId: string, displayName: string) => void;
   onRestore: (userId: string, displayName: string) => void;
+  onResetPassword: (userId: string, displayName: string) => void;
 }) {
   const expired = new Date(inv.expires_at) <= new Date();
   const consumed = inv.consumed_at !== null;
@@ -570,7 +602,16 @@ function InvitationRow({
           履歴削除
         </button>
       ) : inv.consumed_user_id ? (
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
+          {!stopped && (
+            <button
+              onClick={() => onResetPassword(inv.consumed_user_id!, inv.display_name)}
+              className="p-1.5 rounded-lg hover:bg-indigo-50 text-gray-300 hover:text-indigo-500"
+              title="パスワードをリセット (新 pw が画面に 1 度表示される)"
+            >
+              <Lock size={12} />
+            </button>
+          )}
           {stopped ? (
             <button
               onClick={() => onRestore(inv.consumed_user_id!, inv.display_name)}
