@@ -230,6 +230,34 @@ export async function POST(request: Request, context: RouteContext) {
     );
   }
 
+  // 7b) Phase 9: member_offices junction にも primary 行 INSERT ------
+  //     (members.office_id は当面残るが、新コードは junction を read source に)
+  if (memberId) {
+    await admin
+      .from("member_offices")
+      .insert({ member_id: memberId, office_id: inv.office_id, is_primary: true });
+    // 既存重複は ON CONFLICT 相当、エラーは無視 (junction が無い旧 schema の保険)
+  }
+
+  // 7c) Phase 9: members.auth_user_id を埋める ----------------------
+  if (memberId) {
+    await admin
+      .from("members")
+      .update({ auth_user_id: newUserId })
+      .eq("id", memberId)
+      .is("auth_user_id", null);
+    // 既に紐付いてれば skip。column 不在時は schema cache miss で error → 無視
+  }
+
+  // 7d) Phase 9: payroll_employees に行を作成 (既存無ければ) ---------
+  //     office.service_type に関わらず全 staff を payroll_employees に登録 (= 全員給与対象)。
+  //     payroll_offices は master offices.id → payroll 内 id を mapping で解決。
+  await ensurePayrollEmployee(admin, {
+    authUserId: newUserId,
+    masterOfficeId: inv.office_id,
+    name: inv.display_name,
+  });
+
   // 8) staff_invitations に consumed_user_id を後追いで埋める --------
   await admin
     .from("staff_invitations")
@@ -241,4 +269,60 @@ export async function POST(request: Request, context: RouteContext) {
     email: syntheticEmail,
     login_id,
   });
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Phase 9: payroll_employees 自動作成ヘルパー
+// ────────────────────────────────────────────────────────────────────
+//   - master offices.id → payroll_offices.id (link 済) を解決
+//   - employee_number は YYYYMMDD + 同日内連番 (2 桁) で生成
+//   - 失敗は warn ログのみ (招待 consume の主路は成功扱い)
+async function ensurePayrollEmployee(
+  admin: ReturnType<typeof createAdminClient>,
+  params: { authUserId: string; masterOfficeId: string; name: string }
+): Promise<void> {
+  const { authUserId, masterOfficeId, name } = params;
+
+  const { data: existing } = await admin
+    .from("payroll_employees")
+    .select("id")
+    .eq("auth_user_id", authUserId)
+    .maybeSingle();
+  if (existing) return;
+
+  const { data: payrollOffice } = await admin
+    .from("payroll_offices")
+    .select("id")
+    .eq("office_id", masterOfficeId)
+    .maybeSingle();
+  if (!payrollOffice) {
+    console.warn(`[invite] payroll_offices not linked to master office ${masterOfficeId}; payroll_employees skipped for ${name}`);
+    return;
+  }
+
+  // employee_number: YYYYMMDD + 同日内連番 2 桁
+  const today = new Date();
+  const yyyymmdd =
+    String(today.getFullYear()) +
+    String(today.getMonth() + 1).padStart(2, "0") +
+    String(today.getDate()).padStart(2, "0");
+  const { data: sameDay } = await admin
+    .from("payroll_employees")
+    .select("employee_number")
+    .like("employee_number", `${yyyymmdd}%`);
+  const seq = (sameDay?.length ?? 0) + 1;
+  const employeeNumber = `${yyyymmdd}${String(seq).padStart(2, "0")}`;
+
+  const { error } = await admin.from("payroll_employees").insert({
+    name,
+    office_id: (payrollOffice as { id: string }).id,
+    auth_user_id: authUserId,
+    employee_number: employeeNumber,
+    employment_status: "在職者",
+    // role_type / salary_type / job_type / transport_type は default 値
+    // 詳細 (hire_date / 給与額 等) は payroll-app UI で個別入力
+  });
+  if (error) {
+    console.warn(`[invite] payroll_employees insert failed for ${name}: ${error.message}`);
+  }
 }
