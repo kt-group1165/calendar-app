@@ -12,6 +12,7 @@ import {
   Loader2,
   Lock,
   Plus,
+  Star,
   Trash2,
   TriangleAlert,
   UserPlus,
@@ -40,6 +41,9 @@ type InvitationListItem = {
   consumed_at: string | null;
   consumed_user_id: string | null;
   member_status: string | null; // 'active' / 'inactive' / null (member 紐付け無し)
+  member_id: string | null;     // consume 済 staff の members.id (Phase 9-4)
+  // Phase 9-4: 複数 office 所属表示用 (member_offices junction から)
+  member_office_assignments: Array<{ office_id: string; office_name: string | null; is_primary: boolean }>;
 };
 
 type OfficeOption = {
@@ -166,10 +170,17 @@ export default function AdminStaffPage() {
 
       // 各 consume 済 user の members.status を引き当てる
       // (auth.users → user_offices.user_id → user_offices.member_id → members.id → status)
+      // Phase 9-4: 同時に member_id と member_offices junction も取得して、
+      //            複数 office 所属を表示する。
       const consumedUserIds = ((invRows ?? []) as InvRow[])
         .map((r) => r.consumed_user_id)
         .filter((id): id is string => !!id);
       const memberStatusByUserId = new Map<string, string | null>();
+      const memberIdByUserId = new Map<string, string | null>();
+      const officesByMemberId = new Map<
+        string,
+        Array<{ office_id: string; office_name: string | null; is_primary: boolean }>
+      >();
       if (consumedUserIds.length > 0) {
         const { data: uoRows } = await supabase
           .from("user_offices")
@@ -177,39 +188,81 @@ export default function AdminStaffPage() {
           .in("user_id", consumedUserIds);
         type UoRow = { user_id: string; member_id: string | null };
         const uoTyped = (uoRows ?? []) as UoRow[];
-        const memberIds = uoTyped.map((u) => u.member_id).filter((m): m is string => !!m);
+        for (const u of uoTyped) {
+          if (!memberIdByUserId.has(u.user_id) && u.member_id) {
+            memberIdByUserId.set(u.user_id, u.member_id);
+          }
+        }
+        const memberIds = Array.from(
+          new Set(uoTyped.map((u) => u.member_id).filter((m): m is string => !!m))
+        );
         if (memberIds.length > 0) {
-          const { data: mRows } = await supabase
-            .from("members")
-            .select("id, status")
-            .in("id", memberIds);
+          const [mRowsRes, junRowsRes, allOfficesRes] = await Promise.all([
+            supabase.from("members").select("id, status").in("id", memberIds),
+            supabase
+              .from("member_offices")
+              .select("member_id, office_id, is_primary")
+              .in("member_id", memberIds),
+            // 全 offices (admin 範囲外も含めて name を引くため、tenant scoped で取得)
+            supabase.from("offices").select("id, name"),
+          ]);
           type MemberRow = { id: string; status: string | null };
+          type JunRow = { member_id: string; office_id: string; is_primary: boolean | null };
+          type OfficeRow2 = { id: string; name: string };
           const statusById = new Map(
-            ((mRows ?? []) as MemberRow[]).map((m) => [m.id, m.status] as const)
+            ((mRowsRes.data ?? []) as MemberRow[]).map((m) => [m.id, m.status] as const)
+          );
+          const allOfficeNameById = new Map(
+            ((allOfficesRes.data ?? []) as OfficeRow2[]).map((o) => [o.id, o.name] as const)
           );
           for (const u of uoTyped) {
             if (u.member_id) {
               memberStatusByUserId.set(u.user_id, statusById.get(u.member_id) ?? null);
             }
           }
+          for (const j of (junRowsRes.data ?? []) as JunRow[]) {
+            const arr = officesByMemberId.get(j.member_id) ?? [];
+            arr.push({
+              office_id: j.office_id,
+              office_name: allOfficeNameById.get(j.office_id) ?? null,
+              is_primary: j.is_primary === true,
+            });
+            officesByMemberId.set(j.member_id, arr);
+          }
+          for (const [k, arr] of officesByMemberId) {
+            arr.sort((a, b) => {
+              if (a.is_primary !== b.is_primary) return a.is_primary ? -1 : 1;
+              return (a.office_name ?? "").localeCompare(b.office_name ?? "");
+            });
+            officesByMemberId.set(k, arr);
+          }
         }
       }
 
       setInvitations(
-        ((invRows ?? []) as InvRow[]).map((r) => ({
-          token: r.token,
-          display_name: r.display_name,
-          office_id: r.office_id,
-          office_name: officeNameById.get(r.office_id) ?? null,
-          role: r.role,
-          created_at: r.created_at,
-          expires_at: r.expires_at,
-          consumed_at: r.consumed_at,
-          consumed_user_id: r.consumed_user_id,
-          member_status: r.consumed_user_id
-            ? (memberStatusByUserId.get(r.consumed_user_id) ?? null)
-            : null,
-        }))
+        ((invRows ?? []) as InvRow[]).map((r) => {
+          const memberId = r.consumed_user_id
+            ? (memberIdByUserId.get(r.consumed_user_id) ?? null)
+            : null;
+          return {
+            token: r.token,
+            display_name: r.display_name,
+            office_id: r.office_id,
+            office_name: officeNameById.get(r.office_id) ?? null,
+            role: r.role,
+            created_at: r.created_at,
+            expires_at: r.expires_at,
+            consumed_at: r.consumed_at,
+            consumed_user_id: r.consumed_user_id,
+            member_status: r.consumed_user_id
+              ? (memberStatusByUserId.get(r.consumed_user_id) ?? null)
+              : null,
+            member_id: memberId,
+            member_office_assignments: memberId
+              ? (officesByMemberId.get(memberId) ?? [])
+              : [],
+          };
+        })
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "読込に失敗しました");
@@ -398,6 +451,59 @@ export default function AdminStaffPage() {
     }
   }
 
+  // Phase 9-4: 別事業所追加
+  async function handleAddOffice(userId: string, memberId: string, officeId: string) {
+    try {
+      const res = await fetch("/api/admin/staff/add-office", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ user_id: userId, member_id: memberId, office_id: officeId }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        const messages: Record<string, string> = {
+          unauthenticated: "ログインセッションが切れました。再ログインしてください。",
+          permission_denied: "この事業所を追加する権限がありません (office_admin 以上が必要)。",
+          already_assigned: "既にこの事業所に所属しています。",
+          service_key_missing: "サーバ設定エラー (管理者にお問合せください)。",
+        };
+        alert(messages[json.error] ?? `エラー: ${json.error ?? res.statusText}`);
+        return false;
+      }
+      reload();
+      return true;
+    } catch (e) {
+      alert(`通信エラー: ${e instanceof Error ? e.message : "不明"}`);
+      return false;
+    }
+  }
+
+  // Phase 9-4: 別事業所削除 (primary は不可)
+  async function handleRemoveOffice(userId: string, memberId: string, officeId: string, officeName: string) {
+    if (!confirm(`「${officeName}」への所属を解除しますか？\n\n・この事業所での担当・ログイン権限が失われます\n・予定の表示は影響しません`)) return;
+    try {
+      const res = await fetch("/api/admin/staff/remove-office", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ user_id: userId, member_id: memberId, office_id: officeId }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        const messages: Record<string, string> = {
+          unauthenticated: "ログインセッションが切れました。再ログインしてください。",
+          permission_denied: "この事業所を解除する権限がありません。",
+          cannot_remove_primary: "主所属の事業所は解除できません。先に別事業所を主所属に切替えてください。",
+          service_key_missing: "サーバ設定エラー (管理者にお問合せください)。",
+        };
+        alert(messages[json.error] ?? `エラー: ${json.error ?? res.statusText}`);
+        return;
+      }
+      reload();
+    } catch (e) {
+      alert(`通信エラー: ${e instanceof Error ? e.message : "不明"}`);
+    }
+  }
+
   // dangling 招待の履歴削除: auth.users は既に存在しないので、
   // staff_invitations 行だけを直接 DELETE する。
   // RLS: staff_invitations_admin_delete (group_admin or office_admin で自分の office) が enforce。
@@ -485,12 +591,15 @@ export default function AdminStaffPage() {
               <InvitationRow
                 key={inv.token}
                 inv={inv}
+                offices={offices}
                 onCancelInvitation={handleCancelInvitation}
                 onDeleteAccount={handleDeleteAccount}
                 onDeleteHistory={handleDeleteHistory}
                 onStop={handleStop}
                 onRestore={handleRestore}
                 onResetPassword={handleResetPassword}
+                onAddOffice={handleAddOffice}
+                onRemoveOffice={handleRemoveOffice}
               />
             ))}
           </ul>
@@ -525,21 +634,28 @@ export default function AdminStaffPage() {
 // ── 一覧の 1 行 ────────────────────────────────────────────────────
 function InvitationRow({
   inv,
+  offices,
   onCancelInvitation,
   onDeleteAccount,
   onDeleteHistory,
   onStop,
   onRestore,
   onResetPassword,
+  onAddOffice,
+  onRemoveOffice,
 }: {
   inv: InvitationListItem;
+  offices: OfficeOption[];
   onCancelInvitation: (token: string, displayName: string) => void;
   onDeleteAccount: (token: string, userId: string, displayName: string) => void;
   onDeleteHistory: (token: string, displayName: string) => void;
   onStop: (userId: string, displayName: string) => void;
   onRestore: (userId: string, displayName: string) => void;
   onResetPassword: (userId: string, displayName: string) => void;
+  onAddOffice: (userId: string, memberId: string, officeId: string) => Promise<boolean>;
+  onRemoveOffice: (userId: string, memberId: string, officeId: string, officeName: string) => void;
 }) {
+  const [showAddOfficeModal, setShowAddOfficeModal] = useState(false);
   const expired = new Date(inv.expires_at) <= new Date();
   const consumed = inv.consumed_at !== null;
   // dangling = 使用済だが consumed_user_id が NULL (auth.users が手動削除されると
@@ -557,8 +673,17 @@ function InvitationRow({
     ? { label: "停止中", color: "bg-orange-50 text-orange-600" }
     : { label: "在職", color: "bg-emerald-50 text-emerald-600" };
 
+  // Phase 9-4: consume 済 + member_id 在 → 複数 office UI を出す
+  const showMultiOfficeUI =
+    consumed && !!inv.consumed_user_id && !!inv.member_id;
+  const assignedOfficeIdsSet = new Set(
+    inv.member_office_assignments.map((a) => a.office_id)
+  );
+  // 追加候補: admin 範囲の office から 既に紐付いてるものを除外
+  const candidateOffices = offices.filter((o) => !assignedOfficeIdsSet.has(o.id));
+
   return (
-    <li className="px-4 py-3 flex items-center gap-3">
+    <li className="px-4 py-3 flex items-start gap-3">
       <div className="w-9 h-9 bg-indigo-50 rounded-full flex items-center justify-center shrink-0">
         <UserPlus size={16} className="text-indigo-500" />
       </div>
@@ -583,6 +708,56 @@ function InvitationRow({
               : `${formatDistanceToNow(new Date(inv.expires_at), { locale: ja, addSuffix: true })} に期限切れ`}
           </span>
         </div>
+        {showMultiOfficeUI && (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {inv.member_office_assignments.length === 0 ? (
+              <span className="text-[10px] text-gray-300 italic">所属事業所がありません</span>
+            ) : (
+              inv.member_office_assignments.map((a) => (
+                <span
+                  key={a.office_id}
+                  className={`inline-flex items-center gap-1 text-[10px] pl-2 pr-1 py-0.5 rounded-full border ${
+                    a.is_primary
+                      ? "bg-indigo-50 border-indigo-200 text-indigo-700 font-bold"
+                      : "bg-gray-50 border-gray-200 text-gray-600"
+                  }`}
+                  title={a.is_primary ? "主所属 (削除不可)" : "副所属"}
+                >
+                  {a.is_primary && <Star size={10} className="text-indigo-500 fill-indigo-400" />}
+                  <span className="max-w-[120px] truncate">{a.office_name ?? a.office_id}</span>
+                  {a.is_primary ? (
+                    <span className="w-4" />
+                  ) : (
+                    <button
+                      onClick={() =>
+                        onRemoveOffice(
+                          inv.consumed_user_id!,
+                          inv.member_id!,
+                          a.office_id,
+                          a.office_name ?? a.office_id
+                        )
+                      }
+                      className="w-4 h-4 rounded-full hover:bg-red-100 text-gray-400 hover:text-red-500 flex items-center justify-center"
+                      title="この事業所から外す"
+                    >
+                      <X size={10} />
+                    </button>
+                  )}
+                </span>
+              ))
+            )}
+            {candidateOffices.length > 0 && (
+              <button
+                onClick={() => setShowAddOfficeModal(true)}
+                className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-600 hover:bg-emerald-100 font-semibold"
+                title="別の事業所にも所属させる"
+              >
+                <Plus size={10} />
+                別事業所追加
+              </button>
+            )}
+          </div>
+        )}
       </div>
       {!consumed ? (
         <button
@@ -638,7 +813,111 @@ function InvitationRow({
           </button>
         </div>
       ) : null}
+      {showAddOfficeModal && inv.consumed_user_id && inv.member_id && (
+        <AddOfficeModal
+          displayName={inv.display_name}
+          candidateOffices={candidateOffices}
+          onClose={() => setShowAddOfficeModal(false)}
+          onConfirm={async (officeId) => {
+            const ok = await onAddOffice(inv.consumed_user_id!, inv.member_id!, officeId);
+            if (ok) setShowAddOfficeModal(false);
+          }}
+        />
+      )}
     </li>
+  );
+}
+
+// ── Phase 9-4: 別事業所追加モーダル ─────────────────────────────────
+function AddOfficeModal({
+  displayName,
+  candidateOffices,
+  onClose,
+  onConfirm,
+}: {
+  displayName: string;
+  candidateOffices: OfficeOption[];
+  onClose: () => void;
+  onConfirm: (officeId: string) => Promise<void> | void;
+}) {
+  const [selected, setSelected] = useState<string>(candidateOffices[0]?.id ?? "");
+  const [submitting, setSubmitting] = useState(false);
+
+  // tenant でグループ化 (NewInvitationModal と同じ手法)
+  const grouped = useMemo(() => {
+    const map = new Map<string, { tenantName: string | null; items: OfficeOption[] }>();
+    for (const o of candidateOffices) {
+      const key = o.tenant_id;
+      const entry = map.get(key) ?? { tenantName: o.tenant_name, items: [] };
+      entry.items.push(o);
+      map.set(key, entry);
+    }
+    return Array.from(map.entries());
+  }, [candidateOffices]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center p-3">
+      <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden">
+        <header className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <Building2 size={16} className="text-emerald-500" />
+            <h2 className="text-sm font-bold text-gray-800">別事業所を追加</h2>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400">
+            <X size={16} />
+          </button>
+        </header>
+
+        <div className="p-5 space-y-4">
+          <p className="text-xs text-gray-500 leading-relaxed">
+            「<strong>{displayName}</strong>」を追加で所属させる事業所を選択してください。
+            <br />
+            主所属は変わりません (副所属として追加されます)。
+          </p>
+          <div>
+            <label className="text-xs font-semibold text-gray-500 mb-1 block">追加する事業所</label>
+            <select
+              value={selected}
+              onChange={(e) => setSelected(e.target.value)}
+              className="w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-400 bg-white"
+            >
+              {grouped.map(([tenantId, { tenantName, items }]) => (
+                <optgroup key={tenantId} label={tenantName ?? tenantId}>
+                  {items.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <footer className="px-5 py-3 border-t border-gray-100 flex justify-end gap-2 bg-gray-50">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-xs font-semibold text-gray-500 hover:bg-gray-100 rounded-lg"
+          >
+            キャンセル
+          </button>
+          <button
+            onClick={async () => {
+              if (!selected) return;
+              setSubmitting(true);
+              try {
+                await onConfirm(selected);
+              } finally {
+                setSubmitting(false);
+              }
+            }}
+            disabled={submitting || !selected}
+            className="flex items-center gap-1 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 text-white text-xs font-semibold rounded-lg"
+          >
+            {submitting ? <Loader2 size={12} className="animate-spin" /> : <ChevronRight size={12} />}
+            追加
+          </button>
+        </footer>
+      </div>
+    </div>
   );
 }
 
