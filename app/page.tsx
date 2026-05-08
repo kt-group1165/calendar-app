@@ -58,13 +58,29 @@ export default function HomePage() {
           typeof r === "string" ? r : r.auth_user_admin_tenants ?? ""
         );
         const groupT = visible.find((t) => t.tenant_type === "group");
-        // group tenant の admin (group_admin / company_admin) なら「全社ビュー」表示
-        setShowGroupView(!!groupT && adminTenantIds.includes(groupT.id));
-        // 役職 tenant も office も無く group tenant 1 個だけなら即遷移
-        const onlyGroup = visible.length === 1 && visible[0].tenant_type === "group";
-        if (onlyGroup && oList.length === 0) {
-          router.replace(`/${visible[0].id}`);
-          return;
+        const localShowGroupView = !!groupT && adminTenantIds.includes(groupT.id);
+        setShowGroupView(localShowGroupView);
+
+        // ── アクセス可能な destination が 1 つだけならスキップして直行 ──
+        const localRoleTenants = visible.filter((t) => t.tenant_type === "role");
+        const totalDestinations =
+          localRoleTenants.length + oList.length + (localShowGroupView ? 1 : 0);
+        if (totalDestinations === 1) {
+          // 単一 office: /[group]?office=<id>
+          if (oList.length === 1 && groupT) {
+            router.replace(`/${groupT.id}?office=${oList[0].id}`);
+            return;
+          }
+          // 単一役職 tenant: /[role]
+          if (localRoleTenants.length === 1) {
+            router.replace(`/${localRoleTenants[0].id}`);
+            return;
+          }
+          // 単一 group tenant (admin が全社ビューだけ): /[group]
+          if (localShowGroupView && groupT) {
+            router.replace(`/${groupT.id}`);
+            return;
+          }
         }
       } catch {
         // ignore
