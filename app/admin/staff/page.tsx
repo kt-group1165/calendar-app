@@ -69,15 +69,34 @@ export default function AdminStaffPage() {
     expires_at: string | null;
   } | null>(null);
 
-  // 認証ガード
+  // 認証 + 権限ガード:
+  //   未ログイン → /login へ
+  //   一般 staff (role='member' のみで admin tenant 持たない) → / へ追放
+  //   group_admin / company_admin / office_admin だけが /admin/staff にアクセス可能
   useEffect(() => {
     const supabase = getSupabase();
-    supabase.auth.getUser().then((res: { data: { user: User | null } }) => {
-      const u = res.data.user ?? null;
-      setAuthUser(u);
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setAuthUser(user);
+      if (!user) {
+        router.replace("/login?next=/admin/staff");
+        setAuthChecked(true);
+        return;
+      }
+      // 権限チェック: auth_user_admin_tenants に何か / user_offices.role='office_admin' あれば admin
+      const [adminTenantsRes, officeAdminRes] = await Promise.all([
+        supabase.rpc("auth_user_admin_tenants"),
+        supabase.from("user_offices").select("office_id").eq("user_id", user.id).eq("role", "office_admin"),
+      ]);
+      const hasAdminTenant = ((adminTenantsRes.data ?? []) as unknown[]).length > 0;
+      const isOfficeAdmin = ((officeAdminRes.data ?? []) as unknown[]).length > 0;
+      if (!hasAdminTenant && !isOfficeAdmin) {
+        // 一般 staff: 権限なしで /admin/staff にアクセス → ホームへ追い返す
+        router.replace("/");
+        return;
+      }
       setAuthChecked(true);
-      if (!u) router.replace("/login?next=/admin/staff");
-    });
+    })();
   }, [router]);
 
   async function reload() {
