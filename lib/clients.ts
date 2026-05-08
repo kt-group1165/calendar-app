@@ -91,12 +91,23 @@ export type ClientOfficeAssignment = {
 };
 
 export async function getClientOfficeAssignments(tenantId: string): Promise<ClientOfficeAssignment[]> {
-  const { data, error } = await supabase
-    .from("client_office_assignments")
-    .select("*")
-    .eq("tenant_id", tenantId);
-  if (error) throw error;
-  return (data as ClientOfficeAssignment[]) ?? [];
+  // PostgREST default 1000 行制限対応: ページング取得
+  const PAGE = 1000;
+  const all: ClientOfficeAssignment[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("client_office_assignments")
+      .select("*")
+      .eq("tenant_id", tenantId)
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    all.push(...(data as ClientOfficeAssignment[]));
+    if (data.length < PAGE) break;
+    from += PAGE;
+  }
+  return all;
 }
 
 // 指定利用者の紐付け事業所を設定（既存は置換）
@@ -294,13 +305,26 @@ export async function replaceClientsForOffice(
     // 共有スコープ: 事業所紐付けがない利用者のみを対象に置換
     const assignments = await getClientOfficeAssignments(tenantId);
     const assignedIds = new Set(assignments.map((a) => a.client_id));
-    const { data: existing } = await supabase
-      .from("clients")
-      .select("id")
-      .eq("tenant_id", tenantId);
-    const idsToDelete = (existing ?? [])
-      .map((c: { id: string }) => c.id)
-      .filter((id: string) => !assignedIds.has(id));
+    // PostgREST default 1000 行制限対応: ページング取得
+    const allExisting: { id: string }[] = [];
+    {
+      const PAGE = 1000;
+      let from = 0;
+      while (true) {
+        const { data } = await supabase
+          .from("clients")
+          .select("id")
+          .eq("tenant_id", tenantId)
+          .range(from, from + PAGE - 1);
+        if (!data || data.length === 0) break;
+        allExisting.push(...(data as { id: string }[]));
+        if (data.length < PAGE) break;
+        from += PAGE;
+      }
+    }
+    const idsToDelete = allExisting
+      .map((c) => c.id)
+      .filter((id) => !assignedIds.has(id));
     if (idsToDelete.length > 0) {
       await supabase.from("clients").delete().in("id", idsToDelete);
     }
