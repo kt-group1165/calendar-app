@@ -3,11 +3,14 @@
 import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { X, Loader2, ChevronRight } from "lucide-react";
-import { getActivityLogs, type ActivityLog } from "@/lib/events";
+import { getActivityLogs, getEventOfficeMap, type ActivityLog } from "@/lib/events";
 
 type Props = {
   tenantId: string;
   currentUser: string;
+  // 現在 office picker で選択中の office。null = 全事業所表示中なので
+  // cross-office 判定はスキップ (全 row 通常表示)。
+  currentOfficeId?: string | null;
   onClose: () => void;
   onEventClick?: (eventId: string) => void;
 };
@@ -39,18 +42,21 @@ function actionVerb(action: ActivityLog["action"]): string {
   }
 }
 
-export default function ActivityLogView({ tenantId, currentUser, onClose, onEventClick }: Props) {
+export default function ActivityLogView({ tenantId, currentUser, currentOfficeId, onClose, onEventClick }: Props) {
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [filter, setFilter] = useState<"all" | "mine">("all");
+  // event_id -> office_id の map。entry 無し = events row 削除済 or 未取得。
+  const [officeMap, setOfficeMap] = useState<Map<string, string | null>>(new Map());
   const offsetRef = useRef(0);
 
   useEffect(() => {
     offsetRef.current = 0;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
     setLogs([]);
+    setOfficeMap(new Map());
     setHasMore(true);
     fetchLogs(0, true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -69,6 +75,24 @@ export default function ActivityLogView({ tenantId, currentUser, onClose, onEven
       setLogs((prev) => (reset ? data : [...prev, ...data]));
       setHasMore(data.length === LIMIT);
       offsetRef.current = offset + data.length;
+
+      // 新規取得分の event_id を office map に追記。currentOfficeId 未指定時は
+      // 判定不要 (全 row 通常表示) なので fetch を skip。
+      if (currentOfficeId) {
+        const newEventIds = data
+          .map((d) => d.event_id)
+          .filter((id): id is string => !!id);
+        if (newEventIds.length > 0) {
+          const fetched = await getEventOfficeMap(newEventIds);
+          setOfficeMap((prev) => {
+            const next = reset ? new Map<string, string | null>() : new Map(prev);
+            for (const [k, v] of fetched) next.set(k, v);
+            return next;
+          });
+        } else if (reset) {
+          setOfficeMap(new Map());
+        }
+      }
     } catch {
       // ignore
     } finally {
@@ -125,17 +149,32 @@ export default function ActivityLogView({ tenantId, currentUser, onClose, onEven
                 JSON.stringify([...log.assignees_before].sort()) !==
                   JSON.stringify([...log.assignees_after].sort());
 
+              // 他事業所判定: currentOfficeId 指定中、event_id がある、かつ
+              // map 上で異なる office_id が引けた場合のみ true。
+              // events 削除済 (map に entry 無し) や全事業所表示中は false。
+              const otherOffice =
+                !!currentOfficeId &&
+                !!log.event_id &&
+                officeMap.has(log.event_id) &&
+                officeMap.get(log.event_id) !== currentOfficeId;
+
+              const isClickable = !!log.event_id && !!onEventClick && !otherOffice;
+
               return (
                 <div
                   key={log.id}
-                  className={`bg-white px-4 py-3 flex items-start gap-3 ${
-                    log.event_id && onEventClick ? "cursor-pointer active:bg-gray-50" : ""
+                  className={`px-4 py-3 flex items-start gap-3 ${
+                    otherOffice
+                      ? "bg-gray-50 italic text-gray-500 cursor-not-allowed"
+                      : `bg-white ${isClickable ? "cursor-pointer active:bg-gray-50" : ""}`
                   }`}
-                  onClick={() => log.event_id && onEventClick?.(log.event_id)}
+                  onClick={isClickable ? () => onEventClick?.(log.event_id!) : undefined}
+                  title={otherOffice ? "他事業所のイベントです (現 office から編集できません)" : undefined}
+                  aria-disabled={otherOffice || undefined}
                 >
                   {/* アバター */}
-                  <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center shrink-0 mt-0.5">
-                    <span className="text-sm font-bold text-indigo-600">
+                  <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${otherOffice ? "bg-gray-200" : "bg-indigo-100"}`}>
+                    <span className={`text-sm font-bold ${otherOffice ? "text-gray-500" : "text-indigo-600"}`}>
                       {log.actor.charAt(0)}
                     </span>
                   </div>
@@ -143,14 +182,19 @@ export default function ActivityLogView({ tenantId, currentUser, onClose, onEven
                   {/* 内容 */}
                   <div className="flex-1 min-w-0 overflow-hidden">
                     <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                      {otherOffice && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-gray-200 text-gray-600 not-italic font-semibold shrink-0">
+                          他事業所
+                        </span>
+                      )}
                       <ActionBadge action={log.action} />
-                      <span className="text-sm text-gray-800">
+                      <span className={`text-sm ${otherOffice ? "text-gray-500" : "text-gray-800"}`}>
                         <span className="font-semibold">{log.actor}</span>
                         {actionVerb(log.action)}
                       </span>
                     </div>
 
-                    <p className="text-sm text-gray-700 font-medium truncate">
+                    <p className={`text-sm font-medium truncate ${otherOffice ? "text-gray-500" : "text-gray-700"}`}>
                       「{log.event_title}」
                     </p>
 
@@ -177,7 +221,7 @@ export default function ActivityLogView({ tenantId, currentUser, onClose, onEven
                   </div>
 
                   {/* 矢印（タップ可能なら表示） */}
-                  {log.event_id && onEventClick && (
+                  {isClickable && (
                     <ChevronRight size={16} className="text-gray-300 shrink-0 mt-1" />
                   )}
                 </div>

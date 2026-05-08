@@ -909,6 +909,7 @@ export default function TenantCalendarPage() {
         <ActivityLogView
           tenantId={tenantId}
           currentUser={currentUser}
+          currentOfficeId={currentOfficeId}
           onClose={() => setShowActivityLog(false)}
           onEventClick={handleActivityEventClick}
         />

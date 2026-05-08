@@ -490,6 +490,32 @@ export async function getActivityLogs(
   return (data ?? []) as ActivityLog[];
 }
 
+// activity_logs に紐づく event_id 群から { event_id -> office_id } の map を取得。
+// activity_logs は tenant-wide (office_id 列を持たない) ため、UI 上で「他事業所の
+// event 由来の log」を視覚的に区別するための判定に使う。1000 行以上は page-loop。
+// events に row が無い (削除済み) 場合は map に entry が残らない。
+export async function getEventOfficeMap(
+  eventIds: ReadonlyArray<string>
+): Promise<Map<string, string | null>> {
+  const map = new Map<string, string | null>();
+  const unique = Array.from(new Set(eventIds.filter((id): id is string => !!id)));
+  if (unique.length === 0) return map;
+  const PAGE = 1000;
+  for (let i = 0; i < unique.length; i += PAGE) {
+    const batch = unique.slice(i, i + PAGE);
+    const { data, error } = await supabase
+      .from("events")
+      .select("id, office_id")
+      .in("id", batch);
+    if (error) continue;
+    type Row = { id: string; office_id: string | null };
+    for (const row of (data ?? []) as Row[]) {
+      map.set(row.id, row.office_id);
+    }
+  }
+  return map;
+}
+
 export async function getUnreadActivityCount(since: string, tenantId: string = "default"): Promise<number> {
   const { count, error } = await supabase
     .from("activity_logs")
