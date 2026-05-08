@@ -204,6 +204,11 @@ export default function TenantCalendarPage() {
 
   const loadEvents = useCallback(async () => {
     if (!tenantId) return;
+    // role tenant (kt-group 以外) で office 未指定なら、offices が読み終わるまで
+    // events fetch を保留する (一度も filter 無しで全件取らないため flicker / leak 防止)
+    if (tenantId !== "kt-group" && !currentOfficeId && offices.length === 0) {
+      return;
+    }
     setLoading(true);
     try {
       const { start, end } = getDateRange(currentDate, viewMode);
