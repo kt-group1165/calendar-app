@@ -489,9 +489,14 @@ export default function TenantCalendarPage() {
             <ChevronDown size={14} className="text-gray-400" />
           </button>
           {currentOffice && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600 font-medium leading-none -mt-0.5 truncate max-w-[200px]">
+            <button
+              onClick={() => router.push("/")}
+              className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-medium leading-none -mt-0.5 truncate max-w-[200px] inline-flex items-center gap-1 transition-colors"
+              title="事業所選択に戻る"
+            >
               {currentOffice.name}
-            </span>
+              <ChevronDown size={10} className="rotate-90 -mr-0.5" />
+            </button>
           )}
 
           {showDatePicker && (
