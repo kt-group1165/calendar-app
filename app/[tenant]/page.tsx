@@ -483,21 +483,23 @@ export default function TenantCalendarPage() {
         </div>
 
         {/* 年月タイトル（タップでピッカー） */}
-        <div className="relative flex flex-col items-center min-w-0 flex-1 px-1">
+        <div className="relative flex flex-col items-center min-w-0 flex-1">
           <button
             onClick={() => { setPickerYear(currentDate.getFullYear()); setPickerMonth(currentDate.getMonth()); setShowDatePicker(!showDatePicker); }}
-            className="flex items-center gap-1 text-xs sm:text-base font-bold text-gray-800 px-1.5 py-0.5 rounded-lg hover:bg-gray-100 transition-colors whitespace-nowrap"
+            className="flex items-center gap-1 text-sm sm:text-base font-bold text-gray-800 px-2 py-0.5 rounded-lg hover:bg-gray-100 transition-colors whitespace-nowrap"
           >
             {getHeaderTitle()}
-            <ChevronDown size={12} className="text-gray-400 shrink-0 sm:size-[14px]" />
+            <ChevronDown size={14} className="text-gray-400 shrink-0" />
           </button>
           {currentOffice && (
             <button
               onClick={() => router.push("/")}
-              className="text-[11px] px-1.5 py-0.5 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-medium leading-none mt-0.5 inline-flex items-center gap-1 transition-colors whitespace-nowrap max-w-full"
+              className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-medium leading-none -mt-0.5 inline-flex items-center gap-1 transition-colors whitespace-nowrap max-w-full"
               title={`事業所選択に戻る (${currentOffice.name})`}
             >
-              <span className="truncate">{currentOffice.name}</span>
+              <span className="truncate">
+                {currentOffice.name.length > 8 ? `${currentOffice.name.slice(0, 8)}…` : currentOffice.name}
+              </span>
               <ChevronDown size={10} className="rotate-90 -mr-0.5 shrink-0" />
             </button>
           )}
@@ -608,17 +610,17 @@ export default function TenantCalendarPage() {
           </div>
           <button
             onClick={() => setShowSearch(true)}
-            className="hidden sm:flex p-2 rounded-xl hover:bg-gray-100 transition-colors"
+            className="p-1.5 sm:p-2 rounded-xl hover:bg-gray-100 transition-colors"
             title="検索"
           >
-            <Search size={18} className="text-gray-400" />
+            <Search size={16} className="text-gray-400 sm:size-[18px]" />
           </button>
           <button
             onClick={() => setShowMemo(true)}
-            className="hidden sm:flex p-2 rounded-xl hover:bg-gray-100 transition-colors"
+            className="p-1.5 sm:p-2 rounded-xl hover:bg-gray-100 transition-colors"
             title="メモ（日付未定）"
           >
-            <StickyNote size={18} className="text-gray-400" />
+            <StickyNote size={16} className="text-gray-400 sm:size-[18px]" />
           </button>
           <button
             onClick={handleOpenActivityLog}
@@ -651,21 +653,6 @@ export default function TenantCalendarPage() {
                       <p className="text-xs font-medium text-gray-700 truncate">{authUser.authUser.email}</p>
                     </div>
                   )}
-                  {/* mobile では header から外した Search/Memo もここから呼ぶ */}
-                  <button
-                    onClick={() => { setShowMoreMenu(false); setShowSearch(true); }}
-                    className="sm:hidden w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 text-left"
-                  >
-                    <Search size={14} className="text-gray-400" />
-                    検索
-                  </button>
-                  <button
-                    onClick={() => { setShowMoreMenu(false); setShowMemo(true); }}
-                    className="sm:hidden w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 text-left"
-                  >
-                    <StickyNote size={14} className="text-gray-400" />
-                    メモ（日付未定）
-                  </button>
                   <button
                     onClick={() => { setShowMoreMenu(false); setShowTrash(true); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 text-left"
