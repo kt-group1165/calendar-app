@@ -39,6 +39,7 @@ type InvitationListItem = {
   expires_at: string;
   consumed_at: string | null;
   consumed_user_id: string | null;
+  member_status: string | null; // 'active' / 'inactive' / null (member 紐付け無し)
 };
 
 type OfficeOption = {
@@ -143,6 +144,38 @@ export default function AdminStaffPage() {
         consumed_at: string | null;
         consumed_user_id: string | null;
       };
+
+      // 各 consume 済 user の members.status を引き当てる
+      // (auth.users → user_offices.user_id → user_offices.member_id → members.id → status)
+      const consumedUserIds = ((invRows ?? []) as InvRow[])
+        .map((r) => r.consumed_user_id)
+        .filter((id): id is string => !!id);
+      const memberStatusByUserId = new Map<string, string | null>();
+      if (consumedUserIds.length > 0) {
+        const { data: uoRows } = await supabase
+          .from("user_offices")
+          .select("user_id, member_id")
+          .in("user_id", consumedUserIds);
+        type UoRow = { user_id: string; member_id: string | null };
+        const uoTyped = (uoRows ?? []) as UoRow[];
+        const memberIds = uoTyped.map((u) => u.member_id).filter((m): m is string => !!m);
+        if (memberIds.length > 0) {
+          const { data: mRows } = await supabase
+            .from("members")
+            .select("id, status")
+            .in("id", memberIds);
+          type MemberRow = { id: string; status: string | null };
+          const statusById = new Map(
+            ((mRows ?? []) as MemberRow[]).map((m) => [m.id, m.status] as const)
+          );
+          for (const u of uoTyped) {
+            if (u.member_id) {
+              memberStatusByUserId.set(u.user_id, statusById.get(u.member_id) ?? null);
+            }
+          }
+        }
+      }
+
       setInvitations(
         ((invRows ?? []) as InvRow[]).map((r) => ({
           token: r.token,
@@ -154,6 +187,9 @@ export default function AdminStaffPage() {
           expires_at: r.expires_at,
           consumed_at: r.consumed_at,
           consumed_user_id: r.consumed_user_id,
+          member_status: r.consumed_user_id
+            ? (memberStatusByUserId.get(r.consumed_user_id) ?? null)
+            : null,
         }))
       );
     } catch (e) {
@@ -260,6 +296,60 @@ export default function AdminStaffPage() {
     }
   }
 
+  // 停止: auth.users ban + members.status='inactive' + payroll_employees 退職処理
+  async function handleStop(userId: string, displayName: string) {
+    const counts = await fetchUsageCounts(displayName, userId);
+    if (!confirm(
+      `「${displayName}」のアカウントを停止しますか？\n\n` +
+      `■ このスタッフの過去データ:\n` +
+      `・担当者として記録された予定: ${counts.assignedEvents} 件 (表示維持)\n` +
+      `・作成した予定: ${counts.createdEvents} 件 (作成者表示維持)\n` +
+      `・最終編集した予定: ${counts.updatedEvents} 件 (編集者表示維持)\n` +
+      `・投稿したコメント: ${counts.comments} 件 (表示維持)\n\n` +
+      `■ 停止後:\n` +
+      `・このスタッフはログインできなくなります\n` +
+      `・members 一覧の status が 'inactive' (担当者 picker から除外)\n` +
+      `・payroll_employees の在職区分が「退職者」+ 退職日=今日\n` +
+      `・過去の予定・給与履歴は全て無傷で残ります\n\n` +
+      `「復帰」ボタンでいつでも再活性化可能です。`
+    )) return;
+    try {
+      const res = await fetch("/api/admin/staff/stop", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        alert(`停止に失敗しました: ${json.error ?? res.statusText}`);
+        return;
+      }
+      reload();
+    } catch (e) {
+      alert(`通信エラー: ${e instanceof Error ? e.message : "不明"}`);
+    }
+  }
+
+  // 復帰: 停止状態から再活性化
+  async function handleRestore(userId: string, displayName: string) {
+    if (!confirm(`「${displayName}」のアカウントを復帰させますか？\n\n・login 可能に戻る\n・members.status='active' / payroll の在職区分=「在職者」`)) return;
+    try {
+      const res = await fetch("/api/admin/staff/restore", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        alert(`復帰に失敗しました: ${json.error ?? res.statusText}`);
+        return;
+      }
+      reload();
+    } catch (e) {
+      alert(`通信エラー: ${e instanceof Error ? e.message : "不明"}`);
+    }
+  }
+
   // dangling 招待の履歴削除: auth.users は既に存在しないので、
   // staff_invitations 行だけを直接 DELETE する。
   // RLS: staff_invitations_admin_delete (group_admin or office_admin で自分の office) が enforce。
@@ -350,6 +440,8 @@ export default function AdminStaffPage() {
                 onCancelInvitation={handleCancelInvitation}
                 onDeleteAccount={handleDeleteAccount}
                 onDeleteHistory={handleDeleteHistory}
+                onStop={handleStop}
+                onRestore={handleRestore}
               />
             ))}
           </ul>
@@ -387,11 +479,15 @@ function InvitationRow({
   onCancelInvitation,
   onDeleteAccount,
   onDeleteHistory,
+  onStop,
+  onRestore,
 }: {
   inv: InvitationListItem;
   onCancelInvitation: (token: string, displayName: string) => void;
   onDeleteAccount: (token: string, userId: string, displayName: string) => void;
   onDeleteHistory: (token: string, displayName: string) => void;
+  onStop: (userId: string, displayName: string) => void;
+  onRestore: (userId: string, displayName: string) => void;
 }) {
   const expired = new Date(inv.expires_at) <= new Date();
   const consumed = inv.consumed_at !== null;
@@ -399,11 +495,16 @@ function InvitationRow({
   // FK ON DELETE SET NULL で NULL 化)。アカウント削除 button は出せないので、
   // 履歴行 (staff_invitations) を直接消す button を出す。
   const dangling = consumed && !inv.consumed_user_id;
-  const status = consumed
-    ? { label: "使用済", color: "bg-gray-100 text-gray-500" }
-    : expired
-    ? { label: "期限切れ", color: "bg-amber-50 text-amber-600" }
-    : { label: "未使用", color: "bg-emerald-50 text-emerald-600" };
+  const stopped = inv.member_status === "inactive";
+  const status = !consumed
+    ? expired
+      ? { label: "期限切れ", color: "bg-amber-50 text-amber-600" }
+      : { label: "未使用", color: "bg-emerald-50 text-emerald-600" }
+    : dangling
+    ? { label: "削除済", color: "bg-gray-100 text-gray-400" }
+    : stopped
+    ? { label: "停止中", color: "bg-orange-50 text-orange-600" }
+    : { label: "在職", color: "bg-emerald-50 text-emerald-600" };
 
   return (
     <li className="px-4 py-3 flex items-center gap-3">
@@ -450,14 +551,32 @@ function InvitationRow({
           履歴削除
         </button>
       ) : inv.consumed_user_id ? (
-        <button
-          onClick={() => onDeleteAccount(inv.token, inv.consumed_user_id!, inv.display_name)}
-          className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-[11px] font-semibold flex items-center gap-1"
-          title="このアカウントを完全に削除する (再ログイン不可になります)"
-        >
-          <Trash2 size={11} />
-          アカウント削除
-        </button>
+        <div className="flex items-center gap-1.5">
+          {stopped ? (
+            <button
+              onClick={() => onRestore(inv.consumed_user_id!, inv.display_name)}
+              className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-600 text-[11px] font-semibold"
+              title="停止状態を解除して復帰させる"
+            >
+              復帰
+            </button>
+          ) : (
+            <button
+              onClick={() => onStop(inv.consumed_user_id!, inv.display_name)}
+              className="px-2.5 py-1 rounded-lg bg-orange-50 hover:bg-orange-100 text-orange-600 text-[11px] font-semibold"
+              title="login 不可化 + 在職区分を退職に (過去データ保護)"
+            >
+              停止
+            </button>
+          )}
+          <button
+            onClick={() => onDeleteAccount(inv.token, inv.consumed_user_id!, inv.display_name)}
+            className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500"
+            title="完全削除 (再ログイン不可、作成者表示が NULL に。通常は「停止」推奨)"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
       ) : null}
     </li>
   );
