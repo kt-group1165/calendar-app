@@ -43,22 +43,25 @@ export default function HomePage() {
       }
 
       try {
-        const [tList, oList, adminTenantsRes] = await Promise.all([
+        const [tList, oList, adminGroupsRes, adminCompaniesRes] = await Promise.all([
           getTenants(),
           // kt-group の福祉用具/本社 office を取得 (RLS で自分が見える分だけ返る)
           getOffices("kt-group").catch(() => [] as Office[]),
-          // 自分が admin として扱える tenant の集合
-          supabase.rpc("auth_user_admin_tenants"),
+          // group_admin である group の集合 (空なら group_admin ではない)
+          supabase.rpc("auth_admin_group_ids"),
+          // company_admin である company の集合
+          supabase.rpc("auth_admin_company_ids"),
         ]);
         const visible = tList.filter((t) => t.tenant_type !== "test");
         setTenants(visible);
         setOffices(oList);
-        type AdminRow = { auth_user_admin_tenants?: string } | string;
-        const adminTenantIds = ((adminTenantsRes.data ?? []) as AdminRow[]).map((r) =>
-          typeof r === "string" ? r : r.auth_user_admin_tenants ?? ""
-        );
         const groupT = visible.find((t) => t.tenant_type === "group");
-        const localShowGroupView = !!groupT && adminTenantIds.includes(groupT.id);
+        // 「全社ビュー」を見せるのは group_admin / company_admin のみ
+        // (office_admin は自 office に属する範囲だけで OK)
+        const isGroupOrCompanyAdmin =
+          ((adminGroupsRes.data ?? []) as unknown[]).length > 0 ||
+          ((adminCompaniesRes.data ?? []) as unknown[]).length > 0;
+        const localShowGroupView = !!groupT && isGroupOrCompanyAdmin;
         setShowGroupView(localShowGroupView);
 
         // ── アクセス可能な destination が 1 つだけならスキップして直行 ──
