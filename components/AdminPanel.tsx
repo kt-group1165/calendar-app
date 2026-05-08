@@ -127,10 +127,9 @@ function MembersTab({ tenantId }: { tenantId: string }) {
     setAdding(true);
     try {
       const m = await addMember(name, newColor, tenantId);
-      // 自事業所選択中なら自動で office_id を紐付け
+      // 自事業所選択中なら自動で office を紐付け
       if (currentOfficeId) {
         await updateMemberOffice(m.id, currentOfficeId);
-        m.office_id = currentOfficeId;
         m.office_ids = Array.from(new Set([...m.office_ids, currentOfficeId]));
         m.primary_office_id = currentOfficeId;
       }

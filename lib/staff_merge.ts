@@ -108,20 +108,18 @@ export async function executeMerge(
     if (!baseMember) {
       // 任意のエリア付き変種の色を引き継ぐ
       const firstVariant = variants[0];
-      const inheritedOfficeId = firstVariant.member.primary_office_id ?? firstVariant.member.office_id;
+      const inheritedOfficeId = firstVariant.member.primary_office_id;
       const { data: inserted, error } = await supabase
         .from("members")
         .insert({
           tenant_id: tenantId,
           name: baseName,
           color: firstVariant.member.color,
-          office_id: inheritedOfficeId,
           sort_order: firstVariant.member.sort_order,
         })
         .select()
         .single();
       if (error) throw error;
-      // Phase 9: member_offices junction にも primary 行
       if (inheritedOfficeId && inserted?.id) {
         await supabase
           .from("member_offices")
