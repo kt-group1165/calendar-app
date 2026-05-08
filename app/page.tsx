@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { CalendarDays, ChevronRight, Loader2, LogOut, User as UserIcon, Building2, Briefcase } from "lucide-react";
+import { CalendarDays, ChevronRight, Fingerprint, Loader2, LogOut, User as UserIcon, Building2, Briefcase } from "lucide-react";
 import type { User } from "@supabase/supabase-js";
 import { getTenants, type Tenant } from "@/lib/tenants";
 import { getOffices, type Office } from "@/lib/offices";
@@ -133,6 +133,13 @@ export default function HomePage() {
               <p className="text-xs text-gray-400">ログイン中</p>
               <p className="text-sm font-medium text-gray-800 truncate">{authUser.email}</p>
             </div>
+            <button
+              onClick={() => router.push("/passkeys")}
+              className="p-2 rounded-xl hover:bg-indigo-50 text-gray-400 hover:text-indigo-500 shrink-0"
+              title="パスキー管理"
+            >
+              <Fingerprint size={14} />
+            </button>
             <button
               onClick={handleLogout}
               className="p-2 rounded-xl hover:bg-red-50 text-gray-400 hover:text-red-400 shrink-0"
