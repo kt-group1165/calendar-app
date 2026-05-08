@@ -7,7 +7,7 @@ import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameDay, isSameMonth, isToday,
 } from "date-fns";
 import { ja } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, ChevronDown, Plus, Calendar, RefreshCw, Trash2, Settings, Bell, Search, StickyNote, LogOut, Fingerprint } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Plus, Calendar, RefreshCw, Trash2, Settings, Bell, Search, StickyNote, LogOut, Fingerprint, MoreVertical } from "lucide-react";
 import MonthView from "@/components/MonthView";
 import WeekView from "@/components/WeekView";
 import DayView from "@/components/DayView";
@@ -134,6 +134,9 @@ export default function TenantCalendarPage() {
   const [showSearch, setShowSearch] = useState(false);
   const [showMemo, setShowMemo] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  // ヘッダー右端「その他」メニュー (mobile で icon が溢れないよう集約)
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   // Auth セッションから currentUser / isMaster を derive。
   // 未ログイン時は proxy で /login へ redirect されているはず。
@@ -629,39 +632,68 @@ export default function TenantCalendarPage() {
               </span>
             )}
           </button>
-          <button onClick={() => setShowTrash(true)}
-            className="p-2 rounded-xl hover:bg-gray-100 transition-colors" title="ゴミ箱">
-            <Trash2 size={18} className="text-gray-400" />
-          </button>
-          {isMaster && (
+          {/* その他メニュー: ゴミ箱 / 管理 / パスキー / ログアウト を集約 */}
+          <div className="relative">
             <button
-              onClick={() => setShowAdmin(true)}
-              className="p-2 rounded-xl hover:bg-gray-100 transition-colors" title="管理">
-              <Settings size={18} className="text-indigo-500" />
-            </button>
-          )}
-          {authUser.authUser && (
-            <button
-              onClick={() => router.push("/passkeys")}
-              className="p-2 rounded-xl hover:bg-indigo-50 transition-colors"
-              title="パスキー管理"
+              onClick={() => setShowMoreMenu((v) => !v)}
+              className="p-2 rounded-xl hover:bg-gray-100 transition-colors ml-0.5"
+              title="その他"
             >
-              <Fingerprint size={18} className="text-gray-400" />
+              <MoreVertical size={18} className={isMaster ? "text-indigo-500" : "text-gray-400"} />
             </button>
-          )}
-          {authUser.authUser && (
-            <button
-              onClick={async () => {
-                if (!confirm("ログアウトしますか？")) return;
-                await signOut();
-                window.location.href = "/";
-              }}
-              className="p-2 rounded-xl hover:bg-red-50 transition-colors"
-              title={`ログアウト (${authUser.authUser.email})`}
-            >
-              <LogOut size={18} className="text-gray-400" />
-            </button>
-          )}
+            {showMoreMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} />
+                <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 py-1 z-50">
+                  {authUser.authUser?.email && (
+                    <div className="px-3 py-2 border-b border-gray-50">
+                      <p className="text-[10px] text-gray-400">ログイン中</p>
+                      <p className="text-xs font-medium text-gray-700 truncate">{authUser.authUser.email}</p>
+                    </div>
+                  )}
+                  <button
+                    onClick={() => { setShowMoreMenu(false); setShowTrash(true); }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 text-left"
+                  >
+                    <Trash2 size={14} className="text-gray-400" />
+                    ゴミ箱
+                  </button>
+                  {isMaster && (
+                    <button
+                      onClick={() => { setShowMoreMenu(false); setShowAdmin(true); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 text-left"
+                    >
+                      <Settings size={14} className="text-indigo-500" />
+                      管理
+                    </button>
+                  )}
+                  {authUser.authUser && (
+                    <button
+                      onClick={() => { setShowMoreMenu(false); router.push("/passkeys"); }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 text-left"
+                    >
+                      <Fingerprint size={14} className="text-gray-400" />
+                      パスキー管理
+                    </button>
+                  )}
+                  {authUser.authUser && (
+                    <button
+                      onClick={async () => {
+                        setShowMoreMenu(false);
+                        if (!confirm("ログアウトしますか？")) return;
+                        await signOut();
+                        window.location.href = "/";
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-600 hover:bg-red-50 text-left border-t border-gray-50"
+                    >
+                      <LogOut size={14} />
+                      ログアウト
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
