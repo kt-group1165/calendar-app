@@ -184,6 +184,31 @@ export default function AdminStaffPage() {
     reload();
   }
 
+  // 削除前: そのスタッフが過去どれだけ予定/コメントに紐付いてるか
+  // count を取得 (events.assignees は TEXT[] / events.created_by は user.id /
+  // comments.author は TEXT[name])
+  async function fetchUsageCounts(displayName: string, userId: string | null) {
+    const supabase = getSupabase();
+    const queries: Array<Promise<{ count: number | null }>> = [
+      // 担当者として記録 (text[] match)
+      supabase.from("events").select("*", { count: "exact", head: true }).contains("assignees", [displayName]),
+      // コメント author
+      supabase.from("comments").select("*", { count: "exact", head: true }).eq("author", displayName),
+    ];
+    if (userId) {
+      // 作成者 / 最終編集者 (FK)
+      queries.push(supabase.from("events").select("*", { count: "exact", head: true }).eq("created_by", userId));
+      queries.push(supabase.from("events").select("*", { count: "exact", head: true }).eq("updated_by", userId));
+    }
+    const results = await Promise.all(queries);
+    return {
+      assignedEvents: results[0].count ?? 0,
+      comments: results[1].count ?? 0,
+      createdEvents: userId ? (results[2]?.count ?? 0) : 0,
+      updatedEvents: userId ? (results[3]?.count ?? 0) : 0,
+    };
+  }
+
   // consume 済アカウントの削除: API 経由で auth.users を消す + 残った
   // staff_invitations 行も合わせて削除 (履歴 不要のため)。
   async function handleDeleteAccount(
@@ -191,10 +216,16 @@ export default function AdminStaffPage() {
     userId: string,
     displayName: string
   ) {
+    const counts = await fetchUsageCounts(displayName, userId);
     if (!confirm(
       `「${displayName}」のアカウントを完全に削除しますか？\n\n` +
+      `■ このスタッフの過去データ:\n` +
+      `・担当者として記録された予定: ${counts.assignedEvents} 件 (表示は維持)\n` +
+      `・作成した予定: ${counts.createdEvents} 件 → 「作成者: 不明」になります\n` +
+      `・最終編集した予定: ${counts.updatedEvents} 件 → 「編集者: 不明」になります\n` +
+      `・投稿したコメント: ${counts.comments} 件 (表示は維持)\n\n` +
+      `■ 削除後:\n` +
       `・このスタッフはログインできなくなります\n` +
-      `・カレンダーの予定（既に書かれたもの）は残ります\n` +
       `・members 一覧の表示名は残ります\n\n` +
       `本当に削除する場合のみ OK を押してください。`
     )) return;
@@ -233,11 +264,15 @@ export default function AdminStaffPage() {
   // staff_invitations 行だけを直接 DELETE する。
   // RLS: staff_invitations_admin_delete (group_admin or office_admin で自分の office) が enforce。
   async function handleDeleteHistory(token: string, displayName: string) {
+    const counts = await fetchUsageCounts(displayName, null);
     if (!confirm(
       `「${displayName}」の招待履歴を削除しますか？\n\n` +
-      `・このアカウントは既に削除されています (再ログインは元々不可)\n` +
+      `■ このスタッフの過去データ (アカウント削除済のため作成者情報は既に「不明」):\n` +
+      `・担当者として記録された予定: ${counts.assignedEvents} 件 (表示は維持)\n` +
+      `・投稿したコメント: ${counts.comments} 件 (表示は維持)\n\n` +
+      `■ 削除後:\n` +
       `・staff_invitations の履歴行のみが消えます\n` +
-      `・カレンダーの予定 / members 一覧の表示名は影響を受けません\n\n` +
+      `・members 一覧の表示名は残ります\n\n` +
       `本当に削除する場合のみ OK を押してください。`
     )) return;
     const supabase = getSupabase();
