@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@kt/shared": "git+https://github.com/kt-group1165/shared.git#v0.1.0",
+    "@simplewebauthn/browser": "^11.0.0",
+    "@simplewebauthn/server": "^11.0.0",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.100.0",
     "date-fns": "^4.1.0",
