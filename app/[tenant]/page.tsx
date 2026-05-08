@@ -7,7 +7,7 @@ import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameDay, isSameMonth, isToday,
 } from "date-fns";
 import { ja } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, ChevronDown, Plus, Calendar, RefreshCw, Trash2, Settings, Bell, Search, StickyNote, LogOut } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Plus, Calendar, RefreshCw, Trash2, Settings, Bell, Search, StickyNote, LogOut, Fingerprint } from "lucide-react";
 import MonthView from "@/components/MonthView";
 import WeekView from "@/components/WeekView";
 import DayView from "@/components/DayView";
@@ -638,6 +638,15 @@ export default function TenantCalendarPage() {
               onClick={() => setShowAdmin(true)}
               className="p-2 rounded-xl hover:bg-gray-100 transition-colors" title="管理">
               <Settings size={18} className="text-indigo-500" />
+            </button>
+          )}
+          {authUser.authUser && (
+            <button
+              onClick={() => router.push("/passkeys")}
+              className="p-2 rounded-xl hover:bg-indigo-50 transition-colors"
+              title="パスキー管理"
+            >
+              <Fingerprint size={18} className="text-gray-400" />
             </button>
           )}
           {authUser.authUser && (
