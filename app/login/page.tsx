@@ -2,7 +2,8 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowRight, CalendarDays, CheckCircle2, Loader2, Lock, User } from "lucide-react";
+import { ArrowRight, CalendarDays, CheckCircle2, Fingerprint, Loader2, Lock, User } from "lucide-react";
+import { startAuthentication } from "@simplewebauthn/browser";
 import { getSupabase } from "@/lib/supabase-browser";
 import { isValidLoginId, loginIdToSyntheticEmail } from "@/lib/login_id";
 
@@ -84,6 +85,54 @@ function LoginInner() {
     }
   }
 
+  async function handlePasskeyLogin() {
+    setLoading(true);
+    setMessage(null);
+    try {
+      // identifier は任意 (resident key 対応端末は無くても OK だが、一覧抽出のため渡す)
+      const beginRes = await fetch("/api/passkey/auth/begin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: identifier.trim() || undefined }),
+      });
+      if (!beginRes.ok) throw new Error("auth/begin failed");
+      const { options } = await beginRes.json();
+
+      // ブラウザ側 (FaceID / 指紋 / PIN / パターン)
+      const assertion = await startAuthentication({ optionsJSON: options });
+
+      const completeRes = await fetch("/api/passkey/auth/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ response: assertion }),
+      });
+      if (!completeRes.ok) {
+        const err = await completeRes.json().catch(() => ({}));
+        throw new Error(err.error ?? "auth/complete failed");
+      }
+      const { token_hash } = await completeRes.json();
+
+      const supabase = getSupabase();
+      const { error: otpErr } = await supabase.auth.verifyOtp({
+        token_hash,
+        type: "magiclink",
+      });
+      if (otpErr) throw new Error(otpErr.message);
+
+      router.replace(nextPath);
+    } catch (e) {
+      const msg = (e as Error).message ?? "認証に失敗しました";
+      // ユーザーキャンセル系は静かに戻す
+      if (/cancel|abort|NotAllowed/i.test(msg)) {
+        setMessage(null);
+      } else {
+        setMessage({ type: "error", text: `パスキーで login できませんでした: ${msg}` });
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
   const identifierLooksValid =
     identifier.trim().length > 0 &&
     (identifier.includes("@") || isValidLoginId(identifier.trim()));
@@ -153,7 +202,26 @@ function LoginInner() {
             {!loading && <ArrowRight size={16} />}
           </button>
 
-          <p className="text-xs text-gray-400 text-center leading-relaxed">
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px bg-gray-100" />
+            <span className="text-[10px] text-gray-300 uppercase tracking-wider">または</span>
+            <div className="flex-1 h-px bg-gray-100" />
+          </div>
+
+          <button
+            onClick={handlePasskeyLogin}
+            disabled={loading}
+            className="w-full py-3 bg-white border-2 border-indigo-200 hover:border-indigo-300 hover:bg-indigo-50 disabled:opacity-50 text-indigo-600 font-semibold rounded-xl flex items-center justify-center gap-2 transition-colors"
+          >
+            {loading ? <Loader2 size={16} className="animate-spin" /> : <Fingerprint size={16} />}
+            パスキーでログイン
+          </button>
+          <p className="text-[10px] text-gray-400 text-center leading-relaxed">
+            FaceID / 指紋 / パターン / PIN で認証<br />
+            <span className="text-gray-300">登録済の端末でのみ利用できます</span>
+          </p>
+
+          <p className="text-xs text-gray-400 text-center leading-relaxed pt-2 border-t border-gray-50">
             パスワードを忘れた場合は管理者に連絡してください<br />
             <span className="text-gray-300">（招待を再発行してもらう運用）</span>
           </p>
