@@ -186,6 +186,8 @@ export async function POST(request: Request, context: RouteContext) {
 
   // 6) member 行の解決（既存リンク優先 / なければ auto-create）-------
   let memberId = inv.member_id;
+  // 新規 INSERT した場合のみ true (rollback 対象判定)
+  let newMemberCreated = false;
   if (!memberId) {
     const { data: nextOrder } = await admin
       .from("members")
@@ -208,12 +210,18 @@ export async function POST(request: Request, context: RouteContext) {
       .select("id")
       .single();
     if (memberError || !newMember) {
+      // rollback: 直前に作った auth user を削除 (zombie 防止)
+      //   staff_invitations.consumed_at は burned のまま (admin が再発行する想定)
+      await admin.auth.admin.deleteUser(newUserId).catch((e) => {
+        console.warn(`[invite] rollback deleteUser ${newUserId} failed`, e);
+      });
       return NextResponse.json(
         { error: "member_create_failed", detail: memberError?.message },
         { status: 500 }
       );
     }
     memberId = newMember.id;
+    newMemberCreated = true;
   }
 
   // 7) user_offices に割当行 INSERT ---------------------------------
@@ -225,6 +233,14 @@ export async function POST(request: Request, context: RouteContext) {
     is_primary: true,
   });
   if (assignError) {
+    // rollback: 新規作成 member + auth user を削除 (zombie 防止)
+    if (newMemberCreated && memberId) {
+      const { error: delMemberErr } = await admin.from("members").delete().eq("id", memberId);
+      if (delMemberErr) console.warn(`[invite] rollback delete members ${memberId} failed`, delMemberErr);
+    }
+    await admin.auth.admin.deleteUser(newUserId).catch((e) => {
+      console.warn(`[invite] rollback deleteUser ${newUserId} failed`, e);
+    });
     return NextResponse.json(
       { error: "assign_failed", detail: assignError.message },
       { status: 500 }
