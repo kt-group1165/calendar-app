@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { startRegistration } from "@simplewebauthn/browser";
 import { ArrowLeft, Fingerprint, Loader2, Trash2, Plus, ShieldCheck, AlertTriangle } from "lucide-react";
 import { getSupabase } from "@/lib/supabase-browser";
+import { ensureDeviceId, detectDeviceLabel } from "@/lib/device_id";
 
 // /settings/passkey
 //
@@ -106,16 +107,18 @@ export default function PasskeySettingsPage() {
       // ブラウザ WebAuthn API (FaceID / 指紋 / Windows Hello)
       const attestation = await startRegistration({ optionsJSON: options });
 
-      // device 名は端末識別を user が後で見やすくするための memo
-      const deviceName =
-        typeof navigator !== "undefined"
-          ? `${navigator.platform || ""} ${navigator.userAgent.match(/Chrome|Safari|Firefox|Edge/)?.[0] || ""}`.trim() || null
-          : null;
-
+      // Phase 11c: 登録時の端末を auto-trust するため device_id も送る
+      const deviceId = ensureDeviceId();
+      const deviceLabel = detectDeviceLabel();
       const completeRes = await fetch("/api/passkey/register/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ response: attestation, deviceName }),
+        body: JSON.stringify({
+          response: attestation,
+          deviceName: deviceLabel,
+          device_id: deviceId,
+          device_label: deviceLabel,
+        }),
       });
       if (!completeRes.ok) {
         const data = (await completeRes.json().catch(() => ({}))) as { error?: string; message?: string };
@@ -292,17 +295,17 @@ export default function PasskeySettingsPage() {
           )}
         </div>
 
-        {/* 端末固定ポリシー説明 */}
+        {/* セキュリティ ポリシー説明 (trust model) */}
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 flex items-start gap-2">
           <AlertTriangle size={14} className="mt-0.5 shrink-0" />
           <div className="space-y-1">
-            <p className="font-medium">セキュリティ ポリシー (端末固定)</p>
+            <p className="font-medium">セキュリティ ポリシー (端末承認制)</p>
             <ul className="space-y-0.5 leading-relaxed list-disc list-inside">
-              <li>登録できるのは「端末固定」の Passkey のみ (= TPM / Secure Enclave / Windows Hello)</li>
-              <li>iCloud Keychain / Google Password Manager で同期される Passkey は登録不可</li>
-              <li>QR コードによる他端末からのログインは禁止 (= 別 PC からの認証不可)</li>
+              <li>Passkey の同期 (iCloud Keychain / Google) は許可</li>
+              <li>ただし<strong>各端末ごとに管理者の承認</strong>が必要 (= 別 PC や QR 経由のログインは admin 承認後のみ)</li>
+              <li>この端末で Passkey を登録するとこの端末は自動承認</li>
               <li>Passkey が登録されている間は ID/パスワードログイン不可</li>
-              <li>端末紛失・機種変は管理者に連絡 (Passkey 削除でリセット)</li>
+              <li>機種変・紛失時は管理者に連絡 (Passkey or 端末承認を削除でリセット)</li>
             </ul>
           </div>
         </div>

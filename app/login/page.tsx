@@ -6,6 +6,7 @@ import { ArrowRight, CalendarDays, CheckCircle2, Fingerprint, Loader2, Lock, Use
 import { startAuthentication } from "@simplewebauthn/browser";
 import { getSupabase } from "@/lib/supabase-browser";
 import { isValidLoginId } from "@/lib/login_id";
+import { ensureDeviceId, detectDeviceLabel } from "@/lib/device_id";
 
 // /login
 //
@@ -110,20 +111,48 @@ function LoginInner() {
       // ブラウザ側 (FaceID / 指紋 / PIN / パターン)
       const assertion = await startAuthentication({ optionsJSON: options });
 
+      // Phase 11c: 端末識別子を一緒に送る (trust check 用)
+      const deviceId = ensureDeviceId();
+      const deviceLabel = detectDeviceLabel();
       const completeRes = await fetch("/api/passkey/auth/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ response: assertion }),
+        body: JSON.stringify({ response: assertion, device_id: deviceId, device_label: deviceLabel }),
       });
-      if (!completeRes.ok) {
-        const err = await completeRes.json().catch(() => ({}));
-        throw new Error(err.error ?? "auth/complete failed");
+      const completeJson = (await completeRes.json().catch(() => ({}))) as {
+        verified?: boolean;
+        status?: "approval_required" | "device_revoked";
+        message?: string;
+        token_hash?: string;
+        error?: string;
+      };
+
+      // 202 (承認待ち) / 403 (revoked) → token 発行されない
+      if (completeJson.status === "approval_required") {
+        setMessage({
+          type: "info",
+          text:
+            completeJson.message ??
+            "新しい端末からのログインです。管理者の承認をお待ちください。",
+        });
+        return;
       }
-      const { token_hash } = await completeRes.json();
+      if (completeJson.status === "device_revoked") {
+        setMessage({
+          type: "error",
+          text:
+            completeJson.message ??
+            "この端末は無効化されています。管理者に連絡してください。",
+        });
+        return;
+      }
+      if (!completeRes.ok || !completeJson.token_hash) {
+        throw new Error(completeJson.error ?? "auth/complete failed");
+      }
 
       const supabase = getSupabase();
       const { error: otpErr } = await supabase.auth.verifyOtp({
-        token_hash,
+        token_hash: completeJson.token_hash,
         type: "magiclink",
       });
       if (otpErr) throw new Error(otpErr.message);

@@ -75,6 +75,19 @@ export default function AdminStaffPage() {
     expires_at: string | null;
   } | null>(null);
 
+  // Phase 11c: 承認待ち端末リスト (admin scope 内の user の trusted_devices.status='pending')
+  type PendingDevice = {
+    id: string;
+    user_id: string;
+    device_id: string;
+    device_label: string | null;
+    first_seen_ua: string | null;
+    first_seen_ip: string | null;
+    created_at: string;
+    user_display_name: string | null;
+  };
+  const [pendingDevices, setPendingDevices] = useState<PendingDevice[]>([]);
+
   // 認証 + 権限ガード:
   //   未ログイン → /login へ
   //   一般 staff (role='member' のみで admin tenant 持たない) → / へ追放
@@ -266,6 +279,24 @@ export default function AdminStaffPage() {
           };
         })
       );
+
+      // Phase 11c: 承認待ち端末を引いてくる (RLS で admin scope 内のみ見える)
+      const { data: pendingRows } = await supabase
+        .from("trusted_devices")
+        .select("id, user_id, device_id, device_label, first_seen_ua, first_seen_ip, created_at")
+        .eq("status", "pending")
+        .order("created_at", { ascending: false });
+      // user_id → display_name の解決 (consumed_user_id 経由で invitation の display_name を逆引き)
+      const displayNameByUserId = new Map<string, string>();
+      for (const r of (invRows ?? []) as InvRow[]) {
+        if (r.consumed_user_id) displayNameByUserId.set(r.consumed_user_id, r.display_name);
+      }
+      setPendingDevices(
+        ((pendingRows ?? []) as Omit<PendingDevice, "user_display_name">[]).map((p) => ({
+          ...p,
+          user_display_name: displayNameByUserId.get(p.user_id) ?? null,
+        }))
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "読込に失敗しました");
     } finally {
@@ -453,6 +484,50 @@ export default function AdminStaffPage() {
     }
   }
 
+  // Phase 11c: 承認待ち端末を承認 / 拒否
+  async function handleApproveDevice(deviceUuid: string, deviceLabel: string | null, userName: string | null) {
+    if (!confirm(
+      `「${userName ?? "?"}」の端末「${deviceLabel ?? "?"}」を承認しますか?\n\n` +
+      `承認後、その端末からの Passkey ログインが可能になります。`
+    )) return;
+    try {
+      const res = await fetch("/api/admin/devices/approve", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ device_id_uuid: deviceUuid }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        alert(`承認失敗: ${json.error ?? res.statusText}`);
+        return;
+      }
+      reload();
+    } catch (e) {
+      alert(`通信エラー: ${e instanceof Error ? e.message : "不明"}`);
+    }
+  }
+  async function handleRevokeDevice(deviceUuid: string, deviceLabel: string | null, userName: string | null) {
+    if (!confirm(
+      `「${userName ?? "?"}」の端末「${deviceLabel ?? "?"}」を拒否しますか?\n\n` +
+      `拒否すると、その端末からは今後ログインできなくなります。`
+    )) return;
+    try {
+      const res = await fetch("/api/admin/devices/revoke", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ device_id_uuid: deviceUuid }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        alert(`拒否失敗: ${json.error ?? res.statusText}`);
+        return;
+      }
+      reload();
+    } catch (e) {
+      alert(`通信エラー: ${e instanceof Error ? e.message : "不明"}`);
+    }
+  }
+
   // Phase 11: 2 台目 Passkey 登録許可を発行 (1 時間有効)
   async function handlePasskeyGrant(userId: string, displayName: string) {
     const reason = window.prompt(
@@ -629,6 +704,45 @@ export default function AdminStaffPage() {
           <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-xs text-red-600 flex items-start gap-2">
             <TriangleAlert size={14} className="shrink-0 mt-0.5" />
             <span>{error}</span>
+          </div>
+        )}
+
+        {/* Phase 11c: 承認待ち端末 */}
+        {pendingDevices.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-amber-100 flex items-center gap-2">
+              <Fingerprint size={14} className="text-amber-600" />
+              <h2 className="text-xs font-semibold text-amber-700">
+                承認待ち端末 ({pendingDevices.length})
+              </h2>
+            </div>
+            <ul className="divide-y divide-amber-100">
+              {pendingDevices.map((d) => (
+                <li key={d.id} className="px-4 py-2.5 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">
+                      {d.user_display_name ?? "(名前未取得)"} — {d.device_label ?? "端末"}
+                    </p>
+                    <p className="text-[10px] text-gray-500 truncate">
+                      {new Date(d.created_at).toLocaleString("ja-JP")}
+                      {d.first_seen_ip ? ` / IP ${d.first_seen_ip}` : ""}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleApproveDevice(d.id, d.device_label, d.user_display_name)}
+                    className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-semibold"
+                  >
+                    承認
+                  </button>
+                  <button
+                    onClick={() => handleRevokeDevice(d.id, d.device_label, d.user_display_name)}
+                    className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-[11px] font-semibold"
+                  >
+                    拒否
+                  </button>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 
