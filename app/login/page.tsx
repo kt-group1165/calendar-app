@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, CalendarDays, CheckCircle2, Fingerprint, Loader2, Lock, User } from "lucide-react";
 import { startAuthentication } from "@simplewebauthn/browser";
 import { getSupabase } from "@/lib/supabase-browser";
-import { isValidLoginId, loginIdToSyntheticEmail } from "@/lib/login_id";
+import { isValidLoginId } from "@/lib/login_id";
 
 // /login
 //
@@ -58,28 +58,37 @@ function LoginInner() {
     });
   }, [router, nextPath]);
 
-  function resolveEmail(value: string): string | null {
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    if (trimmed.includes("@")) return trimmed; // 実 email
-    if (isValidLoginId(trimmed)) return loginIdToSyntheticEmail(trimmed);
-    return null;
-  }
-
   async function handleSubmit() {
-    const email = resolveEmail(identifier);
-    if (!email || !password) return;
+    if (!identifier.trim() || !password) return;
 
     setLoading(true);
     setMessage(null);
     try {
-      const supabase = getSupabase();
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) {
-        setMessage({ type: "error", text: "ログイン ID（またはメール）かパスワードが正しくありません" });
-      } else {
+      // Phase 11: /api/login 経由 (passkey 排他 + emergency consume を server で enforce)
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identifier: identifier.trim(), password }),
+      });
+      if (res.ok) {
+        // server 側で session cookie が set 済 → 遷移後に SSR で認識
         router.replace(nextPath);
+        return;
       }
+      // エラー振り分け (status / error code)
+      const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+      if (res.status === 403 && data.error === "passkey_required") {
+        setMessage({
+          type: "error",
+          text:
+            data.message ??
+            "この account には Passkey が登録されています。下の「パスキーでログイン」を使ってください。",
+        });
+      } else {
+        setMessage({ type: "error", text: "ログイン ID（またはメール）かパスワードが正しくありません" });
+      }
+    } catch {
+      setMessage({ type: "error", text: "ログインに失敗しました" });
     } finally {
       setLoading(false);
     }
