@@ -23,6 +23,27 @@ export async function POST() {
     .select("credential_id, transports")
     .eq("user_id", user.id);
 
+  // Phase 11: 1 端末固定ポリシー
+  //   既存 passkey が 1 件でもあれば、admin の有効な grant が無い限り 2 台目登録を拒否
+  if ((existing ?? []).length > 0) {
+    const { data: grant } = await admin
+      .from("passkey_registration_grants")
+      .select("id")
+      .eq("user_id", user.id)
+      .is("consumed_at", null)
+      .gt("expires_at", new Date().toISOString())
+      .maybeSingle();
+    if (!grant) {
+      return NextResponse.json(
+        {
+          error: "additional_registration_not_permitted",
+          message: "既に Passkey が登録されています。追加登録には管理者の許可が必要です。",
+        },
+        { status: 403 }
+      );
+    }
+  }
+
   const { rpID, rpName } = await getRpInfo();
 
   const options = await generateRegistrationOptions({

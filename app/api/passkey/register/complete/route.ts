@@ -85,5 +85,14 @@ export async function POST(req: NextRequest) {
     .eq("user_id", user.id)
     .eq("challenge_type", "registration");
 
+  // Phase 11: 2 台目登録だった場合は grant を consume (= 一回限りで失効)
+  //   begin で existing > 0 だった場合のみ grant が消費される。1 台目登録時は no-op。
+  await admin
+    .from("passkey_registration_grants")
+    .update({ consumed_at: new Date().toISOString() })
+    .eq("user_id", user.id)
+    .is("consumed_at", null)
+    .gt("expires_at", new Date().toISOString());
+
   return NextResponse.json({ verified: true });
 }
