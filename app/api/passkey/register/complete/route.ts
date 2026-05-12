@@ -59,6 +59,33 @@ export async function POST(req: NextRequest) {
 
   const { credential, credentialDeviceType, credentialBackedUp, aaguid } = verification.registrationInfo;
 
+  // Phase 11 (strict): 端末固定 enforce
+  //   - credentialDeviceType="multiDevice" or credentialBackedUp=true は
+  //     iCloud / Google で同期可能な passkey = QR 経由で他端末から使われる可能性あり
+  //   - transports に "hybrid" が含まれる = cross-device 認証器として登録可能
+  //   いずれも reject して platform-bound な passkey のみ受け入れる
+  if (credentialDeviceType === "multiDevice" || credentialBackedUp === true) {
+    return NextResponse.json(
+      {
+        error: "syncable_passkey_not_allowed",
+        message:
+          "同期可能な Passkey は登録できません。iCloud Keychain / Google Password Manager の同期を OFF にするか、Windows Hello / セキュリティキー等の端末固定の認証器を使ってください。",
+      },
+      { status: 400 }
+    );
+  }
+  const transports = credential.transports ?? [];
+  if (transports.includes("hybrid")) {
+    return NextResponse.json(
+      {
+        error: "hybrid_transport_not_allowed",
+        message:
+          "この認証器は QR コード経由で他端末から使われる可能性があるため登録できません。端末固定の Passkey を使ってください。",
+      },
+      { status: 400 }
+    );
+  }
+
   const { error: insertErr } = await admin.from("passkey_credentials").insert({
     user_id: user.id,
     credential_id: credential.id,
@@ -67,8 +94,9 @@ export async function POST(req: NextRequest) {
     transports: credential.transports ?? null,
     device_name: deviceName ?? null,
     aaguid: aaguid ?? null,
-    backup_eligible: credentialDeviceType === "multiDevice",
-    backup_state: credentialBackedUp,
+    // Phase 11 strict: 上の早期 return で multiDevice / backedUp は弾き済 = 必ず false
+    backup_eligible: false,
+    backup_state: false,
   });
   if (insertErr) {
     if (insertErr.code === "23505") {

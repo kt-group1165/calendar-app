@@ -118,8 +118,21 @@ export default function PasskeySettingsPage() {
         body: JSON.stringify({ response: attestation, deviceName }),
       });
       if (!completeRes.ok) {
-        const data = (await completeRes.json().catch(() => ({}))) as { error?: string };
-        setMessage({ type: "error", text: `登録に失敗しました: ${data.error ?? "unknown"}` });
+        const data = (await completeRes.json().catch(() => ({}))) as { error?: string; message?: string };
+        // Phase 11 strict: 同期可能 / hybrid 系の reject は専用 message を見せる
+        if (
+          completeRes.status === 400 &&
+          (data.error === "syncable_passkey_not_allowed" || data.error === "hybrid_transport_not_allowed")
+        ) {
+          setMessage({
+            type: "error",
+            text:
+              data.message ??
+              "端末固定の Passkey のみ登録可能です。iCloud Keychain / Google 同期 OFF、または Windows Hello を使ってください。",
+          });
+        } else {
+          setMessage({ type: "error", text: `登録に失敗しました: ${data.error ?? "unknown"}` });
+        }
         return;
       }
       setMessage({ type: "success", text: "Passkey を登録しました。次回からこの端末で指紋/顔認証でログインできます。" });
@@ -286,19 +299,20 @@ export default function PasskeySettingsPage() {
           )}
         </div>
 
-        {/* 警告: 全削除すると PW ログインに戻る */}
-        {credentials.length > 0 && (
-          <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 flex items-start gap-2">
-            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-            <div>
-              <p className="font-medium">セキュリティ ポリシー</p>
-              <p className="mt-0.5 leading-relaxed">
-                Passkey が 1 つ以上登録されている間は ID/パスワードでログインできません。
-                端末紛失時は管理者に連絡してください (Passkey を削除してリセットしてもらえます)。
-              </p>
-            </div>
+        {/* 端末固定ポリシー説明 */}
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 flex items-start gap-2">
+          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+          <div className="space-y-1">
+            <p className="font-medium">セキュリティ ポリシー (端末固定)</p>
+            <ul className="space-y-0.5 leading-relaxed list-disc list-inside">
+              <li>登録できるのは「端末固定」の Passkey のみ (= TPM / Secure Enclave / Windows Hello)</li>
+              <li>iCloud Keychain / Google Password Manager で同期される Passkey は登録不可</li>
+              <li>QR コードによる他端末からのログインは禁止 (= 別 PC からの認証不可)</li>
+              <li>Passkey が登録されている間は ID/パスワードログイン不可</li>
+              <li>端末紛失・機種変は管理者に連絡 (Passkey 削除でリセット)</li>
+            </ul>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

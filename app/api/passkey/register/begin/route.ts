@@ -57,9 +57,14 @@ export async function POST() {
       id: c.credential_id,
       transports: (c.transports ?? undefined) as AuthenticatorTransport[] | undefined,
     })),
+    // Phase 11 (strict): 端末固定運用
+    //   - authenticatorAttachment: "platform"  → ローミング (USB key / 別端末 QR) を排除
+    //   - residentKey: "discouraged"           → 同期可能 (iCloud / Google) な resident key を避ける
+    //   - userVerification: "required"         → 生体認証必須
     authenticatorSelection: {
-      residentKey: "preferred",
-      userVerification: "preferred",
+      authenticatorAttachment: "platform",
+      residentKey: "discouraged",
+      userVerification: "required",
     },
   });
 
