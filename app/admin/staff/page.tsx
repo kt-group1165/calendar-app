@@ -493,7 +493,10 @@ export default function AdminStaffPage() {
   async function handleApproveDevice(deviceUuid: string, deviceLabel: string | null, userName: string | null) {
     if (!confirm(
       `「${userName ?? "?"}」の端末「${deviceLabel ?? "?"}」を承認しますか?\n\n` +
-      `承認後、その端末からの Passkey ログインが可能になります。`
+      `■ 承認後\n` +
+      `・この端末から Passkey ログインが可能になります\n` +
+      `・この user の他の承認済端末は自動的に拒否されます (1 端末固定運用)\n\n` +
+      `機種変更や端末追加の場合はそのまま承認してください。`
     )) return;
     try {
       const res = await fetch("/api/admin/devices/approve", {
