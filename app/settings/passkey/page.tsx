@@ -82,8 +82,8 @@ export default function PasskeySettingsPage() {
   }, [supabase, router]);
 
   useEffect(() => {
-    setWebauthnSupported(browserSupportsWebAuthn());
     // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
+    setWebauthnSupported(browserSupportsWebAuthn());
     fetchAll();
   }, [fetchAll]);
 
