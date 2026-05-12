@@ -119,20 +119,13 @@ export default function PasskeySettingsPage() {
       });
       if (!completeRes.ok) {
         const data = (await completeRes.json().catch(() => ({}))) as { error?: string; message?: string };
-        // Phase 11 strict: 同期可能 / hybrid 系の reject は専用 message を見せる
-        if (
-          completeRes.status === 400 &&
-          (data.error === "syncable_passkey_not_allowed" || data.error === "hybrid_transport_not_allowed")
-        ) {
-          setMessage({
-            type: "error",
-            text:
-              data.message ??
-              "端末固定の Passkey のみ登録可能です。iCloud Keychain / Google 同期 OFF、または Windows Hello を使ってください。",
-          });
-        } else {
-          setMessage({ type: "error", text: `登録に失敗しました: ${data.error ?? "unknown"}` });
-        }
+        // サーバが日本語 message を返してきたら最優先で表示。なければ error code を補助表示。
+        const text = data.message
+          ? data.message
+          : data.error
+          ? `登録に失敗しました: ${data.error}`
+          : "登録に失敗しました";
+        setMessage({ type: "error", text });
         return;
       }
       setMessage({ type: "success", text: "Passkey を登録しました。次回からこの端末で指紋/顔認証でログインできます。" });
