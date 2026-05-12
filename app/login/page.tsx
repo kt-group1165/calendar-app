@@ -65,19 +65,45 @@ function LoginInner() {
     setLoading(true);
     setMessage(null);
     try {
-      // Phase 11: /api/login 経由 (passkey 排他 + emergency consume を server で enforce)
+      // Phase 11c-2: device_id を一緒に送信 (trust check 用)
+      const deviceId = ensureDeviceId();
+      const deviceLabel = detectDeviceLabel();
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier: identifier.trim(), password }),
+        body: JSON.stringify({
+          identifier: identifier.trim(),
+          password,
+          device_id: deviceId,
+          device_label: deviceLabel,
+        }),
       });
-      if (res.ok) {
-        // server 側で session cookie が set 済 → 遷移後に SSR で認識
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        status?: "approval_required" | "device_revoked";
+        message?: string;
+      };
+      if (res.ok && data.ok) {
         router.replace(nextPath);
         return;
       }
-      // エラー振り分け (status / error code)
-      const data = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
+      // 202 (承認待ち) / 403 (revoked) → session 発行されない
+      if (data.status === "approval_required") {
+        setMessage({
+          type: "info",
+          text: data.message ?? "新しい端末からのログインです。管理者の承認をお待ちください。",
+        });
+        return;
+      }
+      if (data.status === "device_revoked") {
+        setMessage({
+          type: "error",
+          text: data.message ?? "この端末は無効化されています。管理者に連絡してください。",
+        });
+        return;
+      }
+      // Passkey 必須エラー
       if (res.status === 403 && data.error === "passkey_required") {
         setMessage({
           type: "error",
@@ -85,9 +111,9 @@ function LoginInner() {
             data.message ??
             "この account には Passkey が登録されています。下の「パスキーでログイン」を使ってください。",
         });
-      } else {
-        setMessage({ type: "error", text: "ログイン ID（またはメール）かパスワードが正しくありません" });
+        return;
       }
+      setMessage({ type: "error", text: data.message ?? "ログイン ID（またはメール）かパスワードが正しくありません" });
     } catch {
       setMessage({ type: "error", text: "ログインに失敗しました" });
     } finally {
