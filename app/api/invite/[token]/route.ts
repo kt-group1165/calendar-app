@@ -195,13 +195,14 @@ export async function POST(request: Request, context: RouteContext) {
       .limit(1);
     const nextSortOrder = (nextOrder?.[0]?.sort_order ?? 0) + 1;
 
+    // Phase 9 close: members.office_id は DROP 済 → office 紐付けは member_offices junction で行う
+    // (line 235 の member_offices.insert がそれを担当)
     const { data: newMember, error: memberError } = await admin
       .from("members")
       .insert({
         name: inv.display_name,
         color: DEFAULT_MEMBER_COLOR,
         sort_order: nextSortOrder,
-        office_id: inv.office_id,
         tenant_id: tenantId,
       })
       .select("id")
