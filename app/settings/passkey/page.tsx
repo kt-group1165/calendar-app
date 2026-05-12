@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { startRegistration } from "@simplewebauthn/browser";
+import { startRegistration, browserSupportsWebAuthn } from "@simplewebauthn/browser";
 import { ArrowLeft, Fingerprint, Loader2, Trash2, Plus, ShieldCheck, AlertTriangle } from "lucide-react";
 import { getSupabase } from "@/lib/supabase-browser";
 import { ensureDeviceId, detectDeviceLabel } from "@/lib/device_id";
@@ -40,6 +40,7 @@ export default function PasskeySettingsPage() {
   const supabase = getSupabase();
 
   const [loading, setLoading] = useState(true);
+  const [webauthnSupported, setWebauthnSupported] = useState<boolean>(true);
   const [user, setUser] = useState<{ id: string; email: string | null } | null>(null);
   const [credentials, setCredentials] = useState<PasskeyCredential[]>([]);
   const [activeGrant, setActiveGrant] = useState<ActiveGrant | null>(null);
@@ -81,6 +82,7 @@ export default function PasskeySettingsPage() {
   }, [supabase, router]);
 
   useEffect(() => {
+    setWebauthnSupported(browserSupportsWebAuthn());
     // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
     fetchAll();
   }, [fetchAll]);
@@ -201,6 +203,21 @@ export default function PasskeySettingsPage() {
           <p className="text-sm font-medium text-gray-800 mt-0.5">{user?.email}</p>
         </div>
 
+        {/* WebAuthn 未対応ブラウザ警告 */}
+        {!webauthnSupported && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800 flex items-start gap-2">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+            <div className="space-y-1">
+              <p className="font-medium">このブラウザは Passkey に対応していません</p>
+              <p className="text-xs leading-relaxed">
+                LINE / Facebook 等の<strong>アプリ内ブラウザ</strong>では Passkey が使えません。
+                <br />
+                URL をコピーして <strong>Chrome (Android) / Safari (iOS) / Edge (PC)</strong> 等の標準ブラウザで開き直してください。
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* message */}
         {message && (
           <div
@@ -236,10 +253,12 @@ export default function PasskeySettingsPage() {
             <button
               type="button"
               onClick={handleRegister}
-              disabled={registering || (credentials.length > 0 && !activeGrant)}
+              disabled={registering || !webauthnSupported || (credentials.length > 0 && !activeGrant)}
               className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               title={
-                credentials.length > 0 && !activeGrant
+                !webauthnSupported
+                  ? "このブラウザは Passkey に対応していません"
+                  : credentials.length > 0 && !activeGrant
                   ? "2 台目以降の登録には管理者の許可が必要です"
                   : "この端末で Passkey を登録"
               }

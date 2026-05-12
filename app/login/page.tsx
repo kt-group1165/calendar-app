@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, CalendarDays, CheckCircle2, Fingerprint, Loader2, Lock, User } from "lucide-react";
-import { startAuthentication } from "@simplewebauthn/browser";
+import { startAuthentication, browserSupportsWebAuthn } from "@simplewebauthn/browser";
 import { getSupabase } from "@/lib/supabase-browser";
 import { isValidLoginId } from "@/lib/login_id";
 import { ensureDeviceId, detectDeviceLabel } from "@/lib/device_id";
@@ -96,6 +96,14 @@ function LoginInner() {
   }
 
   async function handlePasskeyLogin() {
+    if (!browserSupportsWebAuthn()) {
+      setMessage({
+        type: "error",
+        text:
+          "このブラウザは Passkey に対応していません。LINE 等のアプリ内ブラウザではなく、Chrome / Safari / Edge 等の標準ブラウザで開き直してください。",
+      });
+      return;
+    }
     setLoading(true);
     setMessage(null);
     try {
