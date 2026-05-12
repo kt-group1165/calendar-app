@@ -9,9 +9,11 @@ import {
   ChevronRight,
   Clock,
   Copy,
+  Fingerprint,
   Loader2,
   Lock,
   Plus,
+  ShieldOff,
   Star,
   Trash2,
   TriangleAlert,
@@ -451,6 +453,61 @@ export default function AdminStaffPage() {
     }
   }
 
+  // Phase 11: 2 台目 Passkey 登録許可を発行 (1 時間有効)
+  async function handlePasskeyGrant(userId: string, displayName: string) {
+    const reason = window.prompt(
+      `「${displayName}」に 2 台目以降の Passkey 登録を許可します。\n` +
+      `理由をメモしておく場合は入力してください (任意):`,
+      ""
+    );
+    if (reason === null) return; // cancel
+    try {
+      const res = await fetch("/api/admin/passkey/grant", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ target_user_id: userId, reason: reason.trim() || null }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        alert(`発行失敗: ${json.error ?? res.statusText}`);
+        return;
+      }
+      const expires = new Date(json.expires_at).toLocaleString("ja-JP");
+      alert(
+        `「${displayName}」に追加 Passkey 登録を許可しました。\n\n` +
+        `有効期限: ${expires} (1 時間)\n\n` +
+        `スタッフは新端末で /settings/passkey を開き「新規登録」を押してください。`
+      );
+    } catch (e) {
+      alert(`通信エラー: ${e instanceof Error ? e.message : "不明"}`);
+    }
+  }
+
+  // Phase 11: Passkey を全削除 (= ID/PW ログインに戻す / 紛失時用)
+  async function handlePasskeyRevokeAll(userId: string, displayName: string) {
+    if (!confirm(
+      `「${displayName}」の Passkey を全て削除しますか？\n\n` +
+      `・端末紛失や機種変更時に使います\n` +
+      `・削除後はその user は ID/パスワードでログイン可能に戻ります\n` +
+      `・本人は新端末で Passkey を再登録できます (1 台目なので grant 不要)`
+    )) return;
+    try {
+      const res = await fetch("/api/admin/passkey/revoke-all", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ target_user_id: userId }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        alert(`削除失敗: ${json.error ?? res.statusText}`);
+        return;
+      }
+      alert(`「${displayName}」の Passkey を ${json.deleted_count} 件削除しました。`);
+    } catch (e) {
+      alert(`通信エラー: ${e instanceof Error ? e.message : "不明"}`);
+    }
+  }
+
   // Phase 9-4: 別事業所追加
   async function handleAddOffice(userId: string, memberId: string, officeId: string) {
     try {
@@ -600,6 +657,8 @@ export default function AdminStaffPage() {
                 onResetPassword={handleResetPassword}
                 onAddOffice={handleAddOffice}
                 onRemoveOffice={handleRemoveOffice}
+                onPasskeyGrant={handlePasskeyGrant}
+                onPasskeyRevokeAll={handlePasskeyRevokeAll}
               />
             ))}
           </ul>
@@ -643,6 +702,8 @@ function InvitationRow({
   onResetPassword,
   onAddOffice,
   onRemoveOffice,
+  onPasskeyGrant,
+  onPasskeyRevokeAll,
 }: {
   inv: InvitationListItem;
   offices: OfficeOption[];
@@ -654,6 +715,8 @@ function InvitationRow({
   onResetPassword: (userId: string, displayName: string) => void;
   onAddOffice: (userId: string, memberId: string, officeId: string) => Promise<boolean>;
   onRemoveOffice: (userId: string, memberId: string, officeId: string, officeName: string) => void;
+  onPasskeyGrant: (userId: string, displayName: string) => void;
+  onPasskeyRevokeAll: (userId: string, displayName: string) => void;
 }) {
   const [showAddOfficeModal, setShowAddOfficeModal] = useState(false);
   const expired = new Date(inv.expires_at) <= new Date();
@@ -786,6 +849,25 @@ function InvitationRow({
             >
               <Lock size={12} />
             </button>
+          )}
+          {/* Phase 11: Passkey 管理 */}
+          {!stopped && (
+            <>
+              <button
+                onClick={() => onPasskeyGrant(inv.consumed_user_id!, inv.display_name)}
+                className="p-1.5 rounded-lg hover:bg-amber-50 text-gray-300 hover:text-amber-500"
+                title="2 台目以降の Passkey 登録を 1 時間許可 (機種変・追加端末用)"
+              >
+                <Fingerprint size={12} />
+              </button>
+              <button
+                onClick={() => onPasskeyRevokeAll(inv.consumed_user_id!, inv.display_name)}
+                className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500"
+                title="Passkey を全削除 (紛失時 / ID/PW ログインに戻す)"
+              >
+                <ShieldOff size={12} />
+              </button>
+            </>
           )}
           {stopped ? (
             <button
