@@ -75,18 +75,23 @@ export default function AdminStaffPage() {
     expires_at: string | null;
   } | null>(null);
 
-  // Phase 11c: 承認待ち端末リスト (admin scope 内の user の trusted_devices.status='pending')
-  type PendingDevice = {
+  // Phase 11c: trusted_devices リスト (admin scope 内 / 全 status)
+  type TrustedDevice = {
     id: string;
     user_id: string;
     device_id: string;
     device_label: string | null;
+    status: "pending" | "approved" | "revoked";
     first_seen_ua: string | null;
     first_seen_ip: string | null;
+    last_seen_at: string | null;
+    approved_at: string | null;
+    revoked_at: string | null;
     created_at: string;
     user_display_name: string | null;
   };
-  const [pendingDevices, setPendingDevices] = useState<PendingDevice[]>([]);
+  const [allDevices, setAllDevices] = useState<TrustedDevice[]>([]);
+  const [deviceFilter, setDeviceFilter] = useState<"pending" | "approved" | "revoked">("pending");
 
   // 認証 + 権限ガード:
   //   未ログイン → /login へ
@@ -280,19 +285,19 @@ export default function AdminStaffPage() {
         })
       );
 
-      // Phase 11c: 承認待ち端末を引いてくる (RLS で admin scope 内のみ見える)
-      const { data: pendingRows } = await supabase
+      // Phase 11c: trusted_devices を全 status 引いてくる (RLS で admin scope 内のみ見える)
+      const { data: deviceRows } = await supabase
         .from("trusted_devices")
-        .select("id, user_id, device_id, device_label, first_seen_ua, first_seen_ip, created_at")
-        .eq("status", "pending")
+        .select(
+          "id, user_id, device_id, device_label, status, first_seen_ua, first_seen_ip, last_seen_at, approved_at, revoked_at, created_at"
+        )
         .order("created_at", { ascending: false });
-      // user_id → display_name の解決 (consumed_user_id 経由で invitation の display_name を逆引き)
       const displayNameByUserId = new Map<string, string>();
       for (const r of (invRows ?? []) as InvRow[]) {
         if (r.consumed_user_id) displayNameByUserId.set(r.consumed_user_id, r.display_name);
       }
-      setPendingDevices(
-        ((pendingRows ?? []) as Omit<PendingDevice, "user_display_name">[]).map((p) => ({
+      setAllDevices(
+        ((deviceRows ?? []) as Omit<TrustedDevice, "user_display_name">[]).map((p) => ({
           ...p,
           user_display_name: displayNameByUserId.get(p.user_id) ?? null,
         }))
@@ -509,7 +514,7 @@ export default function AdminStaffPage() {
   async function handleRevokeDevice(deviceUuid: string, deviceLabel: string | null, userName: string | null) {
     if (!confirm(
       `「${userName ?? "?"}」の端末「${deviceLabel ?? "?"}」を拒否しますか?\n\n` +
-      `拒否すると、その端末からは今後ログインできなくなります。`
+      `拒否してもあとから [承認] で復活させられます。完全に消す場合は [削除] を使ってください。`
     )) return;
     try {
       const res = await fetch("/api/admin/devices/revoke", {
@@ -520,6 +525,27 @@ export default function AdminStaffPage() {
       const json = await res.json();
       if (!res.ok) {
         alert(`拒否失敗: ${json.error ?? res.statusText}`);
+        return;
+      }
+      reload();
+    } catch (e) {
+      alert(`通信エラー: ${e instanceof Error ? e.message : "不明"}`);
+    }
+  }
+  async function handleDeleteDevice(deviceUuid: string, deviceLabel: string | null, userName: string | null) {
+    if (!confirm(
+      `「${userName ?? "?"}」の端末「${deviceLabel ?? "?"}」を完全削除しますか?\n\n` +
+      `履歴ごと消えます。次に同端末からログイン試行があれば新規 pending として作成されます。`
+    )) return;
+    try {
+      const res = await fetch("/api/admin/devices/delete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ device_id_uuid: deviceUuid }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        alert(`削除失敗: ${json.error ?? res.statusText}`);
         return;
       }
       reload();
@@ -707,44 +733,106 @@ export default function AdminStaffPage() {
           </div>
         )}
 
-        {/* Phase 11c: 承認待ち端末 */}
-        {pendingDevices.length > 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-amber-100 flex items-center gap-2">
-              <Fingerprint size={14} className="text-amber-600" />
-              <h2 className="text-xs font-semibold text-amber-700">
-                承認待ち端末 ({pendingDevices.length})
-              </h2>
+        {/* Phase 11c: 端末管理 (3 status タブ切替) */}
+        {allDevices.length > 0 && (() => {
+          const counts = {
+            pending: allDevices.filter((d) => d.status === "pending").length,
+            approved: allDevices.filter((d) => d.status === "approved").length,
+            revoked: allDevices.filter((d) => d.status === "revoked").length,
+          };
+          const filtered = allDevices.filter((d) => d.status === deviceFilter);
+          return (
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+                <Fingerprint size={14} className="text-gray-500" />
+                <h2 className="text-xs font-semibold text-gray-700">端末管理</h2>
+                <div className="ml-auto flex gap-1 text-[10px]">
+                  {(["pending", "approved", "revoked"] as const).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setDeviceFilter(s)}
+                      className={`px-2 py-1 rounded-md font-semibold ${
+                        deviceFilter === s
+                          ? s === "pending"
+                            ? "bg-amber-500 text-white"
+                            : s === "approved"
+                            ? "bg-emerald-500 text-white"
+                            : "bg-red-500 text-white"
+                          : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                      }`}
+                    >
+                      {s === "pending" ? "承認待ち" : s === "approved" ? "承認済" : "拒否済"} ({counts[s]})
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {filtered.length === 0 ? (
+                <div className="px-4 py-6 text-center text-xs text-gray-400">
+                  該当する端末はありません
+                </div>
+              ) : (
+                <ul className="divide-y divide-gray-50">
+                  {filtered.map((d) => (
+                    <li key={d.id} className="px-4 py-2.5 flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-800 truncate">
+                          {d.user_display_name ?? "(名前未取得)"} — {d.device_label ?? "端末"}
+                        </p>
+                        <p className="text-[10px] text-gray-500 truncate">
+                          {d.status === "approved" && d.approved_at
+                            ? `承認: ${new Date(d.approved_at).toLocaleString("ja-JP")}`
+                            : d.status === "revoked" && d.revoked_at
+                            ? `拒否: ${new Date(d.revoked_at).toLocaleString("ja-JP")}`
+                            : `初登場: ${new Date(d.created_at).toLocaleString("ja-JP")}`}
+                          {d.first_seen_ip ? ` / IP ${d.first_seen_ip}` : ""}
+                        </p>
+                      </div>
+                      {d.status === "pending" && (
+                        <>
+                          <button
+                            onClick={() => handleApproveDevice(d.id, d.device_label, d.user_display_name)}
+                            className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-semibold"
+                          >
+                            承認
+                          </button>
+                          <button
+                            onClick={() => handleRevokeDevice(d.id, d.device_label, d.user_display_name)}
+                            className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-[11px] font-semibold"
+                          >
+                            拒否
+                          </button>
+                        </>
+                      )}
+                      {d.status === "approved" && (
+                        <button
+                          onClick={() => handleRevokeDevice(d.id, d.device_label, d.user_display_name)}
+                          className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-[11px] font-semibold"
+                        >
+                          拒否
+                        </button>
+                      )}
+                      {d.status === "revoked" && (
+                        <button
+                          onClick={() => handleApproveDevice(d.id, d.device_label, d.user_display_name)}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-600 text-[11px] font-semibold"
+                        >
+                          再承認
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDeleteDevice(d.id, d.device_label, d.user_display_name)}
+                        className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-300 hover:text-gray-600"
+                        title="この端末履歴を完全削除"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
-            <ul className="divide-y divide-amber-100">
-              {pendingDevices.map((d) => (
-                <li key={d.id} className="px-4 py-2.5 flex items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">
-                      {d.user_display_name ?? "(名前未取得)"} — {d.device_label ?? "端末"}
-                    </p>
-                    <p className="text-[10px] text-gray-500 truncate">
-                      {new Date(d.created_at).toLocaleString("ja-JP")}
-                      {d.first_seen_ip ? ` / IP ${d.first_seen_ip}` : ""}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => handleApproveDevice(d.id, d.device_label, d.user_display_name)}
-                    className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-semibold"
-                  >
-                    承認
-                  </button>
-                  <button
-                    onClick={() => handleRevokeDevice(d.id, d.device_label, d.user_display_name)}
-                    className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-[11px] font-semibold"
-                  >
-                    拒否
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+          );
+        })()}
 
         {loading ? (
           <div className="flex justify-center py-12">
