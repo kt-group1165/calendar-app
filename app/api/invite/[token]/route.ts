@@ -31,6 +31,7 @@ type InvitationRow = {
   initial_password_hash: string;
   expires_at: string;
   consumed_at: string | null;
+  created_by: string | null;
 };
 
 type RouteContext = { params: Promise<{ token: string }> };
@@ -99,10 +100,12 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const { initial_password, login_id: bodyLoginId, new_password } = (body ?? {}) as {
+  const { initial_password, login_id: bodyLoginId, new_password, device_id: bodyDeviceId, device_label: bodyDeviceLabel } = (body ?? {}) as {
     initial_password?: unknown;
     login_id?: unknown;
     new_password?: unknown;
+    device_id?: unknown;
+    device_label?: unknown;
   };
 
   if (typeof initial_password !== "string" || initial_password.length === 0) {
@@ -119,7 +122,7 @@ export async function POST(request: Request, context: RouteContext) {
   // 1) invitation 取得 + 妥当性検証 ----------------------------------
   const { data: rawInv } = await admin
     .from("staff_invitations")
-    .select("token, display_name, office_id, role, member_id, login_id, initial_password_hash, expires_at, consumed_at")
+    .select("token, display_name, office_id, role, member_id, login_id, initial_password_hash, expires_at, consumed_at, created_by")
     .eq("token", token)
     .maybeSingle();
 
@@ -274,6 +277,38 @@ export async function POST(request: Request, context: RouteContext) {
     masterOfficeId: inv.office_id,
     name: inv.display_name,
   });
+
+  // 7e) Phase 11c: 招待 consume と同時にこの端末を auto-trust ---------
+  //     body.device_id が来ていれば、その device を approved な
+  //     trusted_devices に登録。これによりスタッフは admin の再承認
+  //     を待たずに、初回ログイン後すぐシステムを使える。
+  //     設計判断: 招待 URL を渡した admin が「最初の 1 端末を信頼する」
+  //     と見なせる (= admin が直接スタッフに URL を渡しているという前提)。
+  const consumeDeviceId = typeof bodyDeviceId === "string" ? bodyDeviceId : null;
+  const consumeDeviceLabel = typeof bodyDeviceLabel === "string" ? bodyDeviceLabel : null;
+  if (consumeDeviceId) {
+    const ua = request.headers.get("user-agent") ?? null;
+    const ip =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+      request.headers.get("x-real-ip") ??
+      null;
+    const nowIso = new Date().toISOString();
+    await admin.from("trusted_devices").upsert(
+      {
+        user_id: newUserId,
+        device_id: consumeDeviceId,
+        device_label: consumeDeviceLabel,
+        status: "approved",
+        approved_at: nowIso,
+        approved_by: inv.created_by ?? newUserId,   // 招待発行 admin を approver として記録
+        last_seen_at: nowIso,
+        first_seen_ua: ua,
+        first_seen_ip: ip,
+        revoked_at: null,
+      },
+      { onConflict: "user_id,device_id" }
+    );
+  }
 
   // 8) staff_invitations に consumed_user_id を後追いで埋める --------
   await admin

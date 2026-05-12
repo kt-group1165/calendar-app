@@ -79,6 +79,8 @@ export default function InvitePage() {
     setSubmitting(true);
     setErrorMsg(null);
     try {
+      // Phase 11c: 招待 consume と同時に、この端末を auto-trust するため device_id を送る
+      const { ensureDeviceId, detectDeviceLabel } = await import("@/lib/device_id");
       const res = await fetch(`/api/invite/${encodeURIComponent(token)}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -86,6 +88,8 @@ export default function InvitePage() {
           initial_password: initialPassword,
           login_id: effectiveLoginId,
           new_password: newPassword,
+          device_id: ensureDeviceId(),
+          device_label: detectDeviceLabel(),
         }),
       });
       const json = await res.json();
