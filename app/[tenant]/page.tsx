@@ -31,6 +31,7 @@ import { getEventAreas, type EventArea } from "@/lib/event_areas";
 import { getEventTypes, type EventType } from "@/lib/event_types";
 import { getClientSelectionEnabled } from "@/lib/settings";
 import { useCurrentUser, signOut } from "@/lib/auth";
+import { getUserScope, type UserScope } from "@/lib/user_scope";
 
 const LAST_SEEN_KEY = (tid: string) => `calendar_activity_last_seen_${tid}`;
 const LAST_BACKUP_KEY = (tid: string) => `calendar_last_backup_date_${tid}`;
@@ -118,6 +119,15 @@ export default function TenantCalendarPage() {
     () => offices.find((o) => o.id === currentOfficeId) ?? null,
     [offices, currentOfficeId]
   );
+  // 閲覧スコープ (group_admin = 全件、office_admin = 自 offices + 本社、member = 自 offices のみ)
+  const [userScope, setUserScope] = useState<UserScope | null>(null);
+  useEffect(() => {
+    if (authUser.loading || !authUser.authUser) return;
+    let cancelled = false;
+    getUserScope().then((s) => { if (!cancelled) setUserScope(s); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [authUser.loading, authUser.authUser]);
+
   const [filterMembers, setFilterMembers] = useState<string[]>([]);
   const [filterGroups, setFilterGroups] = useState<string[]>([]);
   const [filterAreas, setFilterAreas] = useState<string[]>([]);
@@ -204,21 +214,29 @@ export default function TenantCalendarPage() {
 
   const loadEvents = useCallback(async () => {
     if (!tenantId) return;
-    // role tenant (kt-group 以外) で office 未指定なら、offices が読み終わるまで
-    // events fetch を保留する (一度も filter 無しで全件取らないため flicker / leak 防止)
-    if (tenantId !== "kt-group" && !currentOfficeId && offices.length === 0) {
-      return;
-    }
+    // スコープ未確定の間は fetch を保留 (一瞬でも 全件 leak しないため)
+    if (!userScope) return;
     setLoading(true);
     try {
       const { start, end } = getDateRange(currentDate, viewMode);
-      // 単一 office 指定があればそれで絞り込み。
-      // role tenant (kt-group 以外) で office 未指定なら、当該 tenant 配下の office IDs で絞り込む
-      // (Phase 5b で events.tenant_id 列を DROP したため、role tenant view で
-      //  他 tenant の events が混ざっていた bug を解消)
+      // フィルタ決定:
+      //   currentOfficeId 指定: その office に絞る (user が手動切替)
+      //   group_admin: フィルタ無し (= 全件)
+      //   それ以外 (office_admin / member): allowedOfficeIds で絞る
       let officeIds: string[] | undefined;
-      if (!currentOfficeId && tenantId !== "kt-group" && offices.length > 0) {
-        officeIds = offices.map((o) => o.id);
+      if (currentOfficeId) {
+        officeIds = undefined; // single-office mode
+      } else if (userScope.kind === "group_admin") {
+        officeIds = undefined; // no filter
+      } else {
+        officeIds = userScope.allowedOfficeIds;
+        // 空配列なら 一件も見えないようにする (= 早期 return)
+        if (officeIds.length === 0) {
+          setEvents([]);
+          setSupabaseError(false);
+          setLoading(false);
+          return;
+        }
       }
       setEvents(await getEventsByDateRange(start, end, currentOfficeId ?? undefined, officeIds));
       setSupabaseError(false);
@@ -228,7 +246,7 @@ export default function TenantCalendarPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentDate, viewMode, tenantId, currentOfficeId, offices]);
+  }, [currentDate, viewMode, tenantId, currentOfficeId, userScope]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
   useEffect(() => { loadEvents(); }, [loadEvents]);
