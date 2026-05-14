@@ -67,11 +67,11 @@ export default function AdminStaffPage() {
 
   // 閲覧可能カレンダー算出用データ
   //   - groupAdminUserIds: user_groups に行がある user は group_admin (全閲覧)
-  //   - honshaOffices: service_type='本社' な office (= 管理者用カレンダー)
+  //   - adminCalendarOffices: 管理者用カレンダー扱いの office (現状 fukuyogu-kanri 配下のみ)
   //   - userOfficeIdsByUser: 各 user の所属 office id 集合 (member 表示用)
   //   - userOfficeAdminFlagByUser: 各 user が role='office_admin' を持つか
   const [groupAdminUserIds, setGroupAdminUserIds] = useState<Set<string>>(new Set());
-  const [honshaOffices, setHonshaOffices] = useState<Array<{ id: string; name: string }>>([]);
+  const [adminCalendarOffices, setAdminCalendarOffices] = useState<Array<{ id: string; name: string }>>([]);
   const [userOfficeIdsByUser, setUserOfficeIdsByUser] = useState<Map<string, Set<string>>>(new Map());
   const [userOfficeAdminByUser, setUserOfficeAdminByUser] = useState<Set<string>>(new Set());
 
@@ -355,15 +355,17 @@ export default function AdminStaffPage() {
 
       if (visibleUserIds.size > 0) {
         const userIdsArr = [...visibleUserIds];
-        const [groupRes, allUoRes, honshaRes] = await Promise.all([
+        // 管理者用カレンダーの定義は lib/user_scope.ts と一致させる (現状 fukuyogu-kanri tenant)
+        const ADMIN_CALENDAR_TENANT_IDS = ["fukuyogu-kanri"];
+        const [groupRes, allUoRes, adminCalRes] = await Promise.all([
           supabase.from("user_groups").select("user_id").in("user_id", userIdsArr),
           supabase.from("user_offices").select("user_id, office_id, role").in("user_id", userIdsArr),
-          supabase.from("offices").select("id, name").eq("service_type", "本社"),
+          supabase.from("offices").select("id, name").in("tenant_id", ADMIN_CALENDAR_TENANT_IDS),
         ]);
         const gAdminSet = new Set<string>();
         for (const r of (groupRes.data ?? []) as { user_id: string }[]) gAdminSet.add(r.user_id);
         setGroupAdminUserIds(gAdminSet);
-        setHonshaOffices(((honshaRes.data ?? []) as { id: string; name: string }[]).map((o) => ({ id: o.id, name: o.name })));
+        setAdminCalendarOffices(((adminCalRes.data ?? []) as { id: string; name: string }[]).map((o) => ({ id: o.id, name: o.name })));
         const offMap = new Map<string, Set<string>>();
         const oaSet = new Set<string>();
         for (const r of (allUoRes.data ?? []) as { user_id: string; office_id: string; role: string }[]) {
@@ -871,10 +873,10 @@ export default function AdminStaffPage() {
                           ) : userOfficeAdminByUser.has(d.user_id) ? (
                             <>
                               <span className="text-gray-500">自事業所</span>
-                              {honshaOffices.length > 0 && (
+                              {adminCalendarOffices.length > 0 && (
                                 <>
                                   <span className="text-gray-300">+</span>
-                                  {honshaOffices.map((o) => (
+                                  {adminCalendarOffices.map((o) => (
                                     <span
                                       key={o.id}
                                       className="px-1.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700"
@@ -959,7 +961,7 @@ export default function AdminStaffPage() {
                 offices={offices}
                 isGroupAdmin={inv.consumed_user_id ? groupAdminUserIds.has(inv.consumed_user_id) : false}
                 isOfficeAdmin={inv.consumed_user_id ? userOfficeAdminByUser.has(inv.consumed_user_id) : false}
-                honshaOffices={honshaOffices}
+                adminCalendarOffices={adminCalendarOffices}
                 onCancelInvitation={handleCancelInvitation}
                 onDeleteAccount={handleDeleteAccount}
                 onDeleteHistory={handleDeleteHistory}
@@ -1007,7 +1009,7 @@ function InvitationRow({
   offices,
   isGroupAdmin,
   isOfficeAdmin,
-  honshaOffices,
+  adminCalendarOffices,
   onCancelInvitation,
   onDeleteAccount,
   onDeleteHistory,
@@ -1023,7 +1025,7 @@ function InvitationRow({
   offices: OfficeOption[];
   isGroupAdmin: boolean;
   isOfficeAdmin: boolean;
-  honshaOffices: Array<{ id: string; name: string }>;
+  adminCalendarOffices: Array<{ id: string; name: string }>;
   onCancelInvitation: (token: string, displayName: string) => void;
   onDeleteAccount: (token: string, userId: string, displayName: string) => void;
   onDeleteHistory: (token: string, displayName: string) => void;
@@ -1149,10 +1151,10 @@ function InvitationRow({
             ) : (
               <>
                 <span className="text-gray-500">自事業所</span>
-                {isOfficeAdmin && honshaOffices.length > 0 && (
+                {isOfficeAdmin && adminCalendarOffices.length > 0 && (
                   <>
                     <span className="text-gray-300">+</span>
-                    {honshaOffices.map((o) => (
+                    {adminCalendarOffices.map((o) => (
                       <span
                         key={o.id}
                         className="px-1.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700"

@@ -7,19 +7,21 @@ import { getSupabase } from "./supabase-browser";
  *   - { kind: "group_admin", allowedOfficeIds: null }
  *       全イベント閲覧可 (officeIds フィルタ無し)。
  *   - { kind: "office_admin", allowedOfficeIds: [...] }
- *       自分の所属 offices + 「管理者用」office (service_type='本社') のイベントのみ。
+ *       自分の所属 offices + 「管理者用」office (fukuyogu-kanri tenant) のイベントのみ。
  *   - { kind: "member", allowedOfficeIds: [...] }
  *       自分の所属 offices のイベントのみ。
  *   - { kind: "anonymous", allowedOfficeIds: [] }
  *       未認証 (本来は proxy が /login へ追放するため呼び出されない想定)。
  *
  * 設計判断:
- *   - 「管理者用」のマーカーは offices.service_type='本社' を採用。
- *     現状 kt-group/本社 と fukuyogu-kanri/福祉用具管理者 が該当 (どちらも非 active)。
+ *   - 「管理者用」のマーカーは offices.tenant_id='fukuyogu-kanri' を採用。
+ *     現状は 福祉用具管理者 office のみが該当 (kt-group/本社 は閲覧不要との user 判断)。
+ *   - 将来 admin calendar を追加する場合は ADMIN_CALENDAR_TENANT_IDS に列挙する。
  *   - group_admin の判定は auth_user_admin_tenants() の中に tenants.tenant_type='group'
  *     なものが含まれるかで行う (= kt-group 等)。
  *   - office_admin は user_offices.role='office_admin' な行が 1 つでもあれば該当。
  */
+const ADMIN_CALENDAR_TENANT_IDS = ["fukuyogu-kanri"] as const;
 export type UserScope =
   | { kind: "group_admin"; allowedOfficeIds: null }
   | { kind: "office_admin"; allowedOfficeIds: string[] }
@@ -62,16 +64,16 @@ export async function getUserScope(): Promise<UserScope> {
   const isOfficeAdmin = ((userOffices ?? []) as UO[]).some((uo) => uo.role === "office_admin");
 
   if (isOfficeAdmin) {
-    // 本社 service_type の office_ids を追加 (= 管理者用カレンダー)
-    const { data: honsha } = await supabase
+    // 管理者用カレンダーの office_ids を追加 (fukuyogu-kanri tenant 配下)
+    const { data: adminCals } = await supabase
       .from("offices")
       .select("id")
-      .eq("service_type", "本社");
+      .in("tenant_id", ADMIN_CALENDAR_TENANT_IDS as readonly string[] as string[]);
     type O = { id: string };
-    const honshaIds = ((honsha ?? []) as O[]).map((o) => o.id);
+    const adminCalIds = ((adminCals ?? []) as O[]).map((o) => o.id);
     return {
       kind: "office_admin",
-      allowedOfficeIds: [...new Set([...myOfficeIds, ...honshaIds])],
+      allowedOfficeIds: [...new Set([...myOfficeIds, ...adminCalIds])],
     };
   }
 
