@@ -98,9 +98,10 @@ export async function POST(req: NextRequest) {
   // Phase 11c: 登録時の端末を auto-trust (= この端末からは即ログイン可)
   //   body.device_id (client cookie kt_device_id) を読み、trusted_devices に upsert。
   //   未指定なら trust 行は作らない (= 別 device で初回認証時に pending 行が作られる)。
-  // Phase 11c-2 → 緩和: 「1 端末固定」を廃止。passkey 登録時の他端末 auto-revoke を取り止め、
-  //   複数端末を同時に approved にできる。passkey credential 自体は今でも多端末に登録可
-  //   (新 device で passkey 登録 = 新 credential 作成 + 当端末を approved 追加)。
+  // Phase 11c-2 → 緩和: 「1 端末固定」を廃止。複数端末同時 approved を許可するが、
+  //   上限 5 台までに制限。既に 5 台 approved の状態なら新端末は pending で投入し
+  //   admin の承認を待たせる (= graceful degradation)。
+  const APPROVED_DEVICE_LIMIT = 5;
   const bodyDeviceId = typeof body?.device_id === "string" ? body.device_id : null;
   const bodyDeviceLabel = typeof body?.device_label === "string" ? body.device_label : null;
   if (bodyDeviceId) {
@@ -110,15 +111,24 @@ export async function POST(req: NextRequest) {
       req.headers.get("x-real-ip") ??
       null;
     const nowIso = new Date().toISOString();
-    // 新 device を approved で upsert (他 approved 端末はそのまま残す)
+    // 当 device 以外の approved 端末数をカウント (再登録 = 既 approved 端末は除外しないと
+    // 自分が 1 台目でも上限扱いになる)
+    const { count: othersApprovedCount } = await admin
+      .from("trusted_devices")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .eq("status", "approved")
+      .neq("device_id", bodyDeviceId);
+    const overLimit = (othersApprovedCount ?? 0) >= APPROVED_DEVICE_LIMIT;
+    const targetStatus = overLimit ? "pending" : "approved";
     await admin.from("trusted_devices").upsert(
       {
         user_id: user.id,
         device_id: bodyDeviceId,
         device_label: bodyDeviceLabel,
-        status: "approved",
-        approved_at: nowIso,
-        approved_by: user.id,             // self-approve at registration
+        status: targetStatus,
+        approved_at: overLimit ? null : nowIso,
+        approved_by: overLimit ? null : user.id, // self-approve at registration
         last_seen_at: nowIso,
         first_seen_ua: ua,
         first_seen_ip: ip,

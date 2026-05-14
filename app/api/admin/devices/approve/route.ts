@@ -51,9 +51,24 @@ export async function POST(request: Request) {
   }
 
   // Phase 11c-2 → 緩和: 「1 端末固定」を廃止し、user は複数端末を同時に approved にできる。
-  //   旧仕様では admin 承認時に他 approved を全て revoke していたが、
-  //   業務で Chrome + Edge / PC + スマホ 等の併用が必要との運用判断で 撤回。
-  //   pending 行は触らない (admin が別途判断)。
+  //   ただし上限 5 台に制限する。既に 5 台 approved な user の 6 台目承認は 409 を返し、
+  //   admin に既存端末の revoke を促す。
+  const APPROVED_DEVICE_LIMIT = 5;
+  const { count: othersApprovedCount } = await admin
+    .from("trusted_devices")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", row.user_id)
+    .eq("status", "approved")
+    .neq("id", device_id_uuid);
+  if ((othersApprovedCount ?? 0) >= APPROVED_DEVICE_LIMIT) {
+    return NextResponse.json(
+      {
+        error: "approved_limit_exceeded",
+        message: `承認済み端末は最大 ${APPROVED_DEVICE_LIMIT} 台までです。先に既存の端末を 1 台 revoke (拒否) してから承認してください。`,
+      },
+      { status: 409 }
+    );
+  }
 
   // 対象 row を approved に
   const { error: upErr } = await admin
