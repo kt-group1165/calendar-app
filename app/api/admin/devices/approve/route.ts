@@ -50,22 +50,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "not_permitted" }, { status: 403 });
   }
 
-  // Phase 11c-2 (1 端末固定): 同 user の他 approved 行を全て revoked に切り替え
-  //   → user ごとに approved は常に最大 1 行
-  //   pending 行は触らない (admin が別途判断)
-  const revokeAt = new Date().toISOString();
-  const { error: othersRevokeErr } = await admin
-    .from("trusted_devices")
-    .update({ status: "revoked", revoked_at: revokeAt })
-    .eq("user_id", row.user_id)
-    .eq("status", "approved")
-    .neq("id", device_id_uuid);
-  if (othersRevokeErr) {
-    return NextResponse.json(
-      { error: "others_revoke_failed", detail: othersRevokeErr.message },
-      { status: 500 }
-    );
-  }
+  // Phase 11c-2 → 緩和: 「1 端末固定」を廃止し、user は複数端末を同時に approved にできる。
+  //   旧仕様では admin 承認時に他 approved を全て revoke していたが、
+  //   業務で Chrome + Edge / PC + スマホ 等の併用が必要との運用判断で 撤回。
+  //   pending 行は触らない (admin が別途判断)。
 
   // 対象 row を approved に
   const { error: upErr } = await admin

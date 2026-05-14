@@ -98,7 +98,9 @@ export async function POST(req: NextRequest) {
   // Phase 11c: 登録時の端末を auto-trust (= この端末からは即ログイン可)
   //   body.device_id (client cookie kt_device_id) を読み、trusted_devices に upsert。
   //   未指定なら trust 行は作らない (= 別 device で初回認証時に pending 行が作られる)。
-  // Phase 11c-2: 同 user の既存 approved を全て revoked に切り替え (1 端末固定運用)
+  // Phase 11c-2 → 緩和: 「1 端末固定」を廃止。passkey 登録時の他端末 auto-revoke を取り止め、
+  //   複数端末を同時に approved にできる。passkey credential 自体は今でも多端末に登録可
+  //   (新 device で passkey 登録 = 新 credential 作成 + 当端末を approved 追加)。
   const bodyDeviceId = typeof body?.device_id === "string" ? body.device_id : null;
   const bodyDeviceLabel = typeof body?.device_label === "string" ? body.device_label : null;
   if (bodyDeviceId) {
@@ -108,14 +110,7 @@ export async function POST(req: NextRequest) {
       req.headers.get("x-real-ip") ??
       null;
     const nowIso = new Date().toISOString();
-    // 既存 approved を revoked にする (自分自身を除く)
-    await admin
-      .from("trusted_devices")
-      .update({ status: "revoked", revoked_at: nowIso })
-      .eq("user_id", user.id)
-      .eq("status", "approved")
-      .neq("device_id", bodyDeviceId);
-    // 新 device を approved で upsert
+    // 新 device を approved で upsert (他 approved 端末はそのまま残す)
     await admin.from("trusted_devices").upsert(
       {
         user_id: user.id,
