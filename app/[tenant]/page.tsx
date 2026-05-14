@@ -115,10 +115,18 @@ export default function TenantCalendarPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [offices, setOffices] = useState<Office[]>([]);
   const [groups, setGroups] = useState<MemberGroup[]>([]);
-  const currentOffice = useMemo(
-    () => offices.find((o) => o.id === currentOfficeId) ?? null,
-    [offices, currentOfficeId]
-  );
+  // ヘッダー下に表示する office 名:
+  //   1. currentOfficeId 指定があればその office
+  //   2. role tenant (kt-group 以外) で office が 1 件のみなら、その office を表示
+  //      (例: /fukuyogu-kanri は 福祉用具管理者 office 1 つしかないので自動表示)
+  const currentOffice = useMemo(() => {
+    const found = offices.find((o) => o.id === currentOfficeId);
+    if (found) return found;
+    if (tenantId !== "kt-group" && !currentOfficeId && offices.length === 1) {
+      return offices[0];
+    }
+    return null;
+  }, [offices, currentOfficeId, tenantId]);
   // 閲覧スコープ (group_admin = 全件、office_admin = 自 offices + 本社、member = 自 offices のみ)
   const [userScope, setUserScope] = useState<UserScope | null>(null);
   useEffect(() => {
