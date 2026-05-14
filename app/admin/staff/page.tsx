@@ -293,8 +293,42 @@ export default function AdminStaffPage() {
         )
         .order("created_at", { ascending: false });
       const displayNameByUserId = new Map<string, string>();
+      // 第一段: staff_invitations.display_name (招待 flow 経由 user)
       for (const r of (invRows ?? []) as InvRow[]) {
         if (r.consumed_user_id) displayNameByUserId.set(r.consumed_user_id, r.display_name);
+      }
+      // 第二段: 招待 flow を通っていない user (初期 admin 等) は user_offices → members.name で補完
+      const unresolvedUserIds = [
+        ...new Set(
+          ((deviceRows ?? []) as { user_id: string }[])
+            .map((d) => d.user_id)
+            .filter((uid) => !displayNameByUserId.has(uid))
+        ),
+      ];
+      if (unresolvedUserIds.length > 0) {
+        const { data: uoRows } = await supabase
+          .from("user_offices")
+          .select("user_id, member_id")
+          .in("user_id", unresolvedUserIds);
+        const memberIdByUser = new Map<string, string>();
+        for (const r of (uoRows ?? []) as { user_id: string; member_id: string | null }[]) {
+          if (r.member_id && !memberIdByUser.has(r.user_id)) memberIdByUser.set(r.user_id, r.member_id);
+        }
+        const memberIds = [...new Set([...memberIdByUser.values()])];
+        if (memberIds.length > 0) {
+          const { data: memRows } = await supabase
+            .from("members")
+            .select("id, name")
+            .in("id", memberIds);
+          const nameByMemberId = new Map<string, string>();
+          for (const r of (memRows ?? []) as { id: string; name: string }[]) {
+            nameByMemberId.set(r.id, r.name);
+          }
+          for (const [uid, mid] of memberIdByUser) {
+            const n = nameByMemberId.get(mid);
+            if (n) displayNameByUserId.set(uid, n);
+          }
+        }
       }
       setAllDevices(
         ((deviceRows ?? []) as Omit<TrustedDevice, "user_display_name">[]).map((p) => ({
