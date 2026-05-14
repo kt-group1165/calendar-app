@@ -36,6 +36,9 @@ function mergeOffices(members: RawMember[], junction: RawMemberOffice[]): Member
 // officeId 指定時は member_offices.office_id 配列に officeId を含む member のみ返す。
 // includeInactive 既定 false: members.status='active' のみ返す
 // (退職者を担当者 picker / カレンダー表示から除外)。退職者管理画面など全件必要なら true。
+//
+// 注: member_offices は全件取得が必要 (各 member の所属 office 配列をマージするため)。
+//     1000 行を超える場合があるため range pagination で全件取得する。
 export async function getMembers(
   tenantId: string,
   officeId?: string,
@@ -43,13 +46,28 @@ export async function getMembers(
 ): Promise<Member[]> {
   let memQuery = supabase.from("members").select("*").eq("tenant_id", tenantId);
   if (!includeInactive) memQuery = memQuery.eq("status", "active");
-  const [memRes, junRes] = await Promise.all([
+  const [memRes, allJunction] = await Promise.all([
     memQuery.order("sort_order", { nullsFirst: false }).order("name"),
-    supabase.from("member_offices").select("member_id, office_id, is_primary"),
+    (async () => {
+      const PAGE = 1000;
+      const acc: RawMemberOffice[] = [];
+      let from = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from("member_offices")
+          .select("member_id, office_id, is_primary")
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        acc.push(...(data as RawMemberOffice[]));
+        if (data.length < PAGE) break;
+        from += PAGE;
+      }
+      return acc;
+    })(),
   ]);
   if (memRes.error) throw memRes.error;
-  if (junRes.error) throw junRes.error;
-  let merged = mergeOffices((memRes.data ?? []) as RawMember[], (junRes.data ?? []) as RawMemberOffice[]);
+  let merged = mergeOffices((memRes.data ?? []) as RawMember[], allJunction);
   if (officeId) merged = merged.filter((m) => m.office_ids.includes(officeId));
   return merged;
 }
