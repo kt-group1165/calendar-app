@@ -65,6 +65,16 @@ export default function AdminStaffPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // 閲覧可能カレンダー算出用データ
+  //   - groupAdminUserIds: user_groups に行がある user は group_admin (全閲覧)
+  //   - honshaOffices: service_type='本社' な office (= 管理者用カレンダー)
+  //   - userOfficeIdsByUser: 各 user の所属 office id 集合 (member 表示用)
+  //   - userOfficeAdminFlagByUser: 各 user が role='office_admin' を持つか
+  const [groupAdminUserIds, setGroupAdminUserIds] = useState<Set<string>>(new Set());
+  const [honshaOffices, setHonshaOffices] = useState<Array<{ id: string; name: string }>>([]);
+  const [userOfficeIdsByUser, setUserOfficeIdsByUser] = useState<Map<string, Set<string>>>(new Map());
+  const [userOfficeAdminByUser, setUserOfficeAdminByUser] = useState<Set<string>>(new Set());
+
   const [showNewModal, setShowNewModal] = useState(false);
   const [issued, setIssued] = useState<{
     invite_url: string;
@@ -336,6 +346,34 @@ export default function AdminStaffPage() {
           user_display_name: displayNameByUserId.get(p.user_id) ?? null,
         }))
       );
+
+      // 閲覧可能カレンダー算出用データを取得
+      //   - 表示対象の user_id 集合 (invitations.consumed_user_id + trusted_devices.user_id)
+      const visibleUserIds = new Set<string>();
+      for (const r of (invRows ?? []) as InvRow[]) if (r.consumed_user_id) visibleUserIds.add(r.consumed_user_id);
+      for (const d of (deviceRows ?? []) as { user_id: string }[]) visibleUserIds.add(d.user_id);
+
+      if (visibleUserIds.size > 0) {
+        const userIdsArr = [...visibleUserIds];
+        const [groupRes, allUoRes, honshaRes] = await Promise.all([
+          supabase.from("user_groups").select("user_id").in("user_id", userIdsArr),
+          supabase.from("user_offices").select("user_id, office_id, role").in("user_id", userIdsArr),
+          supabase.from("offices").select("id, name").eq("service_type", "本社"),
+        ]);
+        const gAdminSet = new Set<string>();
+        for (const r of (groupRes.data ?? []) as { user_id: string }[]) gAdminSet.add(r.user_id);
+        setGroupAdminUserIds(gAdminSet);
+        setHonshaOffices(((honshaRes.data ?? []) as { id: string; name: string }[]).map((o) => ({ id: o.id, name: o.name })));
+        const offMap = new Map<string, Set<string>>();
+        const oaSet = new Set<string>();
+        for (const r of (allUoRes.data ?? []) as { user_id: string; office_id: string; role: string }[]) {
+          if (!offMap.has(r.user_id)) offMap.set(r.user_id, new Set());
+          offMap.get(r.user_id)!.add(r.office_id);
+          if (r.role === "office_admin") oaSet.add(r.user_id);
+        }
+        setUserOfficeIdsByUser(offMap);
+        setUserOfficeAdminByUser(oaSet);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "読込に失敗しました");
     } finally {
@@ -823,6 +861,37 @@ export default function AdminStaffPage() {
                             : `初登場: ${new Date(d.created_at).toLocaleString("ja-JP")}`}
                           {d.first_seen_ip ? ` / IP ${d.first_seen_ip}` : ""}
                         </p>
+                        {/* 閲覧可能カレンダー (承認時に admin が判断する材料) */}
+                        <div className="mt-1 text-[10px] text-gray-500 flex items-center gap-1 flex-wrap">
+                          <span className="text-gray-400">閲覧可:</span>
+                          {groupAdminUserIds.has(d.user_id) ? (
+                            <span className="px-1.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 font-semibold">
+                              🌐 全カレンダー
+                            </span>
+                          ) : userOfficeAdminByUser.has(d.user_id) ? (
+                            <>
+                              <span className="text-gray-500">自事業所</span>
+                              {honshaOffices.length > 0 && (
+                                <>
+                                  <span className="text-gray-300">+</span>
+                                  {honshaOffices.map((o) => (
+                                    <span
+                                      key={o.id}
+                                      className="px-1.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700"
+                                      title="管理者用カレンダー"
+                                    >
+                                      {o.name}
+                                    </span>
+                                  ))}
+                                </>
+                              )}
+                            </>
+                          ) : userOfficeIdsByUser.has(d.user_id) ? (
+                            <span className="text-gray-500">自事業所のみ</span>
+                          ) : (
+                            <span className="text-gray-400 italic">閲覧不可 (所属無し)</span>
+                          )}
+                        </div>
                       </div>
                       {d.status === "pending" && (
                         <>
@@ -888,6 +957,9 @@ export default function AdminStaffPage() {
                 key={inv.token}
                 inv={inv}
                 offices={offices}
+                isGroupAdmin={inv.consumed_user_id ? groupAdminUserIds.has(inv.consumed_user_id) : false}
+                isOfficeAdmin={inv.consumed_user_id ? userOfficeAdminByUser.has(inv.consumed_user_id) : false}
+                honshaOffices={honshaOffices}
                 onCancelInvitation={handleCancelInvitation}
                 onDeleteAccount={handleDeleteAccount}
                 onDeleteHistory={handleDeleteHistory}
@@ -933,6 +1005,9 @@ export default function AdminStaffPage() {
 function InvitationRow({
   inv,
   offices,
+  isGroupAdmin,
+  isOfficeAdmin,
+  honshaOffices,
   onCancelInvitation,
   onDeleteAccount,
   onDeleteHistory,
@@ -946,6 +1021,9 @@ function InvitationRow({
 }: {
   inv: InvitationListItem;
   offices: OfficeOption[];
+  isGroupAdmin: boolean;
+  isOfficeAdmin: boolean;
+  honshaOffices: Array<{ id: string; name: string }>;
   onCancelInvitation: (token: string, displayName: string) => void;
   onDeleteAccount: (token: string, userId: string, displayName: string) => void;
   onDeleteHistory: (token: string, displayName: string) => void;
@@ -1057,6 +1135,35 @@ function InvitationRow({
                 <Plus size={10} />
                 別事業所追加
               </button>
+            )}
+          </div>
+        )}
+        {/* 閲覧可能カレンダー (group_admin / office_admin / member 区別) */}
+        {consumed && !!inv.consumed_user_id && (
+          <div className="mt-1.5 text-[10px] text-gray-500 flex items-center gap-1 flex-wrap">
+            <span className="text-gray-400">閲覧可:</span>
+            {isGroupAdmin ? (
+              <span className="px-1.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 font-semibold">
+                🌐 全カレンダー
+              </span>
+            ) : (
+              <>
+                <span className="text-gray-500">自事業所</span>
+                {isOfficeAdmin && honshaOffices.length > 0 && (
+                  <>
+                    <span className="text-gray-300">+</span>
+                    {honshaOffices.map((o) => (
+                      <span
+                        key={o.id}
+                        className="px-1.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700"
+                        title="管理者用カレンダー"
+                      >
+                        {o.name}
+                      </span>
+                    ))}
+                  </>
+                )}
+              </>
             )}
           </div>
         )}
