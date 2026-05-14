@@ -35,26 +35,16 @@ export async function getUserScope(): Promise<UserScope> {
     return { kind: "anonymous", allowedOfficeIds: [] };
   }
 
-  // 1) admin tenants
-  const { data: adminTenantsData } = await supabase.rpc("auth_user_admin_tenants");
-  type R = { auth_user_admin_tenants?: string } | string;
-  const adminTenantIds = ((adminTenantsData ?? []) as R[])
-    .map((r) => (typeof r === "string" ? r : r.auth_user_admin_tenants ?? ""))
-    .filter(Boolean);
-
-  // 2) group-type tenant の admin なら group_admin
-  if (adminTenantIds.length > 0) {
-    const { data: groupCheck } = await supabase
-      .from("tenants")
-      .select("id")
-      .in("id", adminTenantIds)
-      .eq("tenant_type", "group");
-    if ((groupCheck ?? []).length > 0) {
-      return { kind: "group_admin", allowedOfficeIds: null };
-    }
+  // 1) group_admin 判定: user_groups に行があるかを auth_admin_group_ids() で直接確認
+  //    (auth_user_admin_tenants() は office_admin でも kt-group を返してくるので
+  //     tenant_type='group' チェックだと office_admin → group_admin と誤判定する。
+  //     正しくは user_groups 行の有無だけで判定する)
+  const { data: groupAdminData } = await supabase.rpc("auth_admin_group_ids");
+  if ((groupAdminData ?? []).length > 0) {
+    return { kind: "group_admin", allowedOfficeIds: null };
   }
 
-  // 3) user_offices で自分の所属 office + 役割
+  // 2) user_offices で自分の所属 office + 役割
   const { data: userOffices } = await supabase
     .from("user_offices")
     .select("office_id, role")
