@@ -216,26 +216,42 @@ export default function TenantCalendarPage() {
     if (!tenantId) return;
     // スコープ未確定の間は fetch を保留 (一瞬でも 全件 leak しないため)
     if (!userScope) return;
+    // role tenant (kt-group 以外) では offices をロードしてからでないと
+    // 「その tenant の events だけ」に絞れないので保留する
+    if (tenantId !== "kt-group" && !currentOfficeId && offices.length === 0) {
+      return;
+    }
     setLoading(true);
     try {
       const { start, end } = getDateRange(currentDate, viewMode);
       // フィルタ決定:
       //   currentOfficeId 指定: その office に絞る (user が手動切替)
-      //   group_admin: フィルタ無し (= 全件)
-      //   それ以外 (office_admin / member): allowedOfficeIds で絞る
+      //   tenant スコープ: kt-group は無制限、role tenant (fukuyogu-kanri 等) はその tenant の
+      //     offices に限定 (URL = カレンダーコンテキストなので他テナントの events を混ぜない)
+      //   user スコープ: group_admin は無制限、office_admin / member は allowedOfficeIds
+      //   実効値 = tenant スコープ ∩ user スコープ
       let officeIds: string[] | undefined;
       if (currentOfficeId) {
         officeIds = undefined; // single-office mode
-      } else if (userScope.kind === "group_admin") {
-        officeIds = undefined; // no filter
       } else {
-        officeIds = userScope.allowedOfficeIds;
-        // 空配列なら 一件も見えないようにする (= 早期 return)
-        if (officeIds.length === 0) {
-          setEvents([]);
-          setSupabaseError(false);
-          setLoading(false);
-          return;
+        const tenantOfficeIds = tenantId === "kt-group" ? null : offices.map((o) => o.id);
+        if (userScope.kind === "group_admin") {
+          // tenant scope のみ適用 (kt-group なら null = no filter)
+          officeIds = tenantOfficeIds ?? undefined;
+        } else {
+          // office_admin / member: user scope と tenant scope の交差
+          let allowed = userScope.allowedOfficeIds;
+          if (tenantOfficeIds !== null) {
+            const tenantSet = new Set(tenantOfficeIds);
+            allowed = allowed.filter((id) => tenantSet.has(id));
+          }
+          if (allowed.length === 0) {
+            setEvents([]);
+            setSupabaseError(false);
+            setLoading(false);
+            return;
+          }
+          officeIds = allowed;
         }
       }
       setEvents(await getEventsByDateRange(start, end, currentOfficeId ?? undefined, officeIds));
@@ -246,7 +262,7 @@ export default function TenantCalendarPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentDate, viewMode, tenantId, currentOfficeId, userScope]);
+  }, [currentDate, viewMode, tenantId, currentOfficeId, userScope, offices]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
   useEffect(() => { loadEvents(); }, [loadEvents]);
