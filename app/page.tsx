@@ -8,6 +8,7 @@ import { getTenants, type Tenant } from "@/lib/tenants";
 import { getOffices, type Office } from "@/lib/offices";
 import { getSupabase } from "@/lib/supabase-browser";
 import { signOut } from "@/lib/auth";
+import { getUserScope } from "@/lib/user_scope";
 
 // ホーム画面（テナント + office picker）。
 // Phase 8 (2026-05-08) — office-centric 統合に伴い top page を再設計:
@@ -43,18 +44,27 @@ export default function HomePage() {
       }
 
       try {
-        const [tList, oList, adminGroupsRes, adminCompaniesRes] = await Promise.all([
+        const [tList, oList, adminGroupsRes, adminCompaniesRes, scope] = await Promise.all([
           getTenants(),
-          // kt-group の福祉用具/本社 office を取得 (RLS で自分が見える分だけ返る)
+          // kt-group の福祉用具/本社 office を取得
+          // RLS は緩めで tenant 内全 office 見えるため、ここで userScope で絞る:
+          //   member → 自 office のみ / office_admin → 自 office + admin calendar /
+          //   group_admin → 全 office (現状維持)
           getOffices("kt-group").catch(() => [] as Office[]),
           // group_admin である group の集合 (空なら group_admin ではない)
           supabase.rpc("auth_admin_group_ids"),
           // company_admin である company の集合
           supabase.rpc("auth_admin_company_ids"),
+          // 閲覧スコープ (getOffices と並行で取得)
+          getUserScope(),
         ]);
         const visible = tList.filter((t) => t.tenant_type !== "test");
         setTenants(visible);
-        setOffices(oList);
+        // scope.allowedOfficeIds が null = group_admin → フィルタ無し
+        // 配列なら member / office_admin → 自分のスコープ内の office のみ
+        const allowedSet = scope.allowedOfficeIds === null ? null : new Set(scope.allowedOfficeIds);
+        const filteredOffices = allowedSet === null ? oList : oList.filter((o) => allowedSet.has(o.id));
+        setOffices(filteredOffices);
         const groupT = visible.find((t) => t.tenant_type === "group");
         // 「全社ビュー」を見せるのは group_admin / company_admin のみ
         // (office_admin は自 office に属する範囲だけで OK)
@@ -67,11 +77,11 @@ export default function HomePage() {
         // ── アクセス可能な destination が 1 つだけならスキップして直行 ──
         const localRoleTenants = visible.filter((t) => t.tenant_type === "role");
         const totalDestinations =
-          localRoleTenants.length + oList.length + (localShowGroupView ? 1 : 0);
+          localRoleTenants.length + filteredOffices.length + (localShowGroupView ? 1 : 0);
         if (totalDestinations === 1) {
           // 単一 office: /[group]?office=<id>
-          if (oList.length === 1 && groupT) {
-            router.replace(`/${groupT.id}?office=${oList[0].id}`);
+          if (filteredOffices.length === 1 && groupT) {
+            router.replace(`/${groupT.id}?office=${filteredOffices[0].id}`);
             return;
           }
           // 単一役職 tenant: /[role]
