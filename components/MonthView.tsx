@@ -63,7 +63,7 @@ export default function MonthView({ currentDate, events, onDayClick, onEventClic
 
       {/* カレンダーグリッド */}
       <div className="grid grid-cols-7 flex-1">
-        {days.map((day, idx) => {
+        {days.map((day: Date, idx: number) => {
           const dayEvents = getEventsForDay(events, day);
           const isCurrentMonth = isSameMonth(day, currentDate);
           const today = isToday(day);
