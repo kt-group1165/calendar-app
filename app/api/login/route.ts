@@ -71,7 +71,8 @@ export async function POST(request: Request) {
 
   // user が居なくても情報をオラクルしないため、passkey 判定はスキップして
   // 通常の signInWithPassword に流す (= "credentials_invalid" が返る)。
-  if (targetUser) {
+  // master user は passkey_required も bypass (= 緊急時のパスワードログイン路を確保)
+  if (targetUser && !isMasterUser(targetUser.email)) {
     // Phase 11: passkey 排他チェック
     const { data: passkeys } = await admin
       .from("passkey_credentials")
