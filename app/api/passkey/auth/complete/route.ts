@@ -3,6 +3,7 @@ import { verifyAuthenticationResponse } from "@simplewebauthn/server";
 import type { AuthenticationResponseJSON } from "@simplewebauthn/types";
 import { createAdminClient } from "@/lib/supabase-server";
 import { getRpInfo, base64ToUint8Array } from "@/lib/passkey";
+import { isMasterUser } from "@/lib/master_user";
 
 // POST /api/passkey/auth/complete
 // body: { response: AuthenticationResponseJSON }
@@ -88,6 +89,9 @@ export async function POST(req: NextRequest) {
   //   device_id (client cookie kt_device_id) を読み、approved 状態なら session 発行可。
   //   未登録なら pending row を作成して "approval_required" を返す。
   //   revoked なら拒否。
+  //
+  // master user (env MASTER_USER_EMAILS で指定) は trust check を bypass。
+  // user email を先に取得して判定する (本来は generateLink 直前で取得していたが順序入替)。
   const bodyDeviceId = typeof body?.device_id === "string" ? body.device_id : null;
   const bodyDeviceLabel = typeof body?.device_label === "string" ? body.device_label : null;
   if (!bodyDeviceId) {
@@ -96,79 +100,83 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  const ua = req.headers.get("user-agent") ?? null;
-  const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-    req.headers.get("x-real-ip") ??
-    null;
-  const { data: trustRow } = await admin
-    .from("trusted_devices")
-    .select("status")
-    .eq("user_id", cred.user_id)
-    .eq("device_id", bodyDeviceId)
-    .maybeSingle();
-  if (!trustRow) {
-    // 初見端末 → pending row を作成して承認待ち
-    await admin.from("trusted_devices").insert({
-      user_id: cred.user_id,
-      device_id: bodyDeviceId,
-      device_label: bodyDeviceLabel,
-      status: "pending",
-      first_seen_ua: ua,
-      first_seen_ip: ip,
-    });
-    return NextResponse.json(
-      {
-        verified: true,
-        status: "approval_required",
-        message:
-          "新しい端末からのログインです。管理者の承認をお待ちください。承認されたら再度お試しください。",
-      },
-      { status: 202 }
-    );
+  const { data: userResp, error: userErr } = await admin.auth.admin.getUserById(cred.user_id);
+  if (userErr || !userResp.user?.email) {
+    return NextResponse.json({ error: "user lookup failed" }, { status: 500 });
   }
-  if (trustRow.status === "revoked") {
-    return NextResponse.json(
-      {
-        verified: true,
-        status: "device_revoked",
-        message: "この端末は管理者により無効化されています。管理者に連絡してください。",
-      },
-      { status: 403 }
-    );
-  }
-  if (trustRow.status === "pending") {
-    // 既に pending: last_seen_at を更新するだけ
+  const userEmail = userResp.user.email;
+
+  if (!isMasterUser(userEmail)) {
+    const ua = req.headers.get("user-agent") ?? null;
+    const ip =
+      req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+      req.headers.get("x-real-ip") ??
+      null;
+    const { data: trustRow } = await admin
+      .from("trusted_devices")
+      .select("status")
+      .eq("user_id", cred.user_id)
+      .eq("device_id", bodyDeviceId)
+      .maybeSingle();
+    if (!trustRow) {
+      // 初見端末 → pending row を作成して承認待ち
+      await admin.from("trusted_devices").insert({
+        user_id: cred.user_id,
+        device_id: bodyDeviceId,
+        device_label: bodyDeviceLabel,
+        status: "pending",
+        first_seen_ua: ua,
+        first_seen_ip: ip,
+      });
+      return NextResponse.json(
+        {
+          verified: true,
+          status: "approval_required",
+          message:
+            "新しい端末からのログインです。管理者の承認をお待ちください。承認されたら再度お試しください。",
+        },
+        { status: 202 }
+      );
+    }
+    if (trustRow.status === "revoked") {
+      return NextResponse.json(
+        {
+          verified: true,
+          status: "device_revoked",
+          message: "この端末は管理者により無効化されています。管理者に連絡してください。",
+        },
+        { status: 403 }
+      );
+    }
+    if (trustRow.status === "pending") {
+      // 既に pending: last_seen_at を更新するだけ
+      await admin
+        .from("trusted_devices")
+        .update({ last_seen_at: new Date().toISOString() })
+        .eq("user_id", cred.user_id)
+        .eq("device_id", bodyDeviceId);
+      return NextResponse.json(
+        {
+          verified: true,
+          status: "approval_required",
+          message: "管理者の承認待ちです。承認されたら再度お試しください。",
+        },
+        { status: 202 }
+      );
+    }
+    // status === 'approved' → last_seen_at 更新 + session 発行へ
     await admin
       .from("trusted_devices")
       .update({ last_seen_at: new Date().toISOString() })
       .eq("user_id", cred.user_id)
       .eq("device_id", bodyDeviceId);
-    return NextResponse.json(
-      {
-        verified: true,
-        status: "approval_required",
-        message: "管理者の承認待ちです。承認されたら再度お試しください。",
-      },
-      { status: 202 }
-    );
   }
-  // status === 'approved' → last_seen_at 更新 + session 発行へ
-  await admin
-    .from("trusted_devices")
-    .update({ last_seen_at: new Date().toISOString() })
-    .eq("user_id", cred.user_id)
-    .eq("device_id", bodyDeviceId);
 
   // session 化: admin.generateLink で magiclink を発行 → client で verifyOtp
-  const { data: userResp, error: userErr } = await admin.auth.admin.getUserById(cred.user_id);
-  if (userErr || !userResp.user?.email) {
-    return NextResponse.json({ error: "user lookup failed" }, { status: 500 });
-  }
-
+  // userEmail / userResp は trust check 前に取得済 (上記参照)
   const { data: linkData, error: linkErr } = await admin.auth.admin.generateLink({
     type: "magiclink",
-    email: userResp.user.email,
+    email: userEmail,
   });
   if (linkErr || !linkData.properties?.hashed_token) {
     return NextResponse.json({ error: linkErr?.message ?? "link generation failed" }, { status: 500 });
@@ -177,6 +185,6 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     verified: true,
     token_hash: linkData.properties.hashed_token,
-    email: userResp.user.email,
+    email: userEmail,
   });
 }

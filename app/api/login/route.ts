@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient, createAdminClient } from "@/lib/supabase-server";
 import { isValidLoginId, loginIdToSyntheticEmail } from "@/lib/login_id";
+import { isMasterUser } from "@/lib/master_user";
 
 // POST /api/login
 //
@@ -103,7 +104,10 @@ export async function POST(request: Request) {
   // Phase 11c-2: trusted_devices check (PW ログイン経路にも適用)
   //   PW 認証成功した user 自身を改めて引いて trust 判定。
   //   新端末 (未登録 or pending) なら session を即 signOut() して 202 返却。
-  if (targetUser) {
+  //
+  // master user (env MASTER_USER_EMAILS で指定) は trust check を bypass。
+  // 開発者本人が端末ロックでログインできなくなる事態を回避する。
+  if (targetUser && !isMasterUser(targetUser.email)) {
     const ua = request.headers.get("user-agent") ?? null;
     const ip =
       request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
