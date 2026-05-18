@@ -4,6 +4,5 @@
       "path": "/api/backup",
       "schedule": "0 15 * * *"
     }
-  ],
-  "installCommand": "cd ../.. && npm install --include-workspace-root --workspaces"
+  ]
 }
