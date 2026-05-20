@@ -19,19 +19,20 @@ const sb = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_
 
 // 1) Migration SQL 実行
 const sql = readFileSync(resolve(__dirname, "..", "supabase-migration-v19.sql"), "utf8");
-console.log("[1/2] migration v19 適用");
-const { error: sqlErr } = await sb.rpc("exec_sql", { sql });
-if (sqlErr) {
-  // exec_sql RPC が無い場合: PostgREST 経由では DDL 不可なので、SQL editor で手動実行を促す
-  console.error("\n⚠️ exec_sql RPC が無いため、自動適用できません。");
-  console.error("Supabase SQL Editor で以下を実行してください:\n");
+console.log("[1/2] auth_admin_passwords table 存在確認");
+const { error: probeErr } = await sb
+  .from("auth_admin_passwords")
+  .select("user_id", { count: "exact", head: true });
+if (probeErr) {
+  console.error("\n⚠️ auth_admin_passwords table 未作成。");
+  console.error(`probe error: ${probeErr.message}`);
+  console.error("Supabase SQL Editor で以下を実行してから再実行してください:\n");
   console.error("─".repeat(60));
   console.error(sql);
   console.error("─".repeat(60));
-  console.error("\n適用後、再度このスクリプトを実行すると seed が走ります。");
   process.exit(1);
 }
-console.log("  → OK");
+console.log("  → table 存在確認 OK、seed に進みます");
 
 // 2) 既知のパスワードを seed
 //    手元で plaintext を把握している user のみ:
