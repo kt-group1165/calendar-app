@@ -99,9 +99,9 @@ export async function POST(req: NextRequest) {
   //   body.device_id (client cookie kt_device_id) を読み、trusted_devices に upsert。
   //   未指定なら trust 行は作らない (= 別 device で初回認証時に pending 行が作られる)。
   // Phase 11c-2 → 緩和: 「1 端末固定」を廃止。複数端末同時 approved を許可するが、
-  //   上限 5 台までに制限。既に 5 台 approved の状態なら新端末は pending で投入し
-  //   admin の承認を待たせる (= graceful degradation)。
-  const APPROVED_DEVICE_LIMIT = 5;
+  //   上限を 2 台までに制限 (社用 + 私用 スマホ想定)。既に 2 台 approved の状態なら
+  //   新端末は pending で投入し admin の承認を待たせる (= graceful degradation)。
+  const APPROVED_DEVICE_LIMIT = 2;
   const bodyDeviceId = typeof body?.device_id === "string" ? body.device_id : null;
   const bodyDeviceLabel = typeof body?.device_label === "string" ? body.device_label : null;
   if (bodyDeviceId) {

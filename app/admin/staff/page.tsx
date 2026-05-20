@@ -74,6 +74,11 @@ export default function AdminStaffPage() {
   const [adminCalendarOffices, setAdminCalendarOffices] = useState<Array<{ id: string; name: string }>>([]);
   const [userOfficeIdsByUser, setUserOfficeIdsByUser] = useState<Map<string, Set<string>>>(new Map());
   const [userOfficeAdminByUser, setUserOfficeAdminByUser] = useState<Set<string>>(new Set());
+  // v19: admin が把握している平文パスワード (domen のみ閲覧可、RLS で守る)
+  //   - 非 domen が SELECT すると空配列が返るだけなので、UI 側で特別な分岐不要
+  //   - rows ある = 本機能を有効化、なし = なにも表示しない
+  type AdminPwRow = { user_id: string; password: string; set_at: string; is_stale: boolean };
+  const [adminPasswordByUserId, setAdminPasswordByUserId] = useState<Map<string, AdminPwRow>>(new Map());
 
   const [showNewModal, setShowNewModal] = useState(false);
   const [issued, setIssued] = useState<{
@@ -376,6 +381,14 @@ export default function AdminStaffPage() {
         setUserOfficeIdsByUser(offMap);
         setUserOfficeAdminByUser(oaSet);
       }
+
+      // v19: auth_admin_passwords を取得 (RLS で domen のみ rows が返る)
+      const { data: pwRows } = await supabase
+        .from("auth_admin_passwords")
+        .select("user_id, password, set_at, is_stale");
+      const pwMap = new Map<string, AdminPwRow>();
+      for (const r of (pwRows ?? []) as AdminPwRow[]) pwMap.set(r.user_id, r);
+      setAdminPasswordByUserId(pwMap);
     } catch (e) {
       setError(e instanceof Error ? e.message : "読込に失敗しました");
     } finally {
@@ -564,14 +577,29 @@ export default function AdminStaffPage() {
   }
 
   // Phase 11c: 承認待ち端末を承認 / 拒否
-  async function handleApproveDevice(deviceUuid: string, deviceLabel: string | null, userName: string | null) {
-    if (!confirm(
-      `「${userName ?? "?"}」の端末「${deviceLabel ?? "?"}」を承認しますか?\n\n` +
-      `■ 承認後\n` +
-      `・この端末から Passkey ログインが可能になります\n` +
-      `・この user の他の承認済端末は自動的に拒否されます (1 端末固定運用)\n\n` +
-      `機種変更や端末追加の場合はそのまま承認してください。`
-    )) return;
+  async function handleApproveDevice(
+    deviceUuid: string,
+    deviceLabel: string | null,
+    userName: string | null,
+    deviceIndex: number, // この user の中で何台目か (1=1台目)
+    existingApprovedCount: number, // 既に approved な端末数 (= 承認後 +1 になる)
+    otherApprovedLabels: string[], // 既に approved な他端末の label 一覧 (admin の判断材料)
+  ) {
+    const afterApprovedCount = existingApprovedCount + 1;
+    const limit = 2; // /api/admin/devices/approve と同期
+    const detail =
+      otherApprovedLabels.length > 0
+        ? `\n■ 既に承認済の端末:\n  - ${otherApprovedLabels.join("\n  - ")}`
+        : "";
+    if (
+      !confirm(
+        `「${userName ?? "?"}」の端末「${deviceLabel ?? "?"}」(${deviceIndex}台目) を承認しますか?\n\n` +
+          `承認すると、この user の承認済端末は ${afterApprovedCount} 台になります (上限 ${limit} 台)。${detail}\n\n` +
+          `※ 社用と私用のスマホで 2 台までは想定運用です。\n` +
+          `※ 関係ない PC からの登録の可能性があれば「拒否」してください。`,
+      )
+    )
+      return;
     try {
       const res = await fetch("/api/admin/devices/approve", {
         method: "POST",
@@ -847,97 +875,197 @@ export default function AdminStaffPage() {
                 <div className="px-4 py-6 text-center text-xs text-gray-400">
                   該当する端末はありません
                 </div>
-              ) : (
-                <ul className="divide-y divide-gray-50">
-                  {filtered.map((d) => (
-                    <li key={d.id} className="px-4 py-2.5 flex items-center gap-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-800 truncate">
-                          {d.user_display_name ?? "(名前未取得)"} — {d.device_label ?? "端末"}
-                        </p>
-                        <p className="text-[10px] text-gray-500 truncate">
-                          {d.status === "approved" && d.approved_at
-                            ? `承認: ${new Date(d.approved_at).toLocaleString("ja-JP")}`
-                            : d.status === "revoked" && d.revoked_at
-                            ? `拒否: ${new Date(d.revoked_at).toLocaleString("ja-JP")}`
-                            : `初登場: ${new Date(d.created_at).toLocaleString("ja-JP")}`}
-                          {d.first_seen_ip ? ` / IP ${d.first_seen_ip}` : ""}
-                        </p>
-                        {/* 閲覧可能カレンダー (承認時に admin が判断する材料) */}
-                        <div className="mt-1 text-[10px] text-gray-500 flex items-center gap-1 flex-wrap">
-                          <span className="text-gray-400">閲覧可:</span>
-                          {groupAdminUserIds.has(d.user_id) ? (
-                            <span className="px-1.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 font-semibold">
-                              🌐 全カレンダー
+              ) : (() => {
+                // 同 user の端末をまとめる: user_id 単位で created_at ASC で sort し、
+                // N台目 (1-based, 全 status 通算) を割当てる。
+                // group 自体は filtered (= 当 status の最新登場) の created_at DESC で並べる。
+                const allByUser = new Map<string, typeof allDevices>();
+                for (const d of allDevices) {
+                  if (!allByUser.has(d.user_id)) allByUser.set(d.user_id, []);
+                  allByUser.get(d.user_id)!.push(d);
+                }
+                for (const list of allByUser.values()) {
+                  list.sort(
+                    (a, b) =>
+                      new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+                  );
+                }
+                // deviceIndex (= user 内 N 台目) を id → number で持つ
+                const deviceIndex = new Map<string, number>();
+                for (const list of allByUser.values()) {
+                  list.forEach((d, i) => deviceIndex.set(d.id, i + 1));
+                }
+                // 当 status だけに絞った user_id 順序 (filtered の created_at DESC を活かしたい)
+                const userOrder: string[] = [];
+                const seen = new Set<string>();
+                for (const d of filtered) {
+                  if (!seen.has(d.user_id)) {
+                    seen.add(d.user_id);
+                    userOrder.push(d.user_id);
+                  }
+                }
+                // 各 user の approved labels (承認 confirm dialog 用)
+                function approvedLabelsOf(uid: string): string[] {
+                  return (allByUser.get(uid) ?? [])
+                    .filter((x) => x.status === "approved")
+                    .map((x) => x.device_label ?? "(端末名なし)");
+                }
+                function approvedCountOf(uid: string): number {
+                  return (allByUser.get(uid) ?? []).filter((x) => x.status === "approved").length;
+                }
+                return (
+                  <ul className="divide-y divide-gray-100">
+                    {userOrder.map((uid) => {
+                      const userDevicesAll = allByUser.get(uid) ?? [];
+                      const userFiltered = filtered.filter((d) => d.user_id === uid);
+                      const userName = userDevicesAll[0]?.user_display_name ?? "(名前未取得)";
+                      const totalCount = userDevicesAll.length;
+                      const approvedCount = approvedCountOf(uid);
+                      return (
+                        <li key={uid} className="bg-white">
+                          {/* user group header (= 同じアカウントを並べる目印) */}
+                          <div className="px-4 py-1.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
+                            <span className="text-xs font-semibold text-gray-700">
+                              {userName}
                             </span>
-                          ) : userOfficeAdminByUser.has(d.user_id) ? (
-                            <>
-                              <span className="text-gray-500">自事業所</span>
-                              {adminCalendarOffices.length > 0 && (
-                                <>
-                                  <span className="text-gray-300">+</span>
-                                  {adminCalendarOffices.map((o) => (
-                                    <span
-                                      key={o.id}
-                                      className="px-1.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700"
-                                      title="管理者用カレンダー"
+                            <span className="text-[10px] text-gray-400">
+                              全 {totalCount} 台 / 承認済 {approvedCount} 台
+                            </span>
+                          </div>
+                          {/* user の対象 status の端末たち */}
+                          <ul className="divide-y divide-gray-50">
+                            {userFiltered.map((d) => {
+                              const nth = deviceIndex.get(d.id) ?? 0;
+                              return (
+                                <li key={d.id} className="px-4 py-2.5 flex items-center gap-3">
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-medium text-gray-800 truncate flex items-center gap-1.5">
+                                      <span
+                                        className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+                                          nth === 1
+                                            ? "bg-blue-50 text-blue-600 border border-blue-200"
+                                            : nth === 2
+                                            ? "bg-purple-50 text-purple-600 border border-purple-200"
+                                            : "bg-gray-100 text-gray-500 border border-gray-200"
+                                        }`}
+                                      >
+                                        {nth}台目
+                                      </span>
+                                      <span className="truncate">{d.device_label ?? "端末"}</span>
+                                    </p>
+                                    <p className="text-[10px] text-gray-500 truncate">
+                                      {d.status === "approved" && d.approved_at
+                                        ? `承認: ${new Date(d.approved_at).toLocaleString("ja-JP")}`
+                                        : d.status === "revoked" && d.revoked_at
+                                        ? `拒否: ${new Date(d.revoked_at).toLocaleString("ja-JP")}`
+                                        : `初登場: ${new Date(d.created_at).toLocaleString("ja-JP")}`}
+                                      {d.first_seen_ip ? ` / IP ${d.first_seen_ip}` : ""}
+                                    </p>
+                                    {/* 閲覧可能カレンダー (承認時に admin が判断する材料) */}
+                                    <div className="mt-1 text-[10px] text-gray-500 flex items-center gap-1 flex-wrap">
+                                      <span className="text-gray-400">閲覧可:</span>
+                                      {groupAdminUserIds.has(d.user_id) ? (
+                                        <span className="px-1.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700 font-semibold">
+                                          🌐 全カレンダー
+                                        </span>
+                                      ) : userOfficeAdminByUser.has(d.user_id) ? (
+                                        <>
+                                          <span className="text-gray-500">自事業所</span>
+                                          {adminCalendarOffices.length > 0 && (
+                                            <>
+                                              <span className="text-gray-300">+</span>
+                                              {adminCalendarOffices.map((o) => (
+                                                <span
+                                                  key={o.id}
+                                                  className="px-1.5 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-700"
+                                                  title="管理者用カレンダー"
+                                                >
+                                                  {o.name}
+                                                </span>
+                                              ))}
+                                            </>
+                                          )}
+                                        </>
+                                      ) : userOfficeIdsByUser.has(d.user_id) ? (
+                                        <span className="text-gray-500">自事業所のみ</span>
+                                      ) : (
+                                        <span className="text-gray-400 italic">閲覧不可 (所属無し)</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {d.status === "pending" && (
+                                    <>
+                                      <button
+                                        onClick={() =>
+                                          handleApproveDevice(
+                                            d.id,
+                                            d.device_label,
+                                            d.user_display_name,
+                                            nth,
+                                            approvedCountOf(d.user_id),
+                                            approvedLabelsOf(d.user_id),
+                                          )
+                                        }
+                                        className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-semibold"
+                                      >
+                                        承認
+                                      </button>
+                                      <button
+                                        onClick={() =>
+                                          handleRevokeDevice(d.id, d.device_label, d.user_display_name)
+                                        }
+                                        className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-[11px] font-semibold"
+                                      >
+                                        拒否
+                                      </button>
+                                    </>
+                                  )}
+                                  {d.status === "approved" && (
+                                    <button
+                                      onClick={() =>
+                                        handleRevokeDevice(d.id, d.device_label, d.user_display_name)
+                                      }
+                                      className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-[11px] font-semibold"
                                     >
-                                      {o.name}
-                                    </span>
-                                  ))}
-                                </>
-                              )}
-                            </>
-                          ) : userOfficeIdsByUser.has(d.user_id) ? (
-                            <span className="text-gray-500">自事業所のみ</span>
-                          ) : (
-                            <span className="text-gray-400 italic">閲覧不可 (所属無し)</span>
-                          )}
-                        </div>
-                      </div>
-                      {d.status === "pending" && (
-                        <>
-                          <button
-                            onClick={() => handleApproveDevice(d.id, d.device_label, d.user_display_name)}
-                            className="px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-semibold"
-                          >
-                            承認
-                          </button>
-                          <button
-                            onClick={() => handleRevokeDevice(d.id, d.device_label, d.user_display_name)}
-                            className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-[11px] font-semibold"
-                          >
-                            拒否
-                          </button>
-                        </>
-                      )}
-                      {d.status === "approved" && (
-                        <button
-                          onClick={() => handleRevokeDevice(d.id, d.device_label, d.user_display_name)}
-                          className="px-2.5 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 text-[11px] font-semibold"
-                        >
-                          拒否
-                        </button>
-                      )}
-                      {d.status === "revoked" && (
-                        <button
-                          onClick={() => handleApproveDevice(d.id, d.device_label, d.user_display_name)}
-                          className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-600 text-[11px] font-semibold"
-                        >
-                          再承認
-                        </button>
-                      )}
-                      <button
-                        onClick={() => handleDeleteDevice(d.id, d.device_label, d.user_display_name)}
-                        className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-300 hover:text-gray-600"
-                        title="この端末履歴を完全削除"
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
+                                      拒否
+                                    </button>
+                                  )}
+                                  {d.status === "revoked" && (
+                                    <button
+                                      onClick={() =>
+                                        handleApproveDevice(
+                                          d.id,
+                                          d.device_label,
+                                          d.user_display_name,
+                                          nth,
+                                          approvedCountOf(d.user_id),
+                                          approvedLabelsOf(d.user_id),
+                                        )
+                                      }
+                                      className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-600 text-[11px] font-semibold"
+                                    >
+                                      再承認
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() =>
+                                      handleDeleteDevice(d.id, d.device_label, d.user_display_name)
+                                    }
+                                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-300 hover:text-gray-600"
+                                    title="この端末履歴を完全削除"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                );
+              })()}
             </div>
           );
         })()}
@@ -962,6 +1090,7 @@ export default function AdminStaffPage() {
                 isGroupAdmin={inv.consumed_user_id ? groupAdminUserIds.has(inv.consumed_user_id) : false}
                 isOfficeAdmin={inv.consumed_user_id ? userOfficeAdminByUser.has(inv.consumed_user_id) : false}
                 adminCalendarOffices={adminCalendarOffices}
+                adminPassword={inv.consumed_user_id ? adminPasswordByUserId.get(inv.consumed_user_id) : undefined}
                 onCancelInvitation={handleCancelInvitation}
                 onDeleteAccount={handleDeleteAccount}
                 onDeleteHistory={handleDeleteHistory}
@@ -1010,6 +1139,7 @@ function InvitationRow({
   isGroupAdmin,
   isOfficeAdmin,
   adminCalendarOffices,
+  adminPassword,
   onCancelInvitation,
   onDeleteAccount,
   onDeleteHistory,
@@ -1026,6 +1156,7 @@ function InvitationRow({
   isGroupAdmin: boolean;
   isOfficeAdmin: boolean;
   adminCalendarOffices: Array<{ id: string; name: string }>;
+  adminPassword?: { password: string; set_at: string; is_stale: boolean };
   onCancelInvitation: (token: string, displayName: string) => void;
   onDeleteAccount: (token: string, userId: string, displayName: string) => void;
   onDeleteHistory: (token: string, displayName: string) => void;
@@ -1137,6 +1268,38 @@ function InvitationRow({
                 <Plus size={10} />
                 別事業所追加
               </button>
+            )}
+          </div>
+        )}
+        {/* v19: domen のみ表示される現在パスワード (RLS で他 user は adminPassword=undefined) */}
+        {consumed && !!inv.consumed_user_id && adminPassword && (
+          <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] text-gray-400">PW:</span>
+            <code
+              className={`text-[11px] px-1.5 py-0.5 rounded border font-mono select-all ${
+                adminPassword.is_stale
+                  ? "bg-amber-50 border-amber-200 text-amber-700"
+                  : "bg-slate-50 border-slate-200 text-slate-700"
+              }`}
+              title={
+                adminPassword.is_stale
+                  ? "本人が変更した可能性あり (stale)"
+                  : `set_at: ${adminPassword.set_at}`
+              }
+            >
+              {adminPassword.password}
+            </code>
+            <button
+              onClick={() => {
+                void navigator.clipboard.writeText(adminPassword.password);
+              }}
+              className="p-1 rounded hover:bg-slate-100 text-gray-400 hover:text-gray-600"
+              title="クリップボードにコピー"
+            >
+              <Copy size={10} />
+            </button>
+            {adminPassword.is_stale && (
+              <span className="text-[10px] text-amber-600">⚠ 本人変更の可能性</span>
             )}
           </div>
         )}

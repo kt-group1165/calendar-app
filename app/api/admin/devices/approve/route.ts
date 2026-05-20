@@ -51,9 +51,10 @@ export async function POST(request: Request) {
   }
 
   // Phase 11c-2 → 緩和: 「1 端末固定」を廃止し、user は複数端末を同時に approved にできる。
-  //   ただし上限 5 台に制限する。既に 5 台 approved な user の 6 台目承認は 409 を返し、
-  //   admin に既存端末の revoke を促す。
-  const APPROVED_DEVICE_LIMIT = 5;
+  //   ただし上限を 2 台に制限する (社用 + 私用 スマホを想定)。既に 2 台 approved な
+  //   user の 3 台目承認は 409 を返し、admin に既存端末の revoke を促す。
+  //   無関係な PC からのログインを防ぐため、緩めすぎないように。
+  const APPROVED_DEVICE_LIMIT = 2;
   const { count: othersApprovedCount } = await admin
     .from("trusted_devices")
     .select("*", { count: "exact", head: true })

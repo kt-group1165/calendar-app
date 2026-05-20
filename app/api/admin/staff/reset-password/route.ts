@@ -87,5 +87,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "reset_failed", detail: updError.message }, { status: 500 });
   }
 
+  // v19: 平文を auth_admin_passwords に upsert (domen のみ閲覧可、RLS で守る)
+  //   失敗しても reset 自体は成功している (= response は返す) ので、log のみ。
+  const { error: pwStoreError } = await admin.from("auth_admin_passwords").upsert(
+    {
+      user_id,
+      password: newPassword,
+      set_at: new Date().toISOString(),
+      set_by: userData.user.id,
+      is_stale: false,
+      note: "reset via /admin/staff",
+    },
+    { onConflict: "user_id" },
+  );
+  if (pwStoreError) {
+    console.warn(`[reset-password] auth_admin_passwords upsert failed for ${user_id}:`, pwStoreError.message);
+  }
+
   return NextResponse.json({ ok: true, password: newPassword });
 }

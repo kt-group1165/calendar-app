@@ -316,6 +316,24 @@ export async function POST(request: Request, context: RouteContext) {
     .update({ consumed_user_id: newUserId })
     .eq("token", token);
 
+  // 9) v19: 本人が consume 時に決めた password を平文で auth_admin_passwords に保存。
+  //    domen のみ閲覧可 (RLS)。本人が後から自分で変更すると DB の値は stale になるが
+  //    その時は SELECT で is_stale=true を表示する別 flow で扱う。
+  const { error: pwStoreError } = await admin.from("auth_admin_passwords").upsert(
+    {
+      user_id: newUserId,
+      password: new_password,
+      set_at: new Date().toISOString(),
+      set_by: inv.created_by ?? null,
+      is_stale: false,
+      note: "set via invite consume",
+    },
+    { onConflict: "user_id" },
+  );
+  if (pwStoreError) {
+    console.warn(`[invite consume] auth_admin_passwords upsert failed for ${newUserId}:`, pwStoreError.message);
+  }
+
   return NextResponse.json({
     ok: true,
     email: syntheticEmail,
