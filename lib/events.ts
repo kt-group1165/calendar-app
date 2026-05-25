@@ -209,6 +209,10 @@ export async function importEventsFromCSV(
 
 // 予定取得（削除済み・メモ除く）
 // Phase 5b: tenant scoping は RLS (scope_office_ids) に委譲。
+// Phase 9-5 fix: filter も scope_office_ids ベースに統一。
+//   - 兼務 staff の event は assignee の member_offices 全ての office から見える
+//   - 旧仕様 (office_id 単体 IN フィルタ) では role-tenant 越境の event が漏れていた
+//     (例: 福祉用具管理者 view で 中山 担当 event が見えない)
 export async function getEventsByDateRange(
   startDate: string,
   endDate: string,
@@ -223,9 +227,11 @@ export async function getEventsByDateRange(
     .is("deleted_at", null)
     .eq("is_memo", false);
   if (officeId) {
-    q = q.eq("office_id", officeId);
+    // 単一 office: scope_office_ids が当該 office を含む event
+    q = q.contains("scope_office_ids", [officeId]);
   } else if (officeIds && officeIds.length > 0) {
-    q = q.in("office_id", officeIds);
+    // 複数 office: scope_office_ids が allowed offices と重なる event
+    q = q.overlaps("scope_office_ids", officeIds);
   }
   const { data, error } = await q
     .lte("start_date", endDate)
