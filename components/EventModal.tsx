@@ -12,6 +12,67 @@ import { getEventAreas, type EventArea } from "@/lib/event_areas";
 import { getClients, getClientOfficeAssignments, createProvisionalClient, type Client, type ClientOfficeAssignment } from "@/lib/clients";
 import { getMemoPreset, getVisitTypeRequired, VISIT_TYPE_OPTIONS } from "@/lib/settings";
 
+/**
+ * 日付セレクター: 年 / 月 / 日 を別 select に分割。
+ * <input type="date"> は Android で picker UI のばらつきが大きく
+ * 「当日以外選べない」と誤認されるケースがあるため、明示 select で固定。
+ *
+ * value: "YYYY-MM-DD" 文字列 (空文字なら未選択)
+ * onChange: 新しい "YYYY-MM-DD" を渡す
+ * min/max: 同形式の境界 (任意)
+ */
+function DateSelect({ value, onChange, label, min }: { value: string; onChange: (v: string) => void; label: string; min?: string }) {
+  const now = new Date();
+  const curY = now.getFullYear();
+  const parts = value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.split("-") : ["", "", ""];
+  const yy = parts[0];
+  const mm = parts[1];
+  const dd = parts[2];
+
+  // 年: 過去 3 年 〜 未来 3 年
+  const YEARS = Array.from({ length: 7 }, (_, i) => String(curY - 3 + i));
+  const MONTHS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+  // 月の最終日 (yy/mm が決まらない時は 31)
+  const lastDay = yy && mm ? new Date(Number(yy), Number(mm), 0).getDate() : 31;
+  const DAYS = Array.from({ length: lastDay }, (_, i) => String(i + 1).padStart(2, "0"));
+
+  function emit(y: string, m: string, d: string) {
+    if (y && m && d) {
+      let next = `${y}-${m}-${d}`;
+      if (min && next < min) next = min;
+      onChange(next);
+    } else {
+      onChange("");
+    }
+  }
+
+  return (
+    <div>
+      <label className="text-xs text-gray-400 mb-1 block">{label}</label>
+      <div className="flex items-center gap-1">
+        <select value={yy} onChange={(e) => emit(e.target.value, mm, dd)}
+          className="text-sm bg-white border border-gray-200 rounded-lg px-1.5 py-1.5 focus:outline-none focus:border-indigo-400">
+          <option value="">--</option>
+          {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+        </select>
+        <span className="text-gray-400 text-xs">年</span>
+        <select value={mm} onChange={(e) => emit(yy, e.target.value, dd)}
+          className="text-sm bg-white border border-gray-200 rounded-lg px-1.5 py-1.5 focus:outline-none focus:border-indigo-400">
+          <option value="">--</option>
+          {MONTHS.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <span className="text-gray-400 text-xs">月</span>
+        <select value={dd} onChange={(e) => emit(yy, mm, e.target.value)}
+          className="text-sm bg-white border border-gray-200 rounded-lg px-1.5 py-1.5 focus:outline-none focus:border-indigo-400">
+          <option value="">--</option>
+          {DAYS.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <span className="text-gray-400 text-xs">日</span>
+      </div>
+    </div>
+  );
+}
+
 function TimeSelect({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) {
   const parts = value ? value.split(":") : ["", ""];
   const hh = parts[0] || "";
@@ -1043,21 +1104,21 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
               </p>
             ) : (
               <>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-xs text-gray-400 mb-1 block">開始</label>
-                    <input type="date" value={startDate} onChange={(e) => {
-                      const v = e.target.value;
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <DateSelect
+                    label="開始"
+                    value={startDate}
+                    onChange={(v) => {
                       setStartDate(v);
-                      if (endDate < v) setEndDate(v);
+                      if (v && endDate < v) setEndDate(v);
                     }}
-                      className="w-full text-sm bg-white border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-400" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-gray-400 mb-1 block">終了</label>
-                    <input type="date" value={endDate} min={startDate} onChange={(e) => setEndDate(e.target.value)}
-                      className="w-full text-sm bg-white border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:border-indigo-400" />
-                  </div>
+                  />
+                  <DateSelect
+                    label="終了"
+                    value={endDate}
+                    onChange={setEndDate}
+                    min={startDate}
+                  />
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-gray-500">
