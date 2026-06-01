@@ -14,9 +14,14 @@ export type Member = {
 };
 
 type RawMember = Omit<Member, "office_ids" | "primary_office_id">;
-type RawMemberOffice = { member_id: string; office_id: string; is_primary: boolean };
+type RawMemberOffice = { member_id: string; office_id: string; is_primary: boolean; color: string | null };
 
-function mergeOffices(members: RawMember[], junction: RawMemberOffice[]): Member[] {
+/**
+ * member_offices junction を集約。
+ * officeId 指定時はその office での member_offices.color を member.color に override する
+ * (= 同一 member でも閲覧中 office に応じて色が変わる)。
+ */
+function mergeOffices(members: RawMember[], junction: RawMemberOffice[], officeId?: string): Member[] {
   const byMember = new Map<string, RawMemberOffice[]>();
   for (const r of junction) {
     if (!byMember.has(r.member_id)) byMember.set(r.member_id, []);
@@ -25,8 +30,15 @@ function mergeOffices(members: RawMember[], junction: RawMemberOffice[]): Member
   return members.map((m) => {
     const rows = byMember.get(m.id) ?? [];
     const primary = rows.find((r) => r.is_primary);
+    // office 文脈の color override
+    let color = m.color;
+    if (officeId) {
+      const moRow = rows.find((r) => r.office_id === officeId);
+      if (moRow?.color) color = moRow.color;
+    }
     return {
       ...m,
+      color,
       office_ids: rows.map((r) => r.office_id),
       primary_office_id: primary?.office_id ?? rows[0]?.office_id ?? null,
     };
@@ -55,7 +67,7 @@ export async function getMembers(
       while (true) {
         const { data, error } = await supabase
           .from("member_offices")
-          .select("member_id, office_id, is_primary")
+          .select("member_id, office_id, is_primary, color")
           .range(from, from + PAGE - 1);
         if (error) throw error;
         if (!data || data.length === 0) break;
@@ -67,7 +79,7 @@ export async function getMembers(
     })(),
   ]);
   if (memRes.error) throw memRes.error;
-  let merged = mergeOffices((memRes.data ?? []) as RawMember[], allJunction);
+  let merged = mergeOffices((memRes.data ?? []) as RawMember[], allJunction, officeId);
   if (officeId) merged = merged.filter((m) => m.office_ids.includes(officeId));
   return merged;
 }
