@@ -400,6 +400,7 @@ export default function AdminStaffPage() {
     if (!authChecked || !authUser) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
     reload();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- reload は stable な関数 (deps に追加すると無限ループ)
   }, [authChecked, authUser]);
 
   // 招待 (未 consume) の取消: staff_invitations を delete するだけ。
