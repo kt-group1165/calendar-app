@@ -17,6 +17,8 @@ type Props = {
   event: Event;
   currentUser: string;
   isMaster?: boolean;
+  /** Phase 9-5: 他事業所から反映された event を読み取り中なら false (編集/削除ボタン非表示) */
+  canEdit?: boolean;
   onEdit: () => void;
   onDuplicate: () => void;
   onDelete: () => Promise<void>;
@@ -24,7 +26,7 @@ type Props = {
 };
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- intentional placeholder / future use
-export default function EventDetailModal({ tenantId, officeId, event, currentUser, isMaster, onEdit, onDuplicate, onDelete, onClose }: Props) {
+export default function EventDetailModal({ tenantId, officeId, event, currentUser, isMaster, canEdit = true, onEdit, onDuplicate, onDelete, onClose }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -119,15 +121,24 @@ export default function EventDetailModal({ tenantId, officeId, event, currentUse
                 <Mail size={16} />
               </button>
             )}
-            <button onClick={onEdit} className="p-2 rounded-full hover:bg-gray-100 transition-colors text-gray-500" title="編集">
-              <Edit2 size={16} />
-            </button>
-            <button onClick={onDuplicate} className="p-2 rounded-full hover:bg-indigo-50 transition-colors text-gray-400 hover:text-indigo-400" title="複製">
-              <Copy size={16} />
-            </button>
-            <button onClick={handleDelete} disabled={deleting} className="p-2 rounded-full hover:bg-red-50 transition-colors text-gray-400 hover:text-red-400" title="削除">
-              {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
-            </button>
+            {canEdit && (
+              <>
+                <button onClick={onEdit} className="p-2 rounded-full hover:bg-gray-100 transition-colors text-gray-500" title="編集">
+                  <Edit2 size={16} />
+                </button>
+                <button onClick={onDuplicate} className="p-2 rounded-full hover:bg-indigo-50 transition-colors text-gray-400 hover:text-indigo-400" title="複製">
+                  <Copy size={16} />
+                </button>
+                <button onClick={handleDelete} disabled={deleting} className="p-2 rounded-full hover:bg-red-50 transition-colors text-gray-400 hover:text-red-400" title="削除">
+                  {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                </button>
+              </>
+            )}
+            {!canEdit && (
+              <span className="px-2 py-1 text-[10px] font-semibold text-gray-400 bg-gray-100 rounded-full" title="他事業所で作成された予定のため編集できません">
+                閲覧のみ
+              </span>
+            )}
             <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-100 transition-colors text-gray-500">
               <X size={16} />
             </button>

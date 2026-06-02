@@ -961,6 +961,13 @@ export default function TenantCalendarPage() {
           event={selectedEvent}
           currentUser={currentUser}
           isMaster={isMaster}
+          canEdit={
+            // Phase 9-5: 他事業所オリジンの event は閲覧のみ (B カレンダーで A の予定は編集不可)
+            // 自事業所 / 全体 view / office_id 未設定 (legacy) なら編集可
+            !currentOfficeId ||
+            !selectedEvent.office_id ||
+            selectedEvent.office_id === currentOfficeId
+          }
           onEdit={handleEditFromDetail}
           onDuplicate={handleDuplicateFromDetail}
           onDelete={() => handleDeleteEvent(selectedEvent)}
