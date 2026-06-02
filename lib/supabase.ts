@@ -23,6 +23,8 @@ export type Event = {
   event_type: string[];
   visit_other_detail: string | null;
   office_id: string | null;
+  /** Phase 9-5: 兼務 staff の event を全所属 office に展開した office_id 集合 */
+  scope_office_ids: string[];
   area_id: string | null;
   client_id: string | null;
   created_by: string | null;
@@ -32,5 +34,5 @@ export type Event = {
   updated_at: string;
 };
 
-export type EventInsert = Omit<Event, "id" | "created_at" | "updated_at" | "deleted_at" | "office_id" | "area_id" | "client_id"> & { office_id?: string | null; area_id?: string | null; client_id?: string | null };
+export type EventInsert = Omit<Event, "id" | "created_at" | "updated_at" | "deleted_at" | "office_id" | "scope_office_ids" | "area_id" | "client_id"> & { office_id?: string | null; scope_office_ids?: string[]; area_id?: string | null; client_id?: string | null };
 export type EventUpdate = Partial<EventInsert>;

@@ -383,8 +383,12 @@ export default function TenantCalendarPage() {
     if (!currentOfficeId) return events;
     return events.filter(
       (e) =>
+        // Phase 9-5: scope_office_ids に currentOfficeId を含めば表示
+        // (兼務 staff の event が全所属 office で見える)
+        (e.scope_office_ids ?? []).includes(currentOfficeId) ||
+        // 後方互換：scope 未設定 / office_id 一致
         e.office_id === currentOfficeId ||
-        // 後方互換：office_id未設定でも、担当者がこの事業所ならこの事業所扱い
+        // 旧データ用: office_id未設定でも、担当者がこの事業所ならこの事業所扱い
         (e.office_id == null && e.assignees.some((a) => officeMemberNames.has(a)))
     );
   }, [events, currentOfficeId, officeMemberNames]);
