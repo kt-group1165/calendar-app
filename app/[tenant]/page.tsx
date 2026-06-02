@@ -394,7 +394,7 @@ export default function TenantCalendarPage() {
   }, [events, currentOfficeId, officeMemberNames]);
 
   const hasFilter = filterMembers.length > 0 || filterGroups.length > 0 || filterAreas.length > 0 || filterEventTypes.length > 0;
-  const displayEvents = !hasFilter
+  const filteredEvents = !hasFilter
     ? officeFilteredEvents
     : officeFilteredEvents.filter((e) => {
         // メンバー/グループで絞り込み
@@ -411,6 +411,23 @@ export default function TenantCalendarPage() {
           : (e.event_type ?? []).some((t) => filterEventTypes.includes(t));
         return memberMatch && areaMatch && typeMatch;
       });
+
+  // Phase 9-5 タイトルマスク:
+  //   本社以外の事業所カレンダーで他事業所オリジンの event を表示する際、
+  //   タイトルを「{元事業所名}案件」にマスクして利用者氏名を隠す (privacy)
+  //   - currentOffice.service_type === '本社' の場合は実タイトルを表示
+  //   - event.office_id === currentOfficeId の場合 (= 自事業所オリジン) も実タイトル
+  const displayEvents = useMemo(() => {
+    if (!currentOffice || currentOffice.service_type === "本社") return filteredEvents;
+    const officeNameById = new Map(offices.map((o) => [o.id, o.name] as const));
+    return filteredEvents.map((e) => {
+      if (e.office_id && e.office_id !== currentOffice.id) {
+        const originName = officeNameById.get(e.office_id) ?? "他事業所";
+        return { ...e, title: `${originName}案件` };
+      }
+      return e;
+    });
+  }, [filteredEvents, currentOffice, offices]);
 
   async function handleSaveEvent(data: EventInsert) {
     // 事業所切替中に作成された予定は、その事業所に紐付ける
