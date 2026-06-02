@@ -1576,7 +1576,9 @@ function NewInvitationModal({
         .from("member_offices")
         .select("member_id")
         .eq("office_id", officeId);
-      const memberIds = [...new Set((moRows ?? []).map((r) => (r as { member_id: string }).member_id))];
+      const memberIds = [
+        ...new Set(((moRows ?? []) as { member_id: string }[]).map((r) => r.member_id)),
+      ];
       if (memberIds.length === 0) {
         if (!cancelled) {
           setUnlinkedMembers([]);
