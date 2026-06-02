@@ -594,7 +594,7 @@ export default function AdminStaffPage() {
         : "";
     if (
       !confirm(
-        `「${userName ?? "?"}」の端末「${deviceLabel ?? "?"}」(${deviceIndex}台目) を承認しますか?\n\n` +
+        `「${userName ?? "管理者"}」の端末「${deviceLabel ?? "?"}」(${deviceIndex}台目) を承認しますか?\n\n` +
           `承認すると、この user の承認済端末は ${afterApprovedCount} 台になります (上限 ${limit} 台)。${detail}\n\n` +
           `※ 社用と私用のスマホで 2 台までは想定運用です。\n` +
           `※ 関係ない PC からの登録の可能性があれば「拒否」してください。`,
@@ -619,7 +619,7 @@ export default function AdminStaffPage() {
   }
   async function handleRevokeDevice(deviceUuid: string, deviceLabel: string | null, userName: string | null) {
     if (!confirm(
-      `「${userName ?? "?"}」の端末「${deviceLabel ?? "?"}」を拒否しますか?\n\n` +
+      `「${userName ?? "管理者"}」の端末「${deviceLabel ?? "?"}」を拒否しますか?\n\n` +
       `拒否してもあとから [承認] で復活させられます。完全に消す場合は [削除] を使ってください。`
     )) return;
     try {
@@ -640,7 +640,7 @@ export default function AdminStaffPage() {
   }
   async function handleDeleteDevice(deviceUuid: string, deviceLabel: string | null, userName: string | null) {
     if (!confirm(
-      `「${userName ?? "?"}」の端末「${deviceLabel ?? "?"}」を完全削除しますか?\n\n` +
+      `「${userName ?? "管理者"}」の端末「${deviceLabel ?? "?"}」を完全削除しますか?\n\n` +
       `履歴ごと消えます。次に同端末からログイン試行があれば新規 pending として作成されます。`
     )) return;
     try {
@@ -919,7 +919,8 @@ export default function AdminStaffPage() {
                     {userOrder.map((uid) => {
                       const userDevicesAll = allByUser.get(uid) ?? [];
                       const userFiltered = filtered.filter((d) => d.user_id === uid);
-                      const userName = userDevicesAll[0]?.user_display_name ?? "(名前未取得)";
+                      // 招待 flow を通らず member 紐付けもない user (初期 admin) は「管理者」表示にフォールバック
+                      const userName = userDevicesAll[0]?.user_display_name ?? "管理者";
                       const totalCount = userDevicesAll.length;
                       const approvedCount = approvedCountOf(uid);
                       return (
@@ -1539,6 +1540,11 @@ function NewInvitationModal({
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // 既存 member 選択 (member は登録済だがログインアカウント未作成のものを選ぶ)
+  const [unlinkedMembers, setUnlinkedMembers] = useState<{ id: string; name: string }[]>([]);
+  const [selectedMemberId, setSelectedMemberId] = useState<string>("");  // "" = 新規作成モード
+  const [loadingMembers, setLoadingMembers] = useState(false);
+
   // tenant でグループ化
   const grouped = useMemo(() => {
     const map = new Map<string, { tenantName: string | null; items: OfficeOption[] }>();
@@ -1550,6 +1556,53 @@ function NewInvitationModal({
     }
     return Array.from(map.entries());
   }, [offices]);
+
+  // 事業所変更時に「未紐付け member 一覧」を取得
+  // (= members.auth_user_id IS NULL かつ member_offices.office_id 一致 かつ status='active')
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!officeId) {
+        if (!cancelled) {
+          setUnlinkedMembers([]);
+          setSelectedMemberId("");
+        }
+        return;
+      }
+      setLoadingMembers(true);
+      const supabase = getSupabase();
+      // 1) member_offices で office_id 一致する member_id を取る
+      const { data: moRows } = await supabase
+        .from("member_offices")
+        .select("member_id")
+        .eq("office_id", officeId);
+      const memberIds = [...new Set((moRows ?? []).map((r) => (r as { member_id: string }).member_id))];
+      if (memberIds.length === 0) {
+        if (!cancelled) {
+          setUnlinkedMembers([]);
+          setSelectedMemberId("");
+          setLoadingMembers(false);
+        }
+        return;
+      }
+      // 2) auth_user_id IS NULL かつ active な member を引く
+      const { data: memRows } = await supabase
+        .from("members")
+        .select("id, name, auth_user_id, status")
+        .in("id", memberIds)
+        .is("auth_user_id", null)
+        .eq("status", "active")
+        .order("name");
+      if (!cancelled) {
+        setUnlinkedMembers(((memRows ?? []) as { id: string; name: string }[]).map((r) => ({ id: r.id, name: r.name })));
+        setSelectedMemberId("");
+        setLoadingMembers(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [officeId]);
+
+  // 既存 member 選択時の display_name 自動 fill は select の onChange 内で処理 (effect 不要)
 
   async function submit() {
     if (!displayName.trim() || !officeId) return;
@@ -1563,6 +1616,8 @@ function NewInvitationModal({
           display_name: displayName.trim(),
           office_id: officeId,
           role,
+          // 既存 member 選択時は member_id を渡す (重複 member 作成を防ぐ)
+          ...(selectedMemberId ? { member_id: selectedMemberId } : {}),
           // 空文字なら body で省略 (サーバ側で表示名から自動派生)
           ...(loginIdInput.trim() ? { login_id: loginIdInput.trim().toLowerCase() } : {}),
         }),
@@ -1616,14 +1671,72 @@ function NewInvitationModal({
 
         <div className="p-5 space-y-4">
           <div>
-            <label className="text-xs font-semibold text-gray-500 mb-1 block">表示名（必須）</label>
+            <label className="text-xs font-semibold text-gray-500 mb-1 block">所属事業所</label>
+            <select
+              value={officeId}
+              onChange={(e) => setOfficeId(e.target.value)}
+              className="w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-400 bg-white"
+            >
+              {grouped.map(([tenantId, { tenantName, items }]) => (
+                <optgroup key={tenantId} label={tenantName ?? tenantId}>
+                  {items.map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-gray-500 mb-1 block">
+              既存メンバーから選択
+              {loadingMembers && <span className="ml-2 text-gray-400">読み込み中…</span>}
+            </label>
+            <select
+              value={selectedMemberId}
+              onChange={(e) => {
+                const v = e.target.value;
+                setSelectedMemberId(v);
+                if (v) {
+                  // 既存メンバー選択 → display_name 自動 fill
+                  const m = unlinkedMembers.find((x) => x.id === v);
+                  if (m) setDisplayName(m.name);
+                } else {
+                  // 新規モード戻りで表示名クリア
+                  setDisplayName("");
+                }
+              }}
+              disabled={!officeId || loadingMembers}
+              className="w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-400 bg-white disabled:bg-gray-50 disabled:text-gray-400"
+            >
+              <option value="">— 新規メンバーを作成 (任意の表示名で招待) —</option>
+              {unlinkedMembers.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+            <p className="text-[10px] text-gray-400 mt-1">
+              {selectedMemberId
+                ? "既存メンバーに紐付けて招待します (重複作成なし)。"
+                : unlinkedMembers.length === 0 && officeId && !loadingMembers
+                  ? "この事業所には未紐付けの member がいません。新規作成モードのまま進めてください。"
+                  : "選択すると重複なし。空欄なら新規 member を作成します。"}
+            </p>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-gray-500 mb-1 block">
+              表示名（必須）{selectedMemberId && <span className="ml-2 text-indigo-500">(既存メンバーから自動入力)</span>}
+            </label>
             <input
               type="text"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               placeholder="例: 佐藤花子"
               maxLength={64}
-              className="w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-400"
+              readOnly={!!selectedMemberId}
+              className={`w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-400 ${
+                selectedMemberId ? "bg-gray-50 text-gray-600" : ""
+              }`}
             />
             <p className="text-[10px] text-gray-400 mt-1">
               members 一覧やカレンダー上での表示に使われます。重複可。
@@ -1649,23 +1762,6 @@ function NewInvitationModal({
               <br />
               ※ ここで決まった ID をスタッフに伝えてください（次回以降のログインに必要）。
             </p>
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold text-gray-500 mb-1 block">所属事業所</label>
-            <select
-              value={officeId}
-              onChange={(e) => setOfficeId(e.target.value)}
-              className="w-full text-sm border-2 border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-400 bg-white"
-            >
-              {grouped.map(([tenantId, { tenantName, items }]) => (
-                <optgroup key={tenantId} label={tenantName ?? tenantId}>
-                  {items.map((o) => (
-                    <option key={o.id} value={o.id}>{o.name}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
           </div>
 
           <div>
