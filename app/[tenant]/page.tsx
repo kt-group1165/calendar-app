@@ -419,11 +419,13 @@ export default function TenantCalendarPage() {
   //   - event.office_id === currentOfficeId の場合 (= 自事業所オリジン) も実タイトル
   const displayEvents = useMemo(() => {
     if (!currentOffice || currentOffice.service_type === "本社") return filteredEvents;
-    const officeNameById = new Map(offices.map((o) => [o.id, o.name] as const));
+    const officeById = new Map(offices.map((o) => [o.id, o] as const));
     return filteredEvents.map((e) => {
       if (e.office_id && e.office_id !== currentOffice.id) {
-        const originName = officeNameById.get(e.office_id) ?? "他事業所";
-        return { ...e, title: `${originName}案件` };
+        const origin = officeById.get(e.office_id);
+        // short_name があれば優先 (例: 「ケアサポ案件」)、なければ full name
+        const displayName = origin?.short_name ?? origin?.name ?? "他事業所";
+        return { ...e, title: `${displayName}案件` };
       }
       return e;
     });

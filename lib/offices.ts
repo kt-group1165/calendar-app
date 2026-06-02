@@ -4,6 +4,8 @@ export type Office = {
   id: string;
   tenant_id: string;
   name: string;
+  /** Phase 9-5d: cross-office タイトルマスク時の短縮名 (例: 「高品用具」→「高品用具案件」表示) */
+  short_name: string | null;
   business_number: string | null;
   service_type: string | null;
   sort_order: number;
