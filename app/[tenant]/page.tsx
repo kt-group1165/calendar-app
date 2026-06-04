@@ -572,13 +572,17 @@ export default function TenantCalendarPage() {
           {currentOffice && (
             <button
               onClick={() => router.push("/")}
-              className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-medium leading-none -mt-0.5 inline-flex items-center gap-1 transition-colors whitespace-nowrap max-w-full"
+              className="text-xs sm:text-sm px-2.5 py-1 mt-0.5 rounded-full bg-indigo-50 hover:bg-indigo-100 active:bg-indigo-200 text-indigo-700 font-semibold leading-none inline-flex items-center gap-1 transition-colors whitespace-nowrap max-w-full"
               title={`事業所選択に戻る (${currentOffice.name})`}
             >
               <span className="truncate">
-                {currentOffice.name.length > 8 ? `${currentOffice.name.slice(0, 8)}…` : currentOffice.name}
+                {(() => {
+                  // short_name 優先 (= 「ケアサポ」「誉田」等の短縮表示)、なければ name (最大 14 字でトリム)
+                  const label = currentOffice.short_name ?? currentOffice.name;
+                  return label.length > 14 ? `${label.slice(0, 14)}…` : label;
+                })()}
               </span>
-              <ChevronDown size={10} className="rotate-90 -mr-0.5 shrink-0" />
+              <ChevronDown size={12} className="rotate-90 -mr-0.5 shrink-0" />
             </button>
           )}
 
