@@ -7,7 +7,7 @@ import {
   startOfMonth, endOfMonth, startOfWeek, endOfWeek, isSameDay, isSameMonth, isToday,
 } from "date-fns";
 import { ja } from "date-fns/locale";
-import { ChevronLeft, ChevronRight, ChevronDown, Plus, Calendar, RefreshCw, Trash2, Settings, Bell, Search, StickyNote, LogOut, Fingerprint, MoreVertical } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Plus, Calendar, RefreshCw, Trash2, Settings, Bell, Search, StickyNote, LogOut, Fingerprint, MoreVertical, BarChart3 } from "lucide-react";
 import MonthView from "@/components/MonthView";
 import WeekView from "@/components/WeekView";
 import DayView from "@/components/DayView";
@@ -690,6 +690,15 @@ export default function TenantCalendarPage() {
               </button>
             ))}
           </div>
+          {tenantId === "fukuyogu-kanri" && (
+            <button
+              onClick={() => router.push(`/${tenantId}/visit-analytics`)}
+              className="p-1.5 sm:p-2 rounded-xl hover:bg-indigo-50 transition-colors"
+              title="訪問分析"
+            >
+              <BarChart3 size={16} className="text-indigo-500 sm:size-[18px]" />
+            </button>
+          )}
           <button
             onClick={() => setShowSearch(true)}
             className="p-1.5 sm:p-2 rounded-xl hover:bg-gray-100 transition-colors"
