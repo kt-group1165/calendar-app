@@ -56,7 +56,28 @@ export async function getMembers(
   officeId?: string,
   includeInactive: boolean = false,
 ): Promise<Member[]> {
-  let memQuery = supabase.from("members").select("*").eq("tenant_id", tenantId);
+  // Phase 9-5f: officeId 指定時は tenant フィルタ無視 (= office 中心 fetch)
+  //   理由: role-tenant office (fukuyogu-kanri 等) を表示中に、別 tenant (kt-group) の
+  //         兼務 member が member_offices 経由で紐付いている場合、tenant フィルタで
+  //         はじかれて担当者 chip に出てこなくなる問題があった。
+  //   officeId 指定時は member_offices で紐付く全 member を tenant 横断で fetch する。
+  let memQuery;
+  if (officeId) {
+    // junction で office に紐付く member_id 集合を引いてから、members を IN 検索
+    // (= tenant 横断、ただし退職者は除外)
+    const memberIdsRes = await supabase
+      .from("member_offices")
+      .select("member_id")
+      .eq("office_id", officeId);
+    if (memberIdsRes.error) throw memberIdsRes.error;
+    const memberIds = [
+      ...new Set(((memberIdsRes.data ?? []) as { member_id: string }[]).map((r) => r.member_id)),
+    ];
+    if (memberIds.length === 0) return [];
+    memQuery = supabase.from("members").select("*").in("id", memberIds);
+  } else {
+    memQuery = supabase.from("members").select("*").eq("tenant_id", tenantId);
+  }
   if (!includeInactive) memQuery = memQuery.eq("status", "active");
   const [memRes, allJunction] = await Promise.all([
     memQuery.order("sort_order", { nullsFirst: false }).order("name"),
