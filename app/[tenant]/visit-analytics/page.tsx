@@ -273,66 +273,87 @@ export default function VisitAnalyticsPage() {
             </div>
           </div>
         ) : (
-          // === 月別推移 (trend) ===
-          <div className="bg-white border border-gray-200 rounded-xl p-4">
-            <h3 className="text-sm font-bold text-gray-800 mb-3">過去 6 ヶ月 の訪問件数推移</h3>
-            <div className="space-y-3">
-              {areas.map((a) => (
-                <div key={a.id} className="border border-gray-100 rounded-lg p-3">
-                  <h4 className="text-xs font-bold text-gray-700 mb-2">{a.name}</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {officesUsed.map((o) => {
-                      const t = targetMap.get(`${a.id}:${o.id}`);
-                      if (!t) return null;
-                      const list = trends.get(`${a.id}:${o.id}`) ?? [];
-                      // bar height max を計算
-                      const max = Math.max(1, ...list.map((x) => x.individual_count + x.meeting_count));
-                      // 過去 6 ヶ月分の枠を埋める (データが無くてもバーゼロを表示)
-                      const months: { yyyymm: string; ind: number; mtg: number }[] = [];
-                      const td = new Date();
-                      for (let i = 5; i >= 0; i--) {
-                        const d = new Date(td.getFullYear(), td.getMonth() - i, 1);
-                        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-                        const data = list.find((x) => x.yyyymm === ym);
-                        months.push({ yyyymm: ym, ind: data?.individual_count ?? 0, mtg: data?.meeting_count ?? 0 });
-                      }
-                      return (
-                        <div key={o.id} className="border border-gray-100 rounded p-2 bg-gray-50">
-                          <div className="text-[10px] font-semibold text-gray-600 mb-2 truncate">{o.name}</div>
-                          <div className="flex items-end gap-1 h-16">
-                            {months.map((m) => (
-                              <div key={m.yyyymm} className="flex-1 flex flex-col items-center gap-0.5">
-                                <div className="w-full flex flex-col-reverse items-stretch" style={{ height: 50 }}>
-                                  {m.ind > 0 && (
-                                    <div
-                                      className="bg-indigo-400 rounded-t"
-                                      style={{ height: `${(m.ind / max) * 100}%`, minHeight: "2px" }}
-                                      title={`個別: ${m.ind}`}
-                                    />
-                                  )}
-                                  {m.mtg > 0 && (
-                                    <div
-                                      className="bg-purple-400"
-                                      style={{ height: `${(m.mtg / max) * 100}%`, minHeight: "2px" }}
-                                      title={`MTG: ${m.mtg}`}
-                                    />
-                                  )}
-                                </div>
-                                <div className="text-[9px] text-gray-400">{m.yyyymm.slice(5)}月</div>
-                                <div className="text-[10px] font-semibold text-gray-700">{m.ind + m.mtg}</div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
+          // === 月別推移 (trend) — 縦の列を 5 事業所で揃えた table 型 ===
+          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
+              <h3 className="text-sm font-bold text-gray-800">過去 6 ヶ月 の訪問件数推移</h3>
+              <div className="text-[10px] text-gray-500 flex items-center gap-3">
+                <span className="flex items-center gap-1"><div className="w-3 h-3 bg-indigo-400 rounded-sm" />個別訪問</span>
+                <span className="flex items-center gap-1"><div className="w-3 h-3 bg-purple-400 rounded-sm" />ミーティング時訪問</span>
+              </div>
             </div>
-            <div className="mt-3 text-[10px] text-gray-500 flex items-center gap-3">
-              <span className="flex items-center gap-1"><div className="w-3 h-3 bg-indigo-400 rounded-sm" />個別訪問</span>
-              <span className="flex items-center gap-1"><div className="w-3 h-3 bg-purple-400 rounded-sm" />ミーティング時訪問</span>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs border-separate border-spacing-0">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-semibold text-gray-600 sticky left-0 bg-gray-50 z-10 border-r border-gray-200 min-w-[80px]">
+                      エリア
+                    </th>
+                    {officesUsed.map((o) => (
+                      <th key={o.id} className="px-2 py-2 text-center font-semibold text-gray-600 border-r border-gray-100 min-w-[160px]">
+                        {o.name}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {areas.map((a) => (
+                    <tr key={a.id} className="border-t border-gray-100">
+                      <td className="px-3 py-2 font-semibold text-gray-700 sticky left-0 bg-white z-10 border-r border-gray-200 whitespace-nowrap align-middle">
+                        {a.name}
+                      </td>
+                      {officesUsed.map((o) => {
+                        const t = targetMap.get(`${a.id}:${o.id}`);
+                        if (!t) {
+                          return (
+                            <td key={o.id} className="px-2 py-2 text-center text-gray-300 border-r border-gray-100 bg-gray-50/40">
+                              —
+                            </td>
+                          );
+                        }
+                        const list = trends.get(`${a.id}:${o.id}`) ?? [];
+                        const max = Math.max(1, ...list.map((x) => x.individual_count + x.meeting_count));
+                        const months: { yyyymm: string; ind: number; mtg: number }[] = [];
+                        const td_ = new Date();
+                        for (let i = 5; i >= 0; i--) {
+                          const d = new Date(td_.getFullYear(), td_.getMonth() - i, 1);
+                          const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+                          const data = list.find((x) => x.yyyymm === ym);
+                          months.push({ yyyymm: ym, ind: data?.individual_count ?? 0, mtg: data?.meeting_count ?? 0 });
+                        }
+                        return (
+                          <td key={o.id} className="px-2 py-2 border-r border-gray-100">
+                            <div className="flex items-end gap-0.5 h-14">
+                              {months.map((m) => (
+                                <div key={m.yyyymm} className="flex-1 flex flex-col items-center gap-0.5">
+                                  <div className="w-full flex flex-col-reverse items-stretch" style={{ height: 40 }}>
+                                    {m.ind > 0 && (
+                                      <div
+                                        className="bg-indigo-400 rounded-t"
+                                        style={{ height: `${(m.ind / max) * 100}%`, minHeight: "2px" }}
+                                        title={`個別: ${m.ind}`}
+                                      />
+                                    )}
+                                    {m.mtg > 0 && (
+                                      <div
+                                        className="bg-purple-400"
+                                        style={{ height: `${(m.mtg / max) * 100}%`, minHeight: "2px" }}
+                                        title={`MTG: ${m.mtg}`}
+                                      />
+                                    )}
+                                  </div>
+                                  <div className="text-[8px] text-gray-400">{Number(m.yyyymm.slice(5))}月</div>
+                                  <div className="text-[9px] font-semibold text-gray-700">{m.ind + m.mtg}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
