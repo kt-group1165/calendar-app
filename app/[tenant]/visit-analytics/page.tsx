@@ -44,9 +44,10 @@ export default function VisitAnalyticsPage() {
   const [trends, setTrends] = useState<Map<string, MonthlyTrend[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"grid" | "trend">("grid");
-  // 個別訪問 / ミーティング時訪問 の filter (both default true)
+  // 個別訪問 / ミーティング時訪問 / その他 の filter (全て default true)
   const [showIndividual, setShowIndividual] = useState(true);
   const [showMeeting, setShowMeeting] = useState(true);
+  const [showOther, setShowOther] = useState(true);
   const [drill, setDrill] = useState<{ areaId: string; officeId: string; areaName: string; officeName: string; events: DrillEvent[] } | null>(null);
 
   useEffect(() => {
@@ -175,7 +176,7 @@ export default function VisitAnalyticsPage() {
             >今月</button>
           </div>
 
-          {/* 個別/MTG フィルタ */}
+          {/* 種別フィルタ */}
           <div className="flex items-center gap-2 px-2 py-1.5 border border-gray-200 rounded-lg bg-white">
             <label className="flex items-center gap-1 cursor-pointer text-xs font-semibold select-none">
               <input
@@ -194,6 +195,15 @@ export default function VisitAnalyticsPage() {
                 className="w-3.5 h-3.5 accent-purple-500"
               />
               <span className="text-purple-700">MTG</span>
+            </label>
+            <label className="flex items-center gap-1 cursor-pointer text-xs font-semibold select-none">
+              <input
+                type="checkbox"
+                checked={showOther}
+                onChange={(e) => setShowOther(e.target.checked)}
+                className="w-3.5 h-3.5 accent-amber-500"
+              />
+              <span className="text-amber-700">その他</span>
             </label>
           </div>
 
@@ -267,7 +277,7 @@ export default function VisitAnalyticsPage() {
                                 </div>
                                 <span className={`text-xs ${statusText(status)}`} title={status === "good" ? "目標内" : status === "warn" ? "やや超過" : status === "danger" ? "大幅超過" : "未訪問"}>{statusIcon(status)}</span>
                               </div>
-                              <div className="mt-1 flex items-baseline gap-2">
+                              <div className="mt-1 flex items-baseline gap-2 flex-wrap">
                                 {showIndividual && (
                                   <span className="text-xs font-bold text-gray-800">
                                     個 <span className="text-sm text-indigo-600">{s?.individual_count ?? 0}</span>
@@ -276,6 +286,11 @@ export default function VisitAnalyticsPage() {
                                 {showMeeting && (
                                   <span className="text-xs font-bold text-gray-800">
                                     M <span className="text-sm text-purple-600">{s?.meeting_count ?? 0}</span>
+                                  </span>
+                                )}
+                                {showOther && (
+                                  <span className="text-xs font-bold text-gray-800">
+                                    他 <span className="text-sm text-amber-600">{s?.other_count ?? 0}</span>
                                   </span>
                                 )}
                               </div>
@@ -351,7 +366,7 @@ export default function VisitAnalyticsPage() {
                         const list = trends.get(`${a.id}:${o.id}`) ?? [];
                         // 月間目標件数: 30 日 / 目標日数 (= 月にこれだけ訪問するべき)
                         const monthlyTarget = 30 / t.target_frequency_days;
-                        const months: { yyyymm: string; total: number; ind: number; mtg: number }[] = [];
+                        const months: { yyyymm: string; total: number; ind: number; mtg: number; oth: number }[] = [];
                         const td_ = new Date();
                         for (let i = 5; i >= 0; i--) {
                           const d = new Date(td_.getFullYear(), td_.getMonth() - i, 1);
@@ -359,8 +374,9 @@ export default function VisitAnalyticsPage() {
                           const data = list.find((x) => x.yyyymm === ym);
                           const ind = data?.individual_count ?? 0;
                           const mtg = data?.meeting_count ?? 0;
-                          const total = (showIndividual ? ind : 0) + (showMeeting ? mtg : 0);
-                          months.push({ yyyymm: ym, total, ind, mtg });
+                          const oth = data?.other_count ?? 0;
+                          const total = (showIndividual ? ind : 0) + (showMeeting ? mtg : 0) + (showOther ? oth : 0);
+                          months.push({ yyyymm: ym, total, ind, mtg, oth });
                         }
                         return (
                           <td key={o.id} className="px-1 py-1 border-r border-gray-100">
@@ -375,7 +391,7 @@ export default function VisitAnalyticsPage() {
                                   <div
                                     key={m.yyyymm}
                                     className={`flex-1 min-h-[36px] flex flex-col items-center justify-center rounded border ${bg}`}
-                                    title={`${Number(m.yyyymm.slice(5))}月 個別:${m.ind} / MTG:${m.mtg} / 目標≈${monthlyTarget.toFixed(1)}回/月`}
+                                    title={`${Number(m.yyyymm.slice(5))}月 個別:${m.ind} / MTG:${m.mtg} / その他:${m.oth} / 目標≈${monthlyTarget.toFixed(1)}回/月`}
                                   >
                                     <div className="text-[8px] text-gray-500 leading-none">{Number(m.yyyymm.slice(5))}月</div>
                                     <div className={`text-sm font-bold leading-tight ${txt}`}>{m.total}</div>
@@ -418,6 +434,7 @@ export default function VisitAnalyticsPage() {
                   {drill.events.map((e) => {
                     const isIndividual = e.event_type?.some((t) => t.includes("個別訪問"));
                     const isMeeting = e.event_type?.some((t) => t.includes("ミーティング時訪問"));
+                    const isOther = e.event_type?.some((t) => t.includes("その他"));
                     return (
                       <div key={e.id} className="px-5 py-2.5 hover:bg-gray-50">
                         <div className="flex items-start gap-2">
@@ -434,6 +451,7 @@ export default function VisitAnalyticsPage() {
                           <div className="flex gap-1 shrink-0">
                             {isIndividual && <span className="text-[9px] px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded font-semibold">個</span>}
                             {isMeeting && <span className="text-[9px] px-1.5 py-0.5 bg-purple-50 text-purple-600 rounded font-semibold">M</span>}
+                            {isOther && <span className="text-[9px] px-1.5 py-0.5 bg-amber-50 text-amber-600 rounded font-semibold">他</span>}
                           </div>
                         </div>
                       </div>

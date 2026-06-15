@@ -23,6 +23,7 @@ export const FUKUYOGU_OFFICE_IDS = [
 // 訪問種別 (event.event_type に含まれる文字列で判定)
 export const EVENT_TYPE_INDIVIDUAL = "個別訪問";
 export const EVENT_TYPE_MEETING = "ミーティング時訪問";
+export const EVENT_TYPE_OTHER = "その他";
 
 export type VisitTarget = {
   id: string;
@@ -41,6 +42,7 @@ export type VisitStats = {
   office_id: string;
   individual_count: number;   // 個別訪問 件数
   meeting_count: number;      // ミーティング時訪問 件数
+  other_count: number;        // その他 件数
   total_count: number;
   last_visit_date: string | null;        // YYYY-MM-DD
   last_visit_days_ago: number | null;     // 今日からの経過日数
@@ -52,6 +54,7 @@ export type MonthlyTrend = {
   yyyymm: string;             // "2026-05" 等
   individual_count: number;
   meeting_count: number;
+  other_count: number;
 };
 
 function fmtDate(d: Date): string {
@@ -245,7 +248,8 @@ export async function getVisitStats(year: number, month: number): Promise<Map<st
     const types = e.event_type ?? [];
     const hasIndividual = types.some((t) => t.includes(EVENT_TYPE_INDIVIDUAL));
     const hasMeeting = types.some((t) => t.includes(EVENT_TYPE_MEETING));
-    if (!hasIndividual && !hasMeeting) continue;
+    const hasOther = types.some((t) => t.includes(EVENT_TYPE_OTHER));
+    if (!hasIndividual && !hasMeeting && !hasOther) continue;
 
     const offices = resolveTargetOffices(e, nameToPrimary, areaTargets);
     for (const officeId of offices) {
@@ -253,13 +257,14 @@ export async function getVisitStats(year: number, month: number): Promise<Map<st
       if (!stats.has(k)) {
         stats.set(k, {
           area_id: e.area_id, office_id: officeId,
-          individual_count: 0, meeting_count: 0, total_count: 0,
+          individual_count: 0, meeting_count: 0, other_count: 0, total_count: 0,
           last_visit_date: null, last_visit_days_ago: null,
         });
       }
       const s = stats.get(k)!;
       if (hasIndividual) s.individual_count += 1;
       if (hasMeeting) s.meeting_count += 1;
+      if (hasOther) s.other_count += 1;
       s.total_count += 1;
     }
   }
@@ -269,7 +274,8 @@ export async function getVisitStats(year: number, month: number): Promise<Map<st
     const types = e.event_type ?? [];
     const hasIndividual = types.some((t) => t.includes(EVENT_TYPE_INDIVIDUAL));
     const hasMeeting = types.some((t) => t.includes(EVENT_TYPE_MEETING));
-    if (!hasIndividual && !hasMeeting) continue;
+    const hasOther = types.some((t) => t.includes(EVENT_TYPE_OTHER));
+    if (!hasIndividual && !hasMeeting && !hasOther) continue;
 
     const offices = resolveTargetOffices(e, nameToPrimary, areaTargets);
     for (const officeId of offices) {
@@ -277,7 +283,7 @@ export async function getVisitStats(year: number, month: number): Promise<Map<st
       if (!stats.has(k)) {
         stats.set(k, {
           area_id: e.area_id, office_id: officeId,
-          individual_count: 0, meeting_count: 0, total_count: 0,
+          individual_count: 0, meeting_count: 0, other_count: 0, total_count: 0,
           last_visit_date: e.start_date,
           last_visit_days_ago: diffDays(e.start_date, today),
         });
@@ -323,7 +329,8 @@ export async function getMonthlyTrend(monthsBack: number = 6): Promise<Map<strin
     const types = e.event_type ?? [];
     const hasIndividual = types.some((x) => x.includes(EVENT_TYPE_INDIVIDUAL));
     const hasMeeting = types.some((x) => x.includes(EVENT_TYPE_MEETING));
-    if (!hasIndividual && !hasMeeting) continue;
+    const hasOther = types.some((x) => x.includes(EVENT_TYPE_OTHER));
+    if (!hasIndividual && !hasMeeting && !hasOther) continue;
     const yyyymm = e.start_date.slice(0, 7);
 
     const offices = resolveTargetOffices(e, nameToPrimary, areaTargets);
@@ -332,12 +339,13 @@ export async function getMonthlyTrend(monthsBack: number = 6): Promise<Map<strin
       if (!map.has(k)) {
         map.set(k, {
           area_id: e.area_id, office_id: officeId, yyyymm,
-          individual_count: 0, meeting_count: 0,
+          individual_count: 0, meeting_count: 0, other_count: 0,
         });
       }
       const t = map.get(k)!;
       if (hasIndividual) t.individual_count += 1;
       if (hasMeeting) t.meeting_count += 1;
+      if (hasOther) t.other_count += 1;
     }
   }
 
@@ -391,7 +399,7 @@ export async function getMonthVisitEvents(
     id: string; start_date: string; title: string; assignees: string[]; event_type: string[];
   }>).filter((e) => {
     const types = e.event_type ?? [];
-    if (!types.some((t) => t.includes(EVENT_TYPE_INDIVIDUAL) || t.includes(EVENT_TYPE_MEETING))) return false;
+    if (!types.some((t) => t.includes(EVENT_TYPE_INDIVIDUAL) || t.includes(EVENT_TYPE_MEETING) || t.includes(EVENT_TYPE_OTHER))) return false;
     const offices = resolveTargetOffices({ area_id: areaId, assignees: e.assignees }, nameToPrimary, areaTargets);
     return offices.includes(officeId);
   });
