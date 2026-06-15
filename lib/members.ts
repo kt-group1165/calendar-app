@@ -61,6 +61,20 @@ export async function getMembers(
   //         兼務 member が member_offices 経由で紐付いている場合、tenant フィルタで
   //         はじかれて担当者 chip に出てこなくなる問題があった。
   //   officeId 指定時は member_offices で紐付く全 member を tenant 横断で fetch する。
+  //
+  // Phase 9-5f-fix: officeId 未指定でも role-tenant (kt-group 以外) の場合は
+  //   その tenant の office を自動解決して junction fetch に切り替える。
+  //   /fukuyogu-kanri のような single-office tenant は URL に ?office= が無いため
+  //   officeId=undefined で getMembers が呼ばれるが、その場合も junction を使いたい。
+  if (!officeId && tenantId !== "kt-group") {
+    const officeRes = await supabase
+      .from("offices")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .limit(1)
+      .maybeSingle();
+    if (officeRes.data) officeId = (officeRes.data as { id: string }).id;
+  }
   let memQuery;
   if (officeId) {
     // junction で office に紐付く member_id 集合を引いてから、members を IN 検索
