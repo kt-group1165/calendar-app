@@ -168,22 +168,29 @@ async function getAreaTargetsMap(): Promise<Map<string, string[]>> {
 
 /**
  * event の対応 office_id 群を返す:
- *   - assignee が設定されてれば → 各 assignee の primary office
- *   - assignee が空 (or 解決失敗) → area_targets のフォールバック
+ *   - エリアの target offices を candidates として取得
+ *   - assignee の primary が candidates に含まれる → そのオフィスのみ
+ *   - assignee の primary が含まれない or 空 → candidates 全部にフォールバック分配
+ *     (= 対応事業所にない担当者の予定が「消える」事故を防ぐ)
  */
 function resolveTargetOffices(
   e: { area_id: string; assignees: string[] | null | undefined },
   nameToPrimary: Map<string, string>,
   areaTargets: Map<string, string[]>,
 ): string[] {
-  const fromAssignees: string[] = [];
+  const candidates = areaTargets.get(e.area_id) ?? [];
+  if (candidates.length === 0) return [];
+
+  // assignee の primary が candidates にマッチするものだけ抽出
+  const matched: string[] = [];
   for (const name of e.assignees ?? []) {
     const off = nameToPrimary.get(name);
-    if (off) fromAssignees.push(off);
+    if (off && candidates.includes(off)) matched.push(off);
   }
-  if (fromAssignees.length > 0) return [...new Set(fromAssignees)];
-  // フォールバック: area の target offices 全部
-  return areaTargets.get(e.area_id) ?? [];
+  if (matched.length > 0) return [...new Set(matched)];
+
+  // マッチなし (= 担当者未設定 or primary が対応事業所外) → 対応事業所全部
+  return candidates;
 }
 
 /**
