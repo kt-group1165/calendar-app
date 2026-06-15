@@ -434,9 +434,16 @@ export default function TenantCalendarPage() {
   async function handleSaveEvent(data: EventInsert) {
     // 事業所切替中に作成された予定は、その事業所に紐付ける
     // さもなくば担当者のoffice_idから自動推定
+    //
+    // Phase 9-5f-fix: /fukuyogu-kanri のように role-tenant で URL に ?office= が
+    //   無いケースでも、currentOffice (= 自動解決された tenant の唯一の office) を
+    //   優先する。これを assignee 推定より先にしないと「管理者カレンダーで作った
+    //   つもりが、assignee の primary office (例: 花見川) が origin になる」事故
+    //   が起こる。
     const inferOfficeId = () => {
       if (data.office_id) return data.office_id;
       if (currentOfficeId) return currentOfficeId;
+      if (currentOffice) return currentOffice.id;
       for (const assigneeName of data.assignees) {
         const m = members.find((mm) => mm.name === assigneeName);
         if (m?.primary_office_id) return m.primary_office_id;
