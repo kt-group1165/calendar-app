@@ -8,7 +8,10 @@
  */
 import { supabase } from "./supabase";
 
-// 5 福祉用具事業所 (= origin office としてカウント対象)
+// 福祉用具管理者 office (= 訪問予定が登録される origin office)
+export const FUKUYOGU_KANRI_OFFICE_ID = "00cbb92e-b0c0-43f4-adcc-97d952c39548";
+
+// 5 福祉用具事業所 (= 集計の「担当事業所」軸。assignee の primary office から特定)
 export const FUKUYOGU_OFFICE_IDS = [
   "e1b7b604-a4fd-44d5-98d1-efcb440ba035", // Ｈａｮｱ福祉用具花見川
   "ea7d88ea-5373-4054-8b6d-e8a11fbae217", // 千葉ムツミ福祉用具高品
@@ -107,20 +110,67 @@ export async function getVisitTargets(): Promise<VisitTarget[]> {
 }
 
 /**
+ * assignee name → primary office (= 5 福祉用具事業所のどれか) の map を構築
+ */
+async function getAssigneePrimaryOfficeMap(): Promise<Map<string, string>> {
+  // members + member_offices (is_primary=true) を join
+  const { data: members, error: memErr } = await supabase
+    .from("members")
+    .select("id, name");
+  if (memErr) throw memErr;
+  const memByName = new Map<string, string>();
+  for (const m of (members ?? []) as { id: string; name: string }[]) {
+    memByName.set(m.name, m.id);
+  }
+
+  // 5 福祉用具事業所のいずれかが primary な member_offices 行を取得
+  const { data: moRows, error: moErr } = await supabase
+    .from("member_offices")
+    .select("member_id, office_id, is_primary")
+    .in("office_id", FUKUYOGU_OFFICE_IDS as unknown as string[]);
+  if (moErr) throw moErr;
+
+  // assignee 名 → primary office_id (= 5 のうちのどれか)
+  // primary を優先、無ければ最初の office を採用
+  const memberIdToPrimary = new Map<string, string>();
+  for (const r of (moRows ?? []) as { member_id: string; office_id: string; is_primary: boolean }[]) {
+    if (r.is_primary) memberIdToPrimary.set(r.member_id, r.office_id);
+  }
+  for (const r of (moRows ?? []) as { member_id: string; office_id: string; is_primary: boolean }[]) {
+    if (!memberIdToPrimary.has(r.member_id)) memberIdToPrimary.set(r.member_id, r.office_id);
+  }
+
+  const nameToPrimary = new Map<string, string>();
+  for (const [name, memId] of memByName) {
+    const office = memberIdToPrimary.get(memId);
+    if (office) nameToPrimary.set(name, office);
+  }
+  return nameToPrimary;
+}
+
+/**
  * 指定月の (area × office) 訪問件数を集計
  * + 前回訪問日 (= 月をまたいで最新の訪問)
+ *
+ * 集計ロジック:
+ *   - events の origin office = 福祉用具管理者
+ *   - event_type に「個別訪問」or「ミーティング時訪問」を含む
+ *   - area_id IS NOT NULL
+ *   - 各 assignee の primary office (= 5 福祉用具事業所) でセルを特定
  */
 export async function getVisitStats(year: number, month: number): Promise<Map<string, VisitStats>> {
   const monthStart = new Date(year, month - 1, 1);
-  const monthEnd = new Date(year, month, 0); // last day of month
+  const monthEnd = new Date(year, month, 0);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  // ① 月内 events (count 用)
+  const nameToPrimary = await getAssigneePrimaryOfficeMap();
+
+  // ① 月内 events
   const monthEventsRes = await supabase
     .from("events")
-    .select("area_id, office_id, event_type")
-    .in("office_id", FUKUYOGU_OFFICE_IDS as unknown as string[])
+    .select("area_id, event_type, assignees")
+    .eq("office_id", FUKUYOGU_KANRI_OFFICE_ID)
     .gte("start_date", fmtDate(monthStart))
     .lte("start_date", fmtDate(monthEnd))
     .is("deleted_at", null)
@@ -130,58 +180,75 @@ export async function getVisitStats(year: number, month: number): Promise<Map<st
   // ② 全期間 events で最新訪問日 (前回訪問用)
   const lastEventsRes = await supabase
     .from("events")
-    .select("area_id, office_id, start_date")
-    .in("office_id", FUKUYOGU_OFFICE_IDS as unknown as string[])
-    .lte("start_date", fmtDate(today))   // 今日以前
+    .select("area_id, event_type, assignees, start_date")
+    .eq("office_id", FUKUYOGU_KANRI_OFFICE_ID)
+    .lte("start_date", fmtDate(today))
     .is("deleted_at", null)
     .not("area_id", "is", null)
     .order("start_date", { ascending: false });
   if (lastEventsRes.error) throw lastEventsRes.error;
 
-  // 集計
   const stats = new Map<string, VisitStats>();
   const keyOf = (area: string, office: string) => `${area}:${office}`;
 
-  for (const e of (monthEventsRes.data ?? []) as { area_id: string; office_id: string; event_type: string[] | null }[]) {
-    const k = keyOf(e.area_id, e.office_id);
-    if (!stats.has(k)) {
-      stats.set(k, {
-        area_id: e.area_id,
-        office_id: e.office_id,
-        individual_count: 0,
-        meeting_count: 0,
-        total_count: 0,
-        last_visit_date: null,
-        last_visit_days_ago: null,
-      });
-    }
-    const s = stats.get(k)!;
+  // 月内カウント (assignee 別に独立カウント)
+  for (const e of (monthEventsRes.data ?? []) as { area_id: string; event_type: string[] | null; assignees: string[] }[]) {
     const types = e.event_type ?? [];
     const hasIndividual = types.some((t) => t.includes(EVENT_TYPE_INDIVIDUAL));
     const hasMeeting = types.some((t) => t.includes(EVENT_TYPE_MEETING));
-    if (hasIndividual) s.individual_count += 1;
-    if (hasMeeting) s.meeting_count += 1;
-    s.total_count += 1;
+    if (!hasIndividual && !hasMeeting) continue;
+
+    // 各 assignee の primary office で別カウント
+    const seenOffices = new Set<string>();
+    for (const name of e.assignees ?? []) {
+      const officeId = nameToPrimary.get(name);
+      if (!officeId) continue;
+      if (seenOffices.has(officeId)) continue; // 同 office 重複 assignee は 1 カウント
+      seenOffices.add(officeId);
+
+      const k = keyOf(e.area_id, officeId);
+      if (!stats.has(k)) {
+        stats.set(k, {
+          area_id: e.area_id, office_id: officeId,
+          individual_count: 0, meeting_count: 0, total_count: 0,
+          last_visit_date: null, last_visit_days_ago: null,
+        });
+      }
+      const s = stats.get(k)!;
+      if (hasIndividual) s.individual_count += 1;
+      if (hasMeeting) s.meeting_count += 1;
+      s.total_count += 1;
+    }
   }
 
-  // 最新訪問日 (events は desc order なので、未設定の key に値を入れる)
-  for (const e of (lastEventsRes.data ?? []) as { area_id: string; office_id: string; start_date: string }[]) {
-    const k = keyOf(e.area_id, e.office_id);
-    if (!stats.has(k)) {
-      stats.set(k, {
-        area_id: e.area_id,
-        office_id: e.office_id,
-        individual_count: 0,
-        meeting_count: 0,
-        total_count: 0,
-        last_visit_date: e.start_date,
-        last_visit_days_ago: diffDays(e.start_date, today),
-      });
-    } else {
-      const s = stats.get(k)!;
-      if (s.last_visit_date === null) {
-        s.last_visit_date = e.start_date;
-        s.last_visit_days_ago = diffDays(e.start_date, today);
+  // 最新訪問日 (events は desc order)
+  for (const e of (lastEventsRes.data ?? []) as { area_id: string; event_type: string[] | null; assignees: string[]; start_date: string }[]) {
+    const types = e.event_type ?? [];
+    const hasIndividual = types.some((t) => t.includes(EVENT_TYPE_INDIVIDUAL));
+    const hasMeeting = types.some((t) => t.includes(EVENT_TYPE_MEETING));
+    if (!hasIndividual && !hasMeeting) continue;
+
+    const seenOffices = new Set<string>();
+    for (const name of e.assignees ?? []) {
+      const officeId = nameToPrimary.get(name);
+      if (!officeId) continue;
+      if (seenOffices.has(officeId)) continue;
+      seenOffices.add(officeId);
+
+      const k = keyOf(e.area_id, officeId);
+      if (!stats.has(k)) {
+        stats.set(k, {
+          area_id: e.area_id, office_id: officeId,
+          individual_count: 0, meeting_count: 0, total_count: 0,
+          last_visit_date: e.start_date,
+          last_visit_days_ago: diffDays(e.start_date, today),
+        });
+      } else {
+        const s = stats.get(k)!;
+        if (s.last_visit_date === null) {
+          s.last_visit_date = e.start_date;
+          s.last_visit_days_ago = diffDays(e.start_date, today);
+        }
       }
     }
   }
@@ -198,10 +265,12 @@ export async function getMonthlyTrend(monthsBack: number = 6): Promise<Map<strin
   const start = new Date(today.getFullYear(), today.getMonth() - monthsBack + 1, 1);
   const startStr = fmtDate(start);
 
+  const nameToPrimary = await getAssigneePrimaryOfficeMap();
+
   const { data, error } = await supabase
     .from("events")
-    .select("area_id, office_id, event_type, start_date")
-    .in("office_id", FUKUYOGU_OFFICE_IDS as unknown as string[])
+    .select("area_id, event_type, assignees, start_date")
+    .eq("office_id", FUKUYOGU_KANRI_OFFICE_ID)
     .gte("start_date", startStr)
     .is("deleted_at", null)
     .not("area_id", "is", null);
@@ -209,22 +278,30 @@ export async function getMonthlyTrend(monthsBack: number = 6): Promise<Map<strin
 
   // 集計: (area, office, yyyymm) → counts
   const map = new Map<string, MonthlyTrend>();
-  for (const e of (data ?? []) as { area_id: string; office_id: string; event_type: string[] | null; start_date: string }[]) {
-    const yyyymm = e.start_date.slice(0, 7); // YYYY-MM
-    const k = `${e.area_id}:${e.office_id}:${yyyymm}`;
-    if (!map.has(k)) {
-      map.set(k, {
-        area_id: e.area_id,
-        office_id: e.office_id,
-        yyyymm,
-        individual_count: 0,
-        meeting_count: 0,
-      });
-    }
-    const t = map.get(k)!;
+  for (const e of (data ?? []) as { area_id: string; event_type: string[] | null; assignees: string[]; start_date: string }[]) {
     const types = e.event_type ?? [];
-    if (types.some((x) => x.includes(EVENT_TYPE_INDIVIDUAL))) t.individual_count += 1;
-    if (types.some((x) => x.includes(EVENT_TYPE_MEETING))) t.meeting_count += 1;
+    const hasIndividual = types.some((x) => x.includes(EVENT_TYPE_INDIVIDUAL));
+    const hasMeeting = types.some((x) => x.includes(EVENT_TYPE_MEETING));
+    if (!hasIndividual && !hasMeeting) continue;
+    const yyyymm = e.start_date.slice(0, 7);
+
+    const seenOffices = new Set<string>();
+    for (const name of e.assignees ?? []) {
+      const officeId = nameToPrimary.get(name);
+      if (!officeId) continue;
+      if (seenOffices.has(officeId)) continue;
+      seenOffices.add(officeId);
+      const k = `${e.area_id}:${officeId}:${yyyymm}`;
+      if (!map.has(k)) {
+        map.set(k, {
+          area_id: e.area_id, office_id: officeId, yyyymm,
+          individual_count: 0, meeting_count: 0,
+        });
+      }
+      const t = map.get(k)!;
+      if (hasIndividual) t.individual_count += 1;
+      if (hasMeeting) t.meeting_count += 1;
+    }
   }
 
   // (area, office) → trend list (asc by yyyymm)
@@ -257,23 +334,27 @@ export async function getMonthVisitEvents(
 }>> {
   const monthStart = new Date(year, month - 1, 1);
   const monthEnd = new Date(year, month, 0);
+  // origin = 福祉用具管理者、area 一致、event_type 訪問関連 で fetch
+  // assignee の primary office 一致は client 側で filter
+  const nameToPrimary = await getAssigneePrimaryOfficeMap();
   const { data, error } = await supabase
     .from("events")
     .select("id, start_date, title, assignees, event_type")
-    .eq("office_id", officeId)
+    .eq("office_id", FUKUYOGU_KANRI_OFFICE_ID)
     .eq("area_id", areaId)
     .gte("start_date", fmtDate(monthStart))
     .lte("start_date", fmtDate(monthEnd))
     .is("deleted_at", null)
     .order("start_date", { ascending: true });
   if (error) throw error;
-  return (data ?? []) as Array<{
-    id: string;
-    start_date: string;
-    title: string;
-    assignees: string[];
-    event_type: string[];
-  }>;
+  // client side filter: assignee の primary office に officeId が含まれる event のみ
+  return ((data ?? []) as Array<{
+    id: string; start_date: string; title: string; assignees: string[]; event_type: string[];
+  }>).filter((e) => {
+    const types = e.event_type ?? [];
+    if (!types.some((t) => t.includes(EVENT_TYPE_INDIVIDUAL) || t.includes(EVENT_TYPE_MEETING))) return false;
+    return (e.assignees ?? []).some((name) => nameToPrimary.get(name) === officeId);
+  });
 }
 
 /**

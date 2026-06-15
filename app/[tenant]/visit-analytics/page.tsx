@@ -147,20 +147,28 @@ export default function VisitAnalyticsPage() {
             <p className="text-xs text-gray-500">福祉用具管理者 — エリア × 事業所 達成状況</p>
           </div>
 
-          {/* 月選択 */}
-          <div className="flex items-center gap-1 ml-auto">
-            <button onClick={() => shiftMonth(-1)} className="p-2 rounded-lg hover:bg-gray-100">
-              <ChevronLeft size={16} className="text-gray-500" />
+          {/* 月選択 (タップ領域を広くした) */}
+          <div className="flex items-center gap-1 ml-auto bg-gray-50 rounded-xl px-1 py-1">
+            <button
+              onClick={() => shiftMonth(-1)}
+              className="p-3 rounded-lg hover:bg-white active:bg-indigo-100 transition-colors"
+              aria-label="前の月"
+            >
+              <ChevronLeft size={20} className="text-gray-700" />
             </button>
-            <span className="text-sm font-bold text-gray-800 px-2 min-w-[100px] text-center">
+            <span className="text-base font-bold text-gray-800 px-3 min-w-[110px] text-center select-none">
               {year}年{month}月
             </span>
-            <button onClick={() => shiftMonth(1)} className="p-2 rounded-lg hover:bg-gray-100">
-              <ChevronRight size={16} className="text-gray-500" />
+            <button
+              onClick={() => shiftMonth(1)}
+              className="p-3 rounded-lg hover:bg-white active:bg-indigo-100 transition-colors"
+              aria-label="次の月"
+            >
+              <ChevronRight size={20} className="text-gray-700" />
             </button>
             <button
               onClick={() => { setYear(today.getFullYear()); setMonth(today.getMonth() + 1); }}
-              className="ml-2 px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 rounded-lg"
+              className="ml-1 px-3 py-2 text-sm font-semibold text-indigo-600 hover:bg-white rounded-lg"
             >今月</button>
           </div>
 
