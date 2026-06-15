@@ -149,6 +149,44 @@ async function getAssigneePrimaryOfficeMap(): Promise<Map<string, string>> {
 }
 
 /**
+ * area_id → そのエリアに対応する office_id 群 (fukuyogu_area_targets から)
+ * assignee 未指定 event のフォールバック用
+ */
+async function getAreaTargetsMap(): Promise<Map<string, string[]>> {
+  type Row = { area_id: string; office_id: string };
+  const { data, error } = await supabase
+    .from("fukuyogu_area_targets")
+    .select("area_id, office_id");
+  if (error) throw error;
+  const m = new Map<string, string[]>();
+  for (const r of (data ?? []) as Row[]) {
+    if (!m.has(r.area_id)) m.set(r.area_id, []);
+    m.get(r.area_id)!.push(r.office_id);
+  }
+  return m;
+}
+
+/**
+ * event の対応 office_id 群を返す:
+ *   - assignee が設定されてれば → 各 assignee の primary office
+ *   - assignee が空 (or 解決失敗) → area_targets のフォールバック
+ */
+function resolveTargetOffices(
+  e: { area_id: string; assignees: string[] | null | undefined },
+  nameToPrimary: Map<string, string>,
+  areaTargets: Map<string, string[]>,
+): string[] {
+  const fromAssignees: string[] = [];
+  for (const name of e.assignees ?? []) {
+    const off = nameToPrimary.get(name);
+    if (off) fromAssignees.push(off);
+  }
+  if (fromAssignees.length > 0) return [...new Set(fromAssignees)];
+  // フォールバック: area の target offices 全部
+  return areaTargets.get(e.area_id) ?? [];
+}
+
+/**
  * 指定月の (area × office) 訪問件数を集計
  * + 前回訪問日 (= 月をまたいで最新の訪問)
  *
@@ -156,7 +194,8 @@ async function getAssigneePrimaryOfficeMap(): Promise<Map<string, string>> {
  *   - events の origin office = 福祉用具管理者
  *   - event_type に「個別訪問」or「ミーティング時訪問」を含む
  *   - area_id IS NOT NULL
- *   - 各 assignee の primary office (= 5 福祉用具事業所) でセルを特定
+ *   - assignee 有: 各 assignee の primary office でセル特定
+ *   - assignee 空: area の target offices 全部に分配 (= 全該当セルに +1)
  */
 export async function getVisitStats(year: number, month: number): Promise<Map<string, VisitStats>> {
   const monthStart = new Date(year, month - 1, 1);
@@ -164,7 +203,10 @@ export async function getVisitStats(year: number, month: number): Promise<Map<st
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const nameToPrimary = await getAssigneePrimaryOfficeMap();
+  const [nameToPrimary, areaTargets] = await Promise.all([
+    getAssigneePrimaryOfficeMap(),
+    getAreaTargetsMap(),
+  ]);
 
   // ① 月内 events
   const monthEventsRes = await supabase
@@ -191,21 +233,15 @@ export async function getVisitStats(year: number, month: number): Promise<Map<st
   const stats = new Map<string, VisitStats>();
   const keyOf = (area: string, office: string) => `${area}:${office}`;
 
-  // 月内カウント (assignee 別に独立カウント)
+  // 月内カウント
   for (const e of (monthEventsRes.data ?? []) as { area_id: string; event_type: string[] | null; assignees: string[] }[]) {
     const types = e.event_type ?? [];
     const hasIndividual = types.some((t) => t.includes(EVENT_TYPE_INDIVIDUAL));
     const hasMeeting = types.some((t) => t.includes(EVENT_TYPE_MEETING));
     if (!hasIndividual && !hasMeeting) continue;
 
-    // 各 assignee の primary office で別カウント
-    const seenOffices = new Set<string>();
-    for (const name of e.assignees ?? []) {
-      const officeId = nameToPrimary.get(name);
-      if (!officeId) continue;
-      if (seenOffices.has(officeId)) continue; // 同 office 重複 assignee は 1 カウント
-      seenOffices.add(officeId);
-
+    const offices = resolveTargetOffices(e, nameToPrimary, areaTargets);
+    for (const officeId of offices) {
       const k = keyOf(e.area_id, officeId);
       if (!stats.has(k)) {
         stats.set(k, {
@@ -228,13 +264,8 @@ export async function getVisitStats(year: number, month: number): Promise<Map<st
     const hasMeeting = types.some((t) => t.includes(EVENT_TYPE_MEETING));
     if (!hasIndividual && !hasMeeting) continue;
 
-    const seenOffices = new Set<string>();
-    for (const name of e.assignees ?? []) {
-      const officeId = nameToPrimary.get(name);
-      if (!officeId) continue;
-      if (seenOffices.has(officeId)) continue;
-      seenOffices.add(officeId);
-
+    const offices = resolveTargetOffices(e, nameToPrimary, areaTargets);
+    for (const officeId of offices) {
       const k = keyOf(e.area_id, officeId);
       if (!stats.has(k)) {
         stats.set(k, {
@@ -265,7 +296,10 @@ export async function getMonthlyTrend(monthsBack: number = 6): Promise<Map<strin
   const start = new Date(today.getFullYear(), today.getMonth() - monthsBack + 1, 1);
   const startStr = fmtDate(start);
 
-  const nameToPrimary = await getAssigneePrimaryOfficeMap();
+  const [nameToPrimary, areaTargets] = await Promise.all([
+    getAssigneePrimaryOfficeMap(),
+    getAreaTargetsMap(),
+  ]);
 
   const { data, error } = await supabase
     .from("events")
@@ -285,12 +319,8 @@ export async function getMonthlyTrend(monthsBack: number = 6): Promise<Map<strin
     if (!hasIndividual && !hasMeeting) continue;
     const yyyymm = e.start_date.slice(0, 7);
 
-    const seenOffices = new Set<string>();
-    for (const name of e.assignees ?? []) {
-      const officeId = nameToPrimary.get(name);
-      if (!officeId) continue;
-      if (seenOffices.has(officeId)) continue;
-      seenOffices.add(officeId);
+    const offices = resolveTargetOffices(e, nameToPrimary, areaTargets);
+    for (const officeId of offices) {
       const k = `${e.area_id}:${officeId}:${yyyymm}`;
       if (!map.has(k)) {
         map.set(k, {
@@ -335,8 +365,11 @@ export async function getMonthVisitEvents(
   const monthStart = new Date(year, month - 1, 1);
   const monthEnd = new Date(year, month, 0);
   // origin = 福祉用具管理者、area 一致、event_type 訪問関連 で fetch
-  // assignee の primary office 一致は client 側で filter
-  const nameToPrimary = await getAssigneePrimaryOfficeMap();
+  // assignee の primary office or area target fallback で officeId 一致を client 側 filter
+  const [nameToPrimary, areaTargets] = await Promise.all([
+    getAssigneePrimaryOfficeMap(),
+    getAreaTargetsMap(),
+  ]);
   const { data, error } = await supabase
     .from("events")
     .select("id, start_date, title, assignees, event_type")
@@ -347,13 +380,13 @@ export async function getMonthVisitEvents(
     .is("deleted_at", null)
     .order("start_date", { ascending: true });
   if (error) throw error;
-  // client side filter: assignee の primary office に officeId が含まれる event のみ
   return ((data ?? []) as Array<{
     id: string; start_date: string; title: string; assignees: string[]; event_type: string[];
   }>).filter((e) => {
     const types = e.event_type ?? [];
     if (!types.some((t) => t.includes(EVENT_TYPE_INDIVIDUAL) || t.includes(EVENT_TYPE_MEETING))) return false;
-    return (e.assignees ?? []).some((name) => nameToPrimary.get(name) === officeId);
+    const offices = resolveTargetOffices({ area_id: areaId, assignees: e.assignees }, nameToPrimary, areaTargets);
+    return offices.includes(officeId);
   });
 }
 
