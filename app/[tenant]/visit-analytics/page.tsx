@@ -226,6 +226,7 @@ export default function VisitAnalyticsPage() {
                         const s = stats.get(`${a.id}:${o.id}`);
                         const days = s?.last_visit_days_ago ?? null;
                         const status = judgeStatus(days, t.target_frequency_days);
+                        const isColocated = (t.notes ?? "").includes("併設");
                         return (
                           <td key={o.id} className="px-2 py-1.5">
                             <button
@@ -233,7 +234,12 @@ export default function VisitAnalyticsPage() {
                               className={`w-full text-left border rounded-lg p-2 ${statusBg(status)} hover:ring-2 hover:ring-indigo-300 transition-all`}
                             >
                               <div className="flex items-start justify-between gap-1">
-                                <div className="text-[10px] text-gray-500 font-medium">目標: {t.target_frequency_days === 1 ? "毎日" : t.target_frequency_days === 7 ? "1週" : t.target_frequency_days === 14 ? "2週" : t.target_frequency_days === 21 ? "3週" : t.target_frequency_days === 28 ? "4週" : `${t.target_frequency_days}日`}</div>
+                                <div className="text-[10px] text-gray-500 font-medium flex items-center gap-1 flex-wrap">
+                                  <span>目標: {t.target_frequency_days === 1 ? "毎日" : t.target_frequency_days === 7 ? "1週" : t.target_frequency_days === 14 ? "2週" : t.target_frequency_days === 21 ? "3週" : t.target_frequency_days === 28 ? "4週" : `${t.target_frequency_days}日`}</span>
+                                  {isColocated && (
+                                    <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full text-[9px] font-bold leading-none">併設</span>
+                                  )}
+                                </div>
                                 <span className={`text-xs ${statusText(status)}`} title={status === "good" ? "目標内" : status === "warn" ? "やや超過" : status === "danger" ? "大幅超過" : "未訪問"}>{statusIcon(status)}</span>
                               </div>
                               <div className="mt-1 flex items-baseline gap-2">
