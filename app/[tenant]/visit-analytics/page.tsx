@@ -44,6 +44,9 @@ export default function VisitAnalyticsPage() {
   const [trends, setTrends] = useState<Map<string, MonthlyTrend[]>>(new Map());
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"grid" | "trend">("grid");
+  // 個別訪問 / ミーティング時訪問 の filter (both default true)
+  const [showIndividual, setShowIndividual] = useState(true);
+  const [showMeeting, setShowMeeting] = useState(true);
   const [drill, setDrill] = useState<{ areaId: string; officeId: string; areaName: string; officeName: string; events: DrillEvent[] } | null>(null);
 
   useEffect(() => {
@@ -172,6 +175,28 @@ export default function VisitAnalyticsPage() {
             >今月</button>
           </div>
 
+          {/* 個別/MTG フィルタ */}
+          <div className="flex items-center gap-2 px-2 py-1.5 border border-gray-200 rounded-lg bg-white">
+            <label className="flex items-center gap-1 cursor-pointer text-xs font-semibold select-none">
+              <input
+                type="checkbox"
+                checked={showIndividual}
+                onChange={(e) => setShowIndividual(e.target.checked)}
+                className="w-3.5 h-3.5 accent-indigo-500"
+              />
+              <span className="text-indigo-700">個別</span>
+            </label>
+            <label className="flex items-center gap-1 cursor-pointer text-xs font-semibold select-none">
+              <input
+                type="checkbox"
+                checked={showMeeting}
+                onChange={(e) => setShowMeeting(e.target.checked)}
+                className="w-3.5 h-3.5 accent-purple-500"
+              />
+              <span className="text-purple-700">MTG</span>
+            </label>
+          </div>
+
           {/* View toggle */}
           <div className="flex items-center gap-1 border border-gray-200 rounded-lg p-0.5">
             <button
@@ -243,12 +268,16 @@ export default function VisitAnalyticsPage() {
                                 <span className={`text-xs ${statusText(status)}`} title={status === "good" ? "目標内" : status === "warn" ? "やや超過" : status === "danger" ? "大幅超過" : "未訪問"}>{statusIcon(status)}</span>
                               </div>
                               <div className="mt-1 flex items-baseline gap-2">
-                                <span className="text-xs font-bold text-gray-800">
-                                  個 <span className="text-sm text-indigo-600">{s?.individual_count ?? 0}</span>
-                                </span>
-                                <span className="text-xs font-bold text-gray-800">
-                                  M <span className="text-sm text-purple-600">{s?.meeting_count ?? 0}</span>
-                                </span>
+                                {showIndividual && (
+                                  <span className="text-xs font-bold text-gray-800">
+                                    個 <span className="text-sm text-indigo-600">{s?.individual_count ?? 0}</span>
+                                  </span>
+                                )}
+                                {showMeeting && (
+                                  <span className="text-xs font-bold text-gray-800">
+                                    M <span className="text-sm text-purple-600">{s?.meeting_count ?? 0}</span>
+                                  </span>
+                                )}
                               </div>
                               <div className="mt-1 text-[10px] text-gray-500">
                                 {s?.last_visit_date ? (
@@ -330,7 +359,8 @@ export default function VisitAnalyticsPage() {
                           const data = list.find((x) => x.yyyymm === ym);
                           const ind = data?.individual_count ?? 0;
                           const mtg = data?.meeting_count ?? 0;
-                          months.push({ yyyymm: ym, total: ind + mtg, ind, mtg });
+                          const total = (showIndividual ? ind : 0) + (showMeeting ? mtg : 0);
+                          months.push({ yyyymm: ym, total, ind, mtg });
                         }
                         return (
                           <td key={o.id} className="px-1 py-1 border-r border-gray-100">
