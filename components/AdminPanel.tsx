@@ -287,7 +287,7 @@ function GroupsTab({ tenantId }: { tenantId: string }) {
   useEffect(() => {
     Promise.all([getGroups(tenantId), getMembers(tenantId), getOffices(tenantId)])
       .then(([g, m, o]) => { setGroups(g); setMembers(m); setOffices(o); })
-      .catch(() => {})
+      .catch((e: unknown) => console.warn("[AdminPanel] groups/members/offices fetch failed:", e))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional dep stability
   }, []);

@@ -172,13 +172,13 @@ export default function TenantCalendarPage() {
     if (authUser.loading) return;
     // currentOfficeId が null = group_admin の tenant-wide view、null 以外 = office 絞込
     const office = currentOfficeId ?? undefined;
-    cleanupOldDeletedEvents(office).catch(() => {});
-    getMembers(tenantId, office).then(setMembers).catch(() => {});
-    getOffices(tenantId).then(setOffices).catch(() => {});
-    getGroups(tenantId).then(setGroups).catch(() => {});
-    getEventAreas(tenantId, office).then(setEventAreas).catch(() => {});
-    getEventTypes(tenantId, { officeId: office }).then(setEventTypes).catch(() => {});
-    getClientSelectionEnabled(tenantId).then(setClientSelectionEnabled).catch(() => {});
+    cleanupOldDeletedEvents(office).catch((e: unknown) => console.warn("[page] cleanupOldDeletedEvents failed:", e));
+    getMembers(tenantId, office).then(setMembers).catch((e: unknown) => console.warn("[page] getMembers failed:", e));
+    getOffices(tenantId).then(setOffices).catch((e: unknown) => console.warn("[page] getOffices failed:", e));
+    getGroups(tenantId).then(setGroups).catch((e: unknown) => console.warn("[page] getGroups failed:", e));
+    getEventAreas(tenantId, office).then(setEventAreas).catch((e: unknown) => console.warn("[page] getEventAreas failed:", e));
+    getEventTypes(tenantId, { officeId: office }).then(setEventTypes).catch((e: unknown) => console.warn("[page] getEventTypes failed:", e));
+    getClientSelectionEnabled(tenantId).then(setClientSelectionEnabled).catch((e: unknown) => console.warn("[page] getClientSelectionEnabled failed:", e));
 
     // 1日1回、アプリを開いたときに自動バックアップCSVをダウンロード
     // バックアップは tenant 全件 (officeId 渡さない) で従来どおり
@@ -208,7 +208,7 @@ export default function TenantCalendarPage() {
         a.click();
         URL.revokeObjectURL(url);
         localStorage.setItem(LAST_BACKUP_KEY(tenantId), todayStr);
-      }).catch(() => {});
+      }).catch((e: unknown) => console.warn("[page] CSV backup failed:", e));
     }
 
     // 未読件数を取得
@@ -216,9 +216,34 @@ export default function TenantCalendarPage() {
     if (!lastSeen) {
       localStorage.setItem(LAST_SEEN_KEY(tenantId), new Date().toISOString());
     } else {
-      getUnreadActivityCount(lastSeen, tenantId).then(setUnreadCount).catch(() => {});
+      getUnreadActivityCount(lastSeen, tenantId).then(setUnreadCount).catch((e: unknown) => console.warn("[page] getUnreadActivityCount failed:", e));
     }
   }, [tenantId, authUser.loading, authUser.authUser, currentOfficeId]);
+
+  // tenant scope の office ids を memoize (kt-group は null = no filter)
+  // offices array reference が変わるたびに再計算するが、loadEvents の deps を安定化
+  const tenantOfficeIds = useMemo<string[] | null>(() => {
+    if (tenantId === "kt-group") return null;
+    return offices.map((o) => o.id);
+  }, [tenantId, offices]);
+
+  // user scope ∩ tenant scope の交差を memoize
+  // currentOfficeId 指定時は undefined (single-office mode)
+  const effectiveOfficeIds = useMemo<string[] | undefined | "empty">(() => {
+    if (!userScope) return undefined;
+    if (currentOfficeId) return undefined; // single-office mode
+    if (userScope.kind === "group_admin") {
+      return tenantOfficeIds ?? undefined;
+    }
+    // office_admin / member: user scope と tenant scope の交差
+    let allowed = userScope.allowedOfficeIds;
+    if (tenantOfficeIds !== null) {
+      const tenantSet = new Set(tenantOfficeIds);
+      allowed = allowed.filter((id) => tenantSet.has(id));
+    }
+    if (allowed.length === 0) return "empty";
+    return allowed;
+  }, [userScope, currentOfficeId, tenantOfficeIds]);
 
   const loadEvents = useCallback(async () => {
     if (!tenantId) return;
@@ -229,48 +254,24 @@ export default function TenantCalendarPage() {
     if (tenantId !== "kt-group" && !currentOfficeId && offices.length === 0) {
       return;
     }
+    if (effectiveOfficeIds === "empty") {
+      setEvents([]);
+      setSupabaseError(false);
+      return;
+    }
     setLoading(true);
     try {
       const { start, end } = getDateRange(currentDate, viewMode);
-      // フィルタ決定:
-      //   currentOfficeId 指定: その office に絞る (user が手動切替)
-      //   tenant スコープ: kt-group は無制限、role tenant (fukuyogu-kanri 等) はその tenant の
-      //     offices に限定 (URL = カレンダーコンテキストなので他テナントの events を混ぜない)
-      //   user スコープ: group_admin は無制限、office_admin / member は allowedOfficeIds
-      //   実効値 = tenant スコープ ∩ user スコープ
-      let officeIds: string[] | undefined;
-      if (currentOfficeId) {
-        officeIds = undefined; // single-office mode
-      } else {
-        const tenantOfficeIds = tenantId === "kt-group" ? null : offices.map((o) => o.id);
-        if (userScope.kind === "group_admin") {
-          // tenant scope のみ適用 (kt-group なら null = no filter)
-          officeIds = tenantOfficeIds ?? undefined;
-        } else {
-          // office_admin / member: user scope と tenant scope の交差
-          let allowed = userScope.allowedOfficeIds;
-          if (tenantOfficeIds !== null) {
-            const tenantSet = new Set(tenantOfficeIds);
-            allowed = allowed.filter((id) => tenantSet.has(id));
-          }
-          if (allowed.length === 0) {
-            setEvents([]);
-            setSupabaseError(false);
-            setLoading(false);
-            return;
-          }
-          officeIds = allowed;
-        }
-      }
-      setEvents(await getEventsByDateRange(start, end, currentOfficeId ?? undefined, officeIds));
+      setEvents(await getEventsByDateRange(start, end, currentOfficeId ?? undefined, effectiveOfficeIds));
       setSupabaseError(false);
-    } catch {
+    } catch (e: unknown) {
+      console.warn("[page] getEventsByDateRange failed:", e);
       setSupabaseError(true);
       setEvents([]);
     } finally {
       setLoading(false);
     }
-  }, [currentDate, viewMode, tenantId, currentOfficeId, userScope, offices]);
+  }, [currentDate, viewMode, tenantId, currentOfficeId, userScope, offices, effectiveOfficeIds]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
   useEffect(() => { loadEvents(); }, [loadEvents]);

@@ -42,8 +42,8 @@ export default function EventDetailModal({ tenantId, officeId, event, currentUse
     loadComments();
     getOrderEmailSettings(tenantId).then((s) => {
       if (s.enabled) setOrderEmailSettings(s);
-    }).catch(() => {});
-    getEventAreas(tenantId, officeId).then(setEventAreas).catch(() => {});
+    }).catch((e: unknown) => console.warn("[EventDetailModal] order email settings fetch failed:", e));
+    getEventAreas(tenantId, officeId).then(setEventAreas).catch((e: unknown) => console.warn("[EventDetailModal] event areas fetch failed:", e));
   }, [event.id, officeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const areaName = event.area_id

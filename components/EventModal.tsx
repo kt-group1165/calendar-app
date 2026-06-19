@@ -541,12 +541,17 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
     // Phase 3c: officeId 指定時はそれぞれ office で絞り込み
     // (clients は client_office_assignments を別途参照するためフィルタしない)
     const office = officeId ?? undefined;
-    getMembers(tenantId, office).then(setMembers).catch(() => {});
-    getEventTypes(tenantId, { officeId: office }).then(setEventTypes).catch(() => {});
-    getEventAreas(tenantId, office).then(setEventAreas).catch(() => {});
-    getClients(tenantId).then(setClients).catch(() => {}); // assignments 経由で別途 filter
-    getClientOfficeAssignments(tenantId).then(setClientAssignments).catch(() => {});
-    getVisitTypeRequired(tenantId).then(setVisitTypeRequired).catch(() => {});
+    // 6 fetch を Promise.all で並列化 + 失敗は console.warn で可視化
+    Promise.all([
+      getMembers(tenantId, office).then(setMembers),
+      getEventTypes(tenantId, { officeId: office }).then(setEventTypes),
+      getEventAreas(tenantId, office).then(setEventAreas),
+      getClients(tenantId).then(setClients), // assignments 経由で別途 filter
+      getClientOfficeAssignments(tenantId).then(setClientAssignments),
+      getVisitTypeRequired(tenantId).then(setVisitTypeRequired),
+    ]).catch((e: unknown) => {
+      console.warn("[EventModal] master data fetch failed:", e);
+    });
   }, [tenantId, officeId]);
 
   // メモ欄プリセット（新規作成時のみ、description が空のときだけ挿入）
