@@ -134,42 +134,46 @@ if (!targetsRaw || targetsRaw.length === 0) {
 console.log(`  → ${targetsRaw.length} 件の (area, office, frequency) 設定を取得`);
 
 // === 2) office 別に「primary が当該 office の staff name 」を集める ===
+// 重要: primary が target office と一致する staff のみ assignee に使う。
+//       fallback (= primary が別 office の staff) を使うと visit-analytics の resolve で
+//       「primary=別 office なので別 cell に分配」され、別 cell が over-count される。
+// 同じ問題: 同じ member が複数 office の member_offices 行を持ってる場合、
+//          is_primary=true な office に限ってその office の assignee 候補にする。
 console.log("\n[2] 担当 staff (= assignee 候補) を office 別に取得");
 const { data: moRows, error: moErr } = await sb
   .from("member_offices")
   .select("member_id, office_id, is_primary")
   .in("office_id", FUKUYOGU_OFFICE_IDS);
 if (moErr) { console.error("member_offices fetch error:", moErr.message); process.exit(1); }
-const memberIdsByOffice = new Map();
+const memberPrimaryByOffice = new Map();
 for (const r of moRows ?? []) {
-  // primary 優先 (= primary の member を assignee に立てれば visit-analytics の resolve が確実)
-  if (!memberIdsByOffice.has(r.office_id)) memberIdsByOffice.set(r.office_id, { primary: [], fallback: [] });
-  const bucket = memberIdsByOffice.get(r.office_id);
-  if (r.is_primary) bucket.primary.push(r.member_id);
-  else bucket.fallback.push(r.member_id);
+  if (!r.is_primary) continue; // ← primary のみ
+  if (!memberPrimaryByOffice.has(r.office_id)) memberPrimaryByOffice.set(r.office_id, []);
+  memberPrimaryByOffice.get(r.office_id).push(r.member_id);
 }
-// member id 集合 → name 引き
-const allMemberIds = [...new Set((moRows ?? []).map((r) => r.member_id))];
+const allPrimaryIds = [...new Set([...memberPrimaryByOffice.values()].flat())];
 const memberNameById = new Map();
-if (allMemberIds.length > 0) {
+if (allPrimaryIds.length > 0) {
   const { data: mems, error: mErr } = await sb
     .from("members")
     .select("id, name, status")
-    .in("id", allMemberIds);
+    .in("id", allPrimaryIds);
   if (mErr) { console.error("members fetch error:", mErr.message); process.exit(1); }
   for (const m of mems ?? []) {
     if (m.status === "active") memberNameById.set(m.id, m.name);
   }
 }
 const staffNameByOffice = new Map();
-for (const [officeId, { primary, fallback }] of memberIdsByOffice) {
-  const pNames = primary.map((id) => memberNameById.get(id)).filter(Boolean);
-  const fNames = fallback.map((id) => memberNameById.get(id)).filter(Boolean);
-  const pick = pNames.length > 0 ? pNames : fNames;
-  staffNameByOffice.set(officeId, pick);
+for (const [officeId, ids] of memberPrimaryByOffice) {
+  const names = ids.map((id) => memberNameById.get(id)).filter(Boolean);
+  staffNameByOffice.set(officeId, names);
+}
+// 5 office 全部に空配列でも entry を作っておく (= 後段の get() が undefined にならない)
+for (const oid of FUKUYOGU_OFFICE_IDS) {
+  if (!staffNameByOffice.has(oid)) staffNameByOffice.set(oid, []);
 }
 for (const [oid, names] of staffNameByOffice) {
-  console.log(`  ${oid.slice(0, 8)}.. → ${names.length} 人 (例: ${names.slice(0, 2).join(",")})`);
+  console.log(`  ${oid.slice(0, 8)}.. → ${names.length} 人 ${names.length === 0 ? "(primary なし、assignee 空で INSERT)" : `(例: ${names.slice(0, 2).join(",")})`}`);
 }
 
 // === 3) 期間内の月リストを作る ===
@@ -241,6 +245,12 @@ for (const { year, month } of months) {
     if (shortfall === 0) continue;
 
     const candidates = staffNameByOffice.get(t.office_id) ?? [];
+    if (candidates.length === 0) {
+      // primary 0 人の office に assignee 空で INSERT すると visit-analytics fallback で
+      // area の全候補に分配されて over-count するため、この target は skip。
+      console.warn(`  skip: ${t.area_id.slice(0, 8)}.. × ${t.office_id.slice(0, 8)}.. (primary 0 人、insert で over-count するため)`);
+      continue;
+    }
     const usedDays = new Set();
     const inserts = [];
     for (let i = 0; i < shortfall; i++) {
@@ -251,7 +261,7 @@ for (const { year, month } of months) {
       }
       usedDays.add(dayNum);
       const dateStr = `${yyyymm}-${String(dayNum).padStart(2, "0")}`;
-      const assignee = candidates.length > 0 ? pick(candidates) : null;
+      const assignee = pick(candidates);
       const startTime = pickStartTime();
       const endTime = addMinutesToTime(startTime, 30);
       inserts.push({
