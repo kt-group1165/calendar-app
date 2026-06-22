@@ -206,8 +206,14 @@ function resolveTargetOffices(
  *   - area_id IS NOT NULL
  *   - assignee 有: 各 assignee の primary office でセル特定
  *   - assignee 空: area の target offices 全部に分配 (= 全該当セルに +1)
+ *
+ * includeDemo: デモ URL のみ true。本番 URL では未指定 (=false) で is_demo を除外。
  */
-export async function getVisitStats(year: number, month: number): Promise<Map<string, VisitStats>> {
+export async function getVisitStats(
+  year: number,
+  month: number,
+  includeDemo: boolean = false,
+): Promise<Map<string, VisitStats>> {
   const monthStart = new Date(year, month - 1, 1);
   const monthEnd = new Date(year, month, 0);
   const today = new Date();
@@ -219,7 +225,7 @@ export async function getVisitStats(year: number, month: number): Promise<Map<st
   ]);
 
   // ① 月内 events
-  const monthEventsRes = await supabase
+  let monthQ = supabase
     .from("events")
     .select("area_id, event_type, assignees")
     .eq("office_id", FUKUYOGU_KANRI_OFFICE_ID)
@@ -227,17 +233,20 @@ export async function getVisitStats(year: number, month: number): Promise<Map<st
     .lte("start_date", fmtDate(monthEnd))
     .is("deleted_at", null)
     .not("area_id", "is", null);
+  if (!includeDemo) monthQ = monthQ.eq("is_demo", false);
+  const monthEventsRes = await monthQ;
   if (monthEventsRes.error) throw monthEventsRes.error;
 
   // ② 全期間 events で最新訪問日 (前回訪問用)
-  const lastEventsRes = await supabase
+  let lastQ = supabase
     .from("events")
     .select("area_id, event_type, assignees, start_date")
     .eq("office_id", FUKUYOGU_KANRI_OFFICE_ID)
     .lte("start_date", fmtDate(today))
     .is("deleted_at", null)
-    .not("area_id", "is", null)
-    .order("start_date", { ascending: false });
+    .not("area_id", "is", null);
+  if (!includeDemo) lastQ = lastQ.eq("is_demo", false);
+  const lastEventsRes = await lastQ.order("start_date", { ascending: false });
   if (lastEventsRes.error) throw lastEventsRes.error;
 
   const stats = new Map<string, VisitStats>();
@@ -303,8 +312,13 @@ export async function getVisitStats(year: number, month: number): Promise<Map<st
 /**
  * 指定期間 (年月の開始〜終了) の月別 trend を取得
  * 過去 N ヶ月の比較用
+ *
+ * includeDemo: デモ URL のみ true。本番 URL では未指定 (=false) で is_demo を除外。
  */
-export async function getMonthlyTrend(monthsBack: number = 6): Promise<Map<string, MonthlyTrend[]>> {
+export async function getMonthlyTrend(
+  monthsBack: number = 6,
+  includeDemo: boolean = false,
+): Promise<Map<string, MonthlyTrend[]>> {
   const today = new Date();
   const start = new Date(today.getFullYear(), today.getMonth() - monthsBack + 1, 1);
   const startStr = fmtDate(start);
@@ -314,13 +328,15 @@ export async function getMonthlyTrend(monthsBack: number = 6): Promise<Map<strin
     getAreaTargetsMap(),
   ]);
 
-  const { data, error } = await supabase
+  let q = supabase
     .from("events")
     .select("area_id, event_type, assignees, start_date")
     .eq("office_id", FUKUYOGU_KANRI_OFFICE_ID)
     .gte("start_date", startStr)
     .is("deleted_at", null)
     .not("area_id", "is", null);
+  if (!includeDemo) q = q.eq("is_demo", false);
+  const { data, error } = await q;
   if (error) throw error;
 
   // 集計: (area, office, yyyymm) → counts
@@ -364,12 +380,15 @@ export async function getMonthlyTrend(monthsBack: number = 6): Promise<Map<strin
 
 /**
  * 月内の specific (area, office) events を ID + 詳細で取得 (ドリルダウン用)
+ *
+ * includeDemo: デモ URL のみ true。本番 URL では未指定 (=false) で is_demo を除外。
  */
 export async function getMonthVisitEvents(
   year: number,
   month: number,
   areaId: string,
   officeId: string,
+  includeDemo: boolean = false,
 ): Promise<Array<{
   id: string;
   start_date: string;
@@ -385,15 +404,16 @@ export async function getMonthVisitEvents(
     getAssigneePrimaryOfficeMap(),
     getAreaTargetsMap(),
   ]);
-  const { data, error } = await supabase
+  let q = supabase
     .from("events")
     .select("id, start_date, title, assignees, event_type")
     .eq("office_id", FUKUYOGU_KANRI_OFFICE_ID)
     .eq("area_id", areaId)
     .gte("start_date", fmtDate(monthStart))
     .lte("start_date", fmtDate(monthEnd))
-    .is("deleted_at", null)
-    .order("start_date", { ascending: true });
+    .is("deleted_at", null);
+  if (!includeDemo) q = q.eq("is_demo", false);
+  const { data, error } = await q.order("start_date", { ascending: true });
   if (error) throw error;
   return ((data ?? []) as Array<{
     id: string; start_date: string; title: string; assignees: string[]; event_type: string[];

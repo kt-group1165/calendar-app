@@ -57,9 +57,20 @@ function getDateRange(date: Date, mode: ViewMode) {
   }
 }
 
+// === 福祉用具管理者 デモ tenant ===
+// URL `/fukuyogu-kanri-demo` は実 tenant が無いエイリアス。本物の `fukuyogu-kanri`
+// と同じ DB lookup を行い、events だけは is_demo=true も合わせて表示する。
+// プレゼン用に「目標頻度を達成している見た目」を出すための水増し event は
+// scripts/seed_demo_events_to_target.mjs で生成 → is_demo=true で記録される。
+const DEMO_TENANT_ID = "fukuyogu-kanri-demo";
+const DEMO_ALIAS_REAL_TENANT_ID = "fukuyogu-kanri";
+
 export default function TenantCalendarPage() {
   const params = useParams<{ tenant: string }>();
-  const tenantId = params.tenant as string;
+  const urlTenantId = params.tenant as string;
+  // 実 DB lookup には real tenant id を使う。URL/router 用には urlTenantId を維持。
+  const isDemoTenant = urlTenantId === DEMO_TENANT_ID;
+  const tenantId = isDemoTenant ? DEMO_ALIAS_REAL_TENANT_ID : urlTenantId;
   const router = useRouter();
   const searchParams = useSearchParams();
   const currentOfficeId = searchParams.get("office"); // nullなら全事業所表示
@@ -85,9 +96,9 @@ export default function TenantCalendarPage() {
       autoOfficeRedirectDoneRef.current = true;
       const params = new URLSearchParams(Array.from(searchParams.entries()));
       params.set("office", authUser.primaryOfficeId);
-      router.replace(`/${tenantId}?${params.toString()}`);
+      router.replace(`/${urlTenantId}?${params.toString()}`);
     }
-  }, [authUser.loading, authUser.authUser, authUser.primaryOfficeId, currentOfficeId, router, searchParams, tenantId]);
+  }, [authUser.loading, authUser.authUser, authUser.primaryOfficeId, currentOfficeId, router, searchParams, urlTenantId]);
 
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>("month");
@@ -262,7 +273,7 @@ export default function TenantCalendarPage() {
     setLoading(true);
     try {
       const { start, end } = getDateRange(currentDate, viewMode);
-      setEvents(await getEventsByDateRange(start, end, currentOfficeId ?? undefined, effectiveOfficeIds));
+      setEvents(await getEventsByDateRange(start, end, currentOfficeId ?? undefined, effectiveOfficeIds, isDemoTenant));
       setSupabaseError(false);
     } catch (e: unknown) {
       console.warn("[page] getEventsByDateRange failed:", e);
@@ -271,7 +282,7 @@ export default function TenantCalendarPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentDate, viewMode, tenantId, currentOfficeId, userScope, offices, effectiveOfficeIds]);
+  }, [currentDate, viewMode, tenantId, currentOfficeId, userScope, offices, effectiveOfficeIds, isDemoTenant]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- HANDOVER §2 (mount-time async fetch / mount init)
   useEffect(() => { loadEvents(); }, [loadEvents]);
@@ -553,6 +564,12 @@ export default function TenantCalendarPage() {
 
   return (
     <div className="flex flex-col h-dvh max-h-dvh bg-[#f8f9fa]">
+      {/* デモ環境バッジ (= /fukuyogu-kanri-demo) */}
+      {isDemoTenant && (
+        <div className="bg-amber-100 border-b border-amber-300 px-3 py-1.5 text-center text-xs font-bold text-amber-900 tracking-wide">
+          🎯 デモ環境 — プレゼン用に水増しした訪問データを含みます (本番 URL: /{DEMO_ALIAS_REAL_TENANT_ID})
+        </div>
+      )}
       {/* ヘッダー */}
       <header className="bg-white border-b border-gray-100 px-2 py-2 flex items-center justify-between gap-1 shadow-sm">
         <div className="flex items-center gap-0.5 shrink-0">
@@ -700,7 +717,7 @@ export default function TenantCalendarPage() {
           </div>
           {tenantId === "fukuyogu-kanri" && (
             <button
-              onClick={() => router.push(`/${tenantId}/visit-analytics`)}
+              onClick={() => router.push(`/${urlTenantId}/visit-analytics`)}
               className="p-1.5 sm:p-2 rounded-xl hover:bg-indigo-50 transition-colors"
               title="訪問分析"
             >

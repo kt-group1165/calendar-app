@@ -39,7 +39,9 @@ async function compressImage(file: File): Promise<File> {
 // 全予定取得（削除済み除く・全期間・1000件超対応）
 // Phase 5b: tenant scoping は RLS (scope_office_ids) に委譲。officeId 指定時は
 //           更に office_id でも絞り込む。
-export async function getAllEvents(officeId?: string): Promise<Event[]> {
+// includeDemo: デモ URL (/fukuyogu-kanri-demo) のみ true。本番 URL では未指定 (=false)
+//   で is_demo=true を除外する。デフォルトの自動 CSV backup には demo を含めない。
+export async function getAllEvents(officeId?: string, includeDemo: boolean = false): Promise<Event[]> {
   const PAGE = 1000;
   const all: Event[] = [];
   let from = 0;
@@ -48,6 +50,7 @@ export async function getAllEvents(officeId?: string): Promise<Event[]> {
       .from("events")
       .select("*")
       .is("deleted_at", null);
+    if (!includeDemo) q = q.eq("is_demo", false);
     if (officeId) q = q.eq("office_id", officeId);
     const { data, error } = await q
       .order("start_date", { ascending: true })
@@ -213,6 +216,8 @@ export async function importEventsFromCSV(
 //   - 兼務 staff の event は assignee の member_offices 全ての office から見える
 //   - 旧仕様 (office_id 単体 IN フィルタ) では role-tenant 越境の event が漏れていた
 //     (例: 福祉用具管理者 view で 中山 担当 event が見えない)
+// includeDemo: デモ URL (/fukuyogu-kanri-demo) のみ true。本番 URL では未指定 (=false)
+//   で is_demo=true を除外する。
 export async function getEventsByDateRange(
   startDate: string,
   endDate: string,
@@ -220,12 +225,14 @@ export async function getEventsByDateRange(
   // role tenant 等で「複数 office を allowed list で絞り込む」場合に使う。
   // officeId (単一) と排他的: 単一指定があればそちら優先。
   officeIds?: string[],
+  includeDemo: boolean = false,
 ): Promise<Event[]> {
   let q = supabase
     .from("events")
     .select("*")
     .is("deleted_at", null)
     .eq("is_memo", false);
+  if (!includeDemo) q = q.eq("is_demo", false);
   if (officeId) {
     // 単一 office: scope_office_ids が当該 office を含む event
     q = q.contains("scope_office_ids", [officeId]);
@@ -243,7 +250,8 @@ export async function getEventsByDateRange(
 
 // メモ一覧取得（日付未定の予定）・ページング対応
 // Phase 5b: tenant scoping は RLS に委譲。
-export async function getMemoEvents(officeId?: string): Promise<Event[]> {
+// includeDemo: デモ URL のみ true。本番 URL では未指定 (=false) で is_demo を除外。
+export async function getMemoEvents(officeId?: string, includeDemo: boolean = false): Promise<Event[]> {
   const PAGE = 1000;
   const all: Event[] = [];
   let from = 0;
@@ -253,6 +261,7 @@ export async function getMemoEvents(officeId?: string): Promise<Event[]> {
       .select("*")
       .is("deleted_at", null)
       .eq("is_memo", true);
+    if (!includeDemo) q = q.eq("is_demo", false);
     if (officeId) q = q.eq("office_id", officeId);
     const { data, error } = await q
       .order("created_at", { ascending: false })
@@ -330,7 +339,8 @@ export async function permanentDeleteEvent(id: string, imageUrl: string | null):
 
 // ゴミ箱内の予定取得・ページング対応
 // Phase 5b: tenant scoping は RLS に委譲。
-export async function getDeletedEvents(officeId?: string): Promise<Event[]> {
+// includeDemo: デモ URL のみ true。本番 URL では未指定 (=false) で is_demo を除外。
+export async function getDeletedEvents(officeId?: string, includeDemo: boolean = false): Promise<Event[]> {
   const PAGE = 1000;
   const all: Event[] = [];
   let from = 0;
@@ -339,6 +349,7 @@ export async function getDeletedEvents(officeId?: string): Promise<Event[]> {
       .from("events")
       .select("*")
       .not("deleted_at", "is", null);
+    if (!includeDemo) q = q.eq("is_demo", false);
     if (officeId) q = q.eq("office_id", officeId);
     const { data, error } = await q
       .order("deleted_at", { ascending: false })
@@ -536,7 +547,8 @@ export async function getUnreadActivityCount(since: string, tenantId: string = "
 // (visit_other_detail) を横断検索。担当者(assignees)・用件種別(event_type) は
 // 配列なのでクライアント側で部分一致を併せて拾う。
 // Phase 5b: tenant scoping は RLS に委譲。officeId 指定時は更に絞り込む。
-export async function searchEvents(query: string, officeId?: string): Promise<Event[]> {
+// includeDemo: デモ URL のみ true。本番 URL では未指定 (=false) で is_demo を除外。
+export async function searchEvents(query: string, officeId?: string, includeDemo: boolean = false): Promise<Event[]> {
   const q = query.trim();
   if (!q) return [];
   // PostgREST の or() はカンマ・括弧を区切り文字に使うので除去
@@ -547,6 +559,7 @@ export async function searchEvents(query: string, officeId?: string): Promise<Ev
     .from("events")
     .select("*")
     .is("deleted_at", null);
+  if (!includeDemo) primaryQuery = primaryQuery.eq("is_demo", false);
   if (officeId) primaryQuery = primaryQuery.eq("office_id", officeId);
   const { data, error } = await primaryQuery
     .or(
@@ -572,6 +585,7 @@ export async function searchEvents(query: string, officeId?: string): Promise<Ev
       .from("events")
       .select("*")
       .is("deleted_at", null);
+    if (!includeDemo) arrQuery = arrQuery.eq("is_demo", false);
     if (officeId) arrQuery = arrQuery.eq("office_id", officeId);
     const { data: arrData } = await arrQuery
       .order("start_date", { ascending: false })

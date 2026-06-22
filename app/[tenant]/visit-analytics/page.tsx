@@ -31,10 +31,15 @@ type DrillEvent = {
   event_type: string[];
 };
 
+// === 福祉用具管理者 デモ tenant ===
+// /fukuyogu-kanri-demo は実 tenant 無しのエイリアス。stats を is_demo=true 込みで集計する。
+const DEMO_TENANT_ID = "fukuyogu-kanri-demo";
+
 export default function VisitAnalyticsPage() {
   const router = useRouter();
   const params = useParams();
-  const tenantId = params?.tenant as string;
+  const urlTenantId = params?.tenant as string;
+  const isDemoTenant = urlTenantId === DEMO_TENANT_ID;
 
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -57,8 +62,8 @@ export default function VisitAnalyticsPage() {
       try {
         const [t, s, tr] = await Promise.all([
           getVisitTargets(),
-          getVisitStats(year, month),
-          getMonthlyTrend(6),
+          getVisitStats(year, month, isDemoTenant),
+          getMonthlyTrend(6, isDemoTenant),
         ]);
         if (cancelled) return;
         setTargets(t);
@@ -71,7 +76,7 @@ export default function VisitAnalyticsPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [year, month]);
+  }, [year, month, isDemoTenant]);
 
   function shiftMonth(delta: number) {
     let y = year;
@@ -110,7 +115,7 @@ export default function VisitAnalyticsPage() {
   }, [targets]);
 
   async function handleCellClick(areaId: string, officeId: string, areaName: string, officeName: string) {
-    const events = await getMonthVisitEvents(year, month, areaId, officeId);
+    const events = await getMonthVisitEvents(year, month, areaId, officeId, isDemoTenant);
     setDrill({ areaId, officeId, areaName, officeName, events });
   }
 
@@ -141,13 +146,19 @@ export default function VisitAnalyticsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* デモ環境バッジ (= /fukuyogu-kanri-demo/visit-analytics) */}
+      {isDemoTenant && (
+        <div className="bg-amber-100 border-b border-amber-300 px-3 py-1.5 text-center text-xs font-bold text-amber-900 tracking-wide">
+          🎯 デモ環境 — プレゼン用に水増しした訪問データを含みます (本番 URL: /fukuyogu-kanri)
+        </div>
+      )}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
           <button onClick={() => router.back()} className="p-2 rounded-lg hover:bg-gray-100">
             <ArrowLeft size={18} className="text-gray-500" />
           </button>
           <div className="min-w-0">
-            <h1 className="text-base font-bold text-gray-800">訪問分析</h1>
+            <h1 className="text-base font-bold text-gray-800">訪問分析{isDemoTenant && " (デモ)"}</h1>
             <p className="text-xs text-gray-500">福祉用具管理者 — エリア × 事業所 達成状況</p>
           </div>
 
@@ -463,7 +474,7 @@ export default function VisitAnalyticsPage() {
             <footer className="px-5 py-3 border-t border-gray-100 bg-gray-50 flex justify-between items-center text-xs text-gray-600">
               <span>計 {drill.events.length} 件</span>
               <button
-                onClick={() => router.push(`/${tenantId}`)}
+                onClick={() => router.push(`/${urlTenantId}`)}
                 className="text-indigo-600 hover:text-indigo-700 font-semibold"
               >カレンダーで見る →</button>
             </footer>
