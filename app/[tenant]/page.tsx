@@ -564,12 +564,6 @@ export default function TenantCalendarPage() {
 
   return (
     <div className="flex flex-col h-dvh max-h-dvh bg-[#f8f9fa]">
-      {/* デモ環境バッジ (= /fukuyogu-kanri-demo) */}
-      {isDemoTenant && (
-        <div className="bg-amber-100 border-b border-amber-300 px-3 py-1.5 text-center text-xs font-bold text-amber-900 tracking-wide">
-          🎯 デモ環境 — プレゼン用に水増しした訪問データを含みます (本番 URL: /{DEMO_ALIAS_REAL_TENANT_ID})
-        </div>
-      )}
       {/* ヘッダー */}
       <header className="bg-white border-b border-gray-100 px-2 py-2 flex items-center justify-between gap-1 shadow-sm">
         <div className="flex items-center gap-0.5 shrink-0">

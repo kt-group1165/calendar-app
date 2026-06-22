@@ -146,12 +146,6 @@ export default function VisitAnalyticsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* デモ環境バッジ (= /fukuyogu-kanri-demo/visit-analytics) */}
-      {isDemoTenant && (
-        <div className="bg-amber-100 border-b border-amber-300 px-3 py-1.5 text-center text-xs font-bold text-amber-900 tracking-wide">
-          🎯 デモ環境 — プレゼン用に水増しした訪問データを含みます (本番 URL: /fukuyogu-kanri)
-        </div>
-      )}
       <header className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-3 flex-wrap">
           <button onClick={() => router.back()} className="p-2 rounded-lg hover:bg-gray-100">
