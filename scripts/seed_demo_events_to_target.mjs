@@ -62,7 +62,24 @@ const FUKUYOGU_OFFICE_IDS = [
 ];
 const EVENT_TYPE_INDIVIDUAL = "個別訪問";
 const SEED_START = "2026-05-01";
-const FAKE_TAG = "[fake demo-fukuyogu]";
+
+// 訪問担当の 6 名固定 (user 指定 2026-06-23)。
+// 中山 健司 は 2026-05 以降は使わない (= 6 → 5 名で運用)。
+// 各 office に 1 名ずつ primary。
+const ALLOWED_STAFF_BY_OFFICE = {
+  "e1b7b604-a4fd-44d5-98d1-efcb440ba035": ["佐野 慎"],     // 花見川
+  "ea7d88ea-5373-4054-8b6d-e8a11fbae217": ["前﨑 隆宏"],   // 高品
+  "bf2cbf8d-d4ca-4887-beae-a867d71a2b16": ["米倉 久仁子"], // 誉田
+  "1bfc0d57-9ee0-4ae2-baa5-80edb776290a": ["鎗田 秀記"],   // ケアサポ
+  "c3a5a2f7-a8f9-4d7a-81f5-3cf6a9c51f08": ["友野 利治"],   // 茂原
+};
+
+// 月間 件数: 併設 cell は 0、それ以外は target_frequency_days に関わらず 2 件 (= リアル感)
+function effectiveMonthlyTarget(targetFrequencyDays, notes) {
+  if (notes && notes.includes("併設")) return 0;
+  const natural = Math.max(1, Math.ceil(30 / targetFrequencyDays));
+  return Math.min(natural, 2);
+}
 
 console.log(`[mode] ${MODE}`);
 console.log(`[period] ${SEED_START} .. today`);
@@ -125,7 +142,7 @@ function addMinutesToTime(timeStr, minutes) {
 console.log("\n[1] fukuyogu_area_targets 取得");
 const { data: targetsRaw, error: tErr } = await sb
   .from("fukuyogu_area_targets")
-  .select("id, area_id, office_id, target_frequency_days");
+  .select("id, area_id, office_id, target_frequency_days, notes");
 if (tErr) { console.error("targets fetch error:", tErr.message); process.exit(1); }
 if (!targetsRaw || targetsRaw.length === 0) {
   console.error("no targets - 何もしません");
@@ -133,48 +150,12 @@ if (!targetsRaw || targetsRaw.length === 0) {
 }
 console.log(`  → ${targetsRaw.length} 件の (area, office, frequency) 設定を取得`);
 
-// === 2) office 別に「primary が当該 office の staff name 」を集める ===
-// 重要: primary が target office と一致する staff のみ assignee に使う。
-//       fallback (= primary が別 office の staff) を使うと visit-analytics の resolve で
-//       「primary=別 office なので別 cell に分配」され、別 cell が over-count される。
-// 同じ問題: 同じ member が複数 office の member_offices 行を持ってる場合、
-//          is_primary=true な office に限ってその office の assignee 候補にする。
-console.log("\n[2] 担当 staff (= assignee 候補) を office 別に取得");
-const { data: moRows, error: moErr } = await sb
-  .from("member_offices")
-  .select("member_id, office_id, is_primary")
-  .in("office_id", FUKUYOGU_OFFICE_IDS);
-if (moErr) { console.error("member_offices fetch error:", moErr.message); process.exit(1); }
-const memberPrimaryByOffice = new Map();
-for (const r of moRows ?? []) {
-  if (!r.is_primary) continue; // ← primary のみ
-  if (!memberPrimaryByOffice.has(r.office_id)) memberPrimaryByOffice.set(r.office_id, []);
-  memberPrimaryByOffice.get(r.office_id).push(r.member_id);
+// === 2) 担当 staff は user 指定の 6 名固定 (= ALLOWED_STAFF_BY_OFFICE) ===
+console.log("\n[2] 担当 staff (user 指定 6 名、各 office 1 名 / 中山は 2026-05+ 除外)");
+for (const [oid, names] of Object.entries(ALLOWED_STAFF_BY_OFFICE)) {
+  console.log(`  ${oid.slice(0, 8)}.. → ${names.join(", ")}`);
 }
-const allPrimaryIds = [...new Set([...memberPrimaryByOffice.values()].flat())];
-const memberNameById = new Map();
-if (allPrimaryIds.length > 0) {
-  const { data: mems, error: mErr } = await sb
-    .from("members")
-    .select("id, name, status")
-    .in("id", allPrimaryIds);
-  if (mErr) { console.error("members fetch error:", mErr.message); process.exit(1); }
-  for (const m of mems ?? []) {
-    if (m.status === "active") memberNameById.set(m.id, m.name);
-  }
-}
-const staffNameByOffice = new Map();
-for (const [officeId, ids] of memberPrimaryByOffice) {
-  const names = ids.map((id) => memberNameById.get(id)).filter(Boolean);
-  staffNameByOffice.set(officeId, names);
-}
-// 5 office 全部に空配列でも entry を作っておく (= 後段の get() が undefined にならない)
-for (const oid of FUKUYOGU_OFFICE_IDS) {
-  if (!staffNameByOffice.has(oid)) staffNameByOffice.set(oid, []);
-}
-for (const [oid, names] of staffNameByOffice) {
-  console.log(`  ${oid.slice(0, 8)}.. → ${names.length} 人 ${names.length === 0 ? "(primary なし、assignee 空で INSERT)" : `(例: ${names.slice(0, 2).join(",")})`}`);
-}
+const staffNameByOffice = new Map(Object.entries(ALLOWED_STAFF_BY_OFFICE));
 
 // === 3) 期間内の月リストを作る ===
 const today = new Date();
@@ -276,19 +257,15 @@ for (const { year, month } of months) {
   // 月内の (target ごと) shortfall を補う
   let monthInserts = 0;
   for (const t of targetsRaw) {
-    const monthlyTarget = Math.ceil(30 / t.target_frequency_days);
+    const monthlyTarget = effectiveMonthlyTarget(t.target_frequency_days, t.notes);
+    if (monthlyTarget === 0) continue; // 併設 cell は skip
     const k = `${t.area_id}:${t.office_id}`;
     const actual = countByKey.get(k) ?? 0;
     const shortfall = Math.max(0, monthlyTarget - actual);
     if (shortfall === 0) continue;
 
     const candidates = staffNameByOffice.get(t.office_id) ?? [];
-    if (candidates.length === 0) {
-      // primary 0 人の office に assignee 空で INSERT すると visit-analytics fallback で
-      // area の全候補に分配されて over-count するため、この target は skip。
-      console.warn(`  skip: ${t.area_id.slice(0, 8)}.. × ${t.office_id.slice(0, 8)}.. (primary 0 人、insert で over-count するため)`);
-      continue;
-    }
+    if (candidates.length === 0) continue;
     const usedDays = new Set();
     const inserts = [];
     for (let i = 0; i < shortfall; i++) {
@@ -303,7 +280,7 @@ for (const { year, month } of months) {
       const startTime = pickStartTime();
       const endTime = addMinutesToTime(startTime, 30);
       inserts.push({
-        title: `訪問 ${FAKE_TAG}`,
+        title: "訪問",
         description: null,
         start_date: dateStr,
         end_date: dateStr,
@@ -313,14 +290,14 @@ for (const { year, month } of months) {
         is_memo: false,
         color: "#6366f1",
         location: null,
-        notes: FAKE_TAG,
+        notes: null,
         assignees: assignee ? [assignee] : [],
         event_type: [EVENT_TYPE_INDIVIDUAL],
         visit_other_detail: null,
         office_id: FUKUYOGU_KANRI_OFFICE_ID,
         area_id: t.area_id,
         client_id: null,
-        is_demo: true,
+        is_demo: true, // ← real / demo の識別は維持。UI には出ないので「fake っぽさ」なし。
         // scope_office_ids は trigger が assignees から自動計算する想定
       });
     }
