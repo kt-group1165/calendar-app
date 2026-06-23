@@ -181,36 +181,38 @@ export default function VisitAnalyticsPage() {
             >今月</button>
           </div>
 
-          {/* 種別フィルタ */}
-          <div className="flex items-center gap-2 px-2 py-1.5 border border-gray-200 rounded-lg bg-white">
-            <label className="flex items-center gap-1 cursor-pointer text-xs font-semibold select-none">
-              <input
-                type="checkbox"
-                checked={showIndividual}
-                onChange={(e) => setShowIndividual(e.target.checked)}
-                className="w-3.5 h-3.5 accent-indigo-500"
-              />
-              <span className="text-indigo-700">個別</span>
-            </label>
-            <label className="flex items-center gap-1 cursor-pointer text-xs font-semibold select-none">
-              <input
-                type="checkbox"
-                checked={showMeeting}
-                onChange={(e) => setShowMeeting(e.target.checked)}
-                className="w-3.5 h-3.5 accent-purple-500"
-              />
-              <span className="text-purple-700">MTG</span>
-            </label>
-            <label className="flex items-center gap-1 cursor-pointer text-xs font-semibold select-none">
-              <input
-                type="checkbox"
-                checked={showOther}
-                onChange={(e) => setShowOther(e.target.checked)}
-                className="w-3.5 h-3.5 accent-amber-500"
-              />
-              <span className="text-amber-700">その他</span>
-            </label>
-          </div>
+          {/* 種別フィルタ (= demo では合計のみ表示なので非表示) */}
+          {!isDemoTenant && (
+            <div className="flex items-center gap-2 px-2 py-1.5 border border-gray-200 rounded-lg bg-white">
+              <label className="flex items-center gap-1 cursor-pointer text-xs font-semibold select-none">
+                <input
+                  type="checkbox"
+                  checked={showIndividual}
+                  onChange={(e) => setShowIndividual(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-indigo-500"
+                />
+                <span className="text-indigo-700">個別</span>
+              </label>
+              <label className="flex items-center gap-1 cursor-pointer text-xs font-semibold select-none">
+                <input
+                  type="checkbox"
+                  checked={showMeeting}
+                  onChange={(e) => setShowMeeting(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-purple-500"
+                />
+                <span className="text-purple-700">MTG</span>
+              </label>
+              <label className="flex items-center gap-1 cursor-pointer text-xs font-semibold select-none">
+                <input
+                  type="checkbox"
+                  checked={showOther}
+                  onChange={(e) => setShowOther(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-amber-500"
+                />
+                <span className="text-amber-700">その他</span>
+              </label>
+            </div>
+          )}
 
           {/* View toggle */}
           <div className="flex items-center gap-1 border border-gray-200 rounded-lg p-0.5">
@@ -283,20 +285,28 @@ export default function VisitAnalyticsPage() {
                                 <span className={`text-xs ${statusText(status)}`} title={status === "good" ? "目標内" : status === "warn" ? "やや超過" : status === "danger" ? "大幅超過" : "未訪問"}>{statusIcon(status)}</span>
                               </div>
                               <div className="mt-1 flex items-baseline gap-2 flex-wrap">
-                                {showIndividual && (
+                                {isDemoTenant ? (
                                   <span className="text-xs font-bold text-gray-800">
-                                    個 <span className="text-sm text-indigo-600">{s?.individual_count ?? 0}</span>
+                                    合計 <span className="text-sm text-indigo-600">{s?.total_count ?? 0}</span> 件
                                   </span>
-                                )}
-                                {showMeeting && (
-                                  <span className="text-xs font-bold text-gray-800">
-                                    M <span className="text-sm text-purple-600">{s?.meeting_count ?? 0}</span>
-                                  </span>
-                                )}
-                                {showOther && (
-                                  <span className="text-xs font-bold text-gray-800">
-                                    他 <span className="text-sm text-amber-600">{s?.other_count ?? 0}</span>
-                                  </span>
+                                ) : (
+                                  <>
+                                    {showIndividual && (
+                                      <span className="text-xs font-bold text-gray-800">
+                                        個 <span className="text-sm text-indigo-600">{s?.individual_count ?? 0}</span>
+                                      </span>
+                                    )}
+                                    {showMeeting && (
+                                      <span className="text-xs font-bold text-gray-800">
+                                        M <span className="text-sm text-purple-600">{s?.meeting_count ?? 0}</span>
+                                      </span>
+                                    )}
+                                    {showOther && (
+                                      <span className="text-xs font-bold text-gray-800">
+                                        他 <span className="text-sm text-amber-600">{s?.other_count ?? 0}</span>
+                                      </span>
+                                    )}
+                                  </>
                                 )}
                               </div>
                               <div className="mt-1 text-[10px] text-gray-500">
@@ -319,7 +329,7 @@ export default function VisitAnalyticsPage() {
               </table>
             </div>
             <div className="px-4 py-2 text-[10px] text-gray-500 border-t border-gray-100 flex items-center gap-4 flex-wrap">
-              <span>個: 個別訪問 / M: ミーティング時訪問</span>
+              {!isDemoTenant && <span>個: 個別訪問 / M: ミーティング時訪問</span>}
               <span className="text-emerald-600">✓ 目標内</span>
               <span className="text-amber-600">⚠ やや超過 (目標 × 1.5 未満)</span>
               <span className="text-red-600">🚨 大幅超過 (目標 × 1.5 以上)</span>
