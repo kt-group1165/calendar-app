@@ -117,29 +117,52 @@ export async function getVisitTargets(): Promise<VisitTarget[]> {
  */
 async function getAssigneePrimaryOfficeMap(): Promise<Map<string, string>> {
   // members + member_offices (is_primary=true) を join
-  const { data: members, error: memErr } = await supabase
-    .from("members")
-    .select("id, name");
-  if (memErr) throw memErr;
+  // PostgREST default 1000 行 limit があるので page-loop で全件取得
+  // (= memory project_pagination_audit_remaining)。1000 件 cap で
+  // 「中山 健司」等の primary office 解決が落ちて、visit-analytics が
+  // fallback 分配で over-count するバグの fix。
+  const PAGE = 1000;
+  const members: { id: string; name: string }[] = [];
+  let mFrom = 0;
+  while (true) {
+    const { data, error: memErr } = await supabase
+      .from("members")
+      .select("id, name")
+      .range(mFrom, mFrom + PAGE - 1);
+    if (memErr) throw memErr;
+    if (!data || data.length === 0) break;
+    members.push(...(data as { id: string; name: string }[]));
+    if (data.length < PAGE) break;
+    mFrom += PAGE;
+  }
   const memByName = new Map<string, string>();
-  for (const m of (members ?? []) as { id: string; name: string }[]) {
+  for (const m of members) {
     memByName.set(m.name, m.id);
   }
 
   // 5 福祉用具事業所のいずれかが primary な member_offices 行を取得
-  const { data: moRows, error: moErr } = await supabase
-    .from("member_offices")
-    .select("member_id, office_id, is_primary")
-    .in("office_id", FUKUYOGU_OFFICE_IDS as unknown as string[]);
-  if (moErr) throw moErr;
+  const moRows: { member_id: string; office_id: string; is_primary: boolean }[] = [];
+  let moFrom = 0;
+  while (true) {
+    const { data, error: moErr } = await supabase
+      .from("member_offices")
+      .select("member_id, office_id, is_primary")
+      .in("office_id", FUKUYOGU_OFFICE_IDS as unknown as string[])
+      .range(moFrom, moFrom + PAGE - 1);
+    if (moErr) throw moErr;
+    if (!data || data.length === 0) break;
+    moRows.push(...(data as { member_id: string; office_id: string; is_primary: boolean }[]));
+    if (data.length < PAGE) break;
+    moFrom += PAGE;
+  }
 
   // assignee 名 → primary office_id (= 5 のうちのどれか)
   // primary を優先、無ければ最初の office を採用
   const memberIdToPrimary = new Map<string, string>();
-  for (const r of (moRows ?? []) as { member_id: string; office_id: string; is_primary: boolean }[]) {
+  for (const r of moRows) {
     if (r.is_primary) memberIdToPrimary.set(r.member_id, r.office_id);
   }
-  for (const r of (moRows ?? []) as { member_id: string; office_id: string; is_primary: boolean }[]) {
+  for (const r of moRows) {
     if (!memberIdToPrimary.has(r.member_id)) memberIdToPrimary.set(r.member_id, r.office_id);
   }
 

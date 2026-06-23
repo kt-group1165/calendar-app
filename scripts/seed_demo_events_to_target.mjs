@@ -211,9 +211,47 @@ for (const { year, month } of months) {
     if (!targetOfficesByArea.has(t.area_id)) targetOfficesByArea.set(t.area_id, []);
     targetOfficesByArea.get(t.area_id).push(t.office_id);
   }
+  // namesToPrimary: visit-analytics の getAssigneePrimaryOfficeMap と同じロジックで
+  // 全 member を page-loop で fetch (= PostgREST 1000 行 limit 対策)。
+  // staffNameByOffice (primary 一致 staff のみ) だけだと、real events の assignee
+  // が「fukuyogu non-primary but member_offices entry あり」のケースで under-resolve され、
+  // shortfall 計算ズレが起きる。
+  const PAGE = 1000;
+  const allMembers = [];
+  let mFrom2 = 0;
+  while (true) {
+    const { data, error } = await sb.from("members").select("id, name").range(mFrom2, mFrom2 + PAGE - 1);
+    if (error) { console.error("members fetch:", error.message); process.exit(1); }
+    if (!data || data.length === 0) break;
+    allMembers.push(...data);
+    if (data.length < PAGE) break;
+    mFrom2 += PAGE;
+  }
+  const memByName = new Map();
+  for (const m of allMembers) memByName.set(m.name, m.id);
+
+  // 5 office の全 member_offices (primary 優先, fallback も拾う)
+  const fukuMo = [];
+  let mFrom3 = 0;
+  while (true) {
+    const { data, error } = await sb.from("member_offices").select("member_id, office_id, is_primary").in("office_id", FUKUYOGU_OFFICE_IDS).range(mFrom3, mFrom3 + PAGE - 1);
+    if (error) { console.error("member_offices fetch:", error.message); process.exit(1); }
+    if (!data || data.length === 0) break;
+    fukuMo.push(...data);
+    if (data.length < PAGE) break;
+    mFrom3 += PAGE;
+  }
+  const memIdToOff = new Map();
+  for (const r of fukuMo) {
+    if (r.is_primary) memIdToOff.set(r.member_id, r.office_id);
+  }
+  for (const r of fukuMo) {
+    if (!memIdToOff.has(r.member_id)) memIdToOff.set(r.member_id, r.office_id);
+  }
   const namesToPrimary = new Map(); // name → office_id
-  for (const [officeId, names] of staffNameByOffice) {
-    for (const n of names) namesToPrimary.set(n, officeId);
+  for (const [name, memId] of memByName) {
+    const off = memIdToOff.get(memId);
+    if (off) namesToPrimary.set(name, off);
   }
 
   const countByKey = new Map(); // "area:office" → number
