@@ -128,7 +128,7 @@ async function getAssigneePrimaryOfficeMap(): Promise<Map<string, string>> {
     const { data, error: memErr } = await supabase
       .from("members")
       .select("id, name")
-      .range(mFrom, mFrom + PAGE - 1);
+      .order("id").range(mFrom, mFrom + PAGE - 1);
     if (memErr) throw memErr;
     if (!data || data.length === 0) break;
     members.push(...(data as { id: string; name: string }[]));
@@ -148,7 +148,7 @@ async function getAssigneePrimaryOfficeMap(): Promise<Map<string, string>> {
       .from("member_offices")
       .select("member_id, office_id, is_primary")
       .in("office_id", FUKUYOGU_OFFICE_IDS as unknown as string[])
-      .range(moFrom, moFrom + PAGE - 1);
+      .order("member_id").order("office_id").range(moFrom, moFrom + PAGE - 1);
     if (moErr) throw moErr;
     if (!data || data.length === 0) break;
     moRows.push(...(data as { member_id: string; office_id: string; is_primary: boolean }[]));

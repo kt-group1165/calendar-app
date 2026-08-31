@@ -100,7 +100,7 @@ export async function getClientOfficeAssignments(tenantId: string): Promise<Clie
       .from("client_office_assignments")
       .select("*")
       .eq("tenant_id", tenantId)
-      .range(from, from + PAGE - 1);
+      .order("id").range(from, from + PAGE - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
     all.push(...(data as ClientOfficeAssignment[]));
@@ -315,7 +315,7 @@ export async function replaceClientsForOffice(
           .from("clients")
           .select("id")
           .eq("tenant_id", tenantId)
-          .range(from, from + PAGE - 1);
+          .order("id").range(from, from + PAGE - 1);
         if (!data || data.length === 0) break;
         allExisting.push(...(data as { id: string }[]));
         if (data.length < PAGE) break;
