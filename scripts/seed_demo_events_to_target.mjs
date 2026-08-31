@@ -201,7 +201,7 @@ for (const { year, month } of months) {
   const allMembers = [];
   let mFrom2 = 0;
   while (true) {
-    const { data, error } = await sb.from("members").select("id, name").range(mFrom2, mFrom2 + PAGE - 1);
+    const { data, error } = await sb.from("members").select("id, name").order("id").range(mFrom2, mFrom2 + PAGE - 1);
     if (error) { console.error("members fetch:", error.message); process.exit(1); }
     if (!data || data.length === 0) break;
     allMembers.push(...data);
@@ -215,7 +215,7 @@ for (const { year, month } of months) {
   const fukuMo = [];
   let mFrom3 = 0;
   while (true) {
-    const { data, error } = await sb.from("member_offices").select("member_id, office_id, is_primary").in("office_id", FUKUYOGU_OFFICE_IDS).range(mFrom3, mFrom3 + PAGE - 1);
+    const { data, error } = await sb.from("member_offices").select("member_id, office_id, is_primary").in("office_id", FUKUYOGU_OFFICE_IDS).order("member_id").order("office_id").range(mFrom3, mFrom3 + PAGE - 1);
     if (error) { console.error("member_offices fetch:", error.message); process.exit(1); }
     if (!data || data.length === 0) break;
     fukuMo.push(...data);
