@@ -60,6 +60,17 @@ export async function POST(request: Request) {
   if (!allowed && targetOfficeIds.length > 0) {
     return NextResponse.json({ error: "permission_denied" }, { status: 403 });
   }
+  // 2026-08-31 監査での是正:
+  //   上の条件は targetOfficeIds が空だとガードごと素通りしていた。
+  //   実測で auth ユーザ 41 名中 9 名が user_offices 行を持たず、その 1 つが
+  //   ALWAYS_TRUSTED_EMAILS の test@kt-group.co.jp。= 一般 member が
+  //   そのアカウントを乗っ取れた。delete/route.ts と同じく group_admin 限定にする。
+  if (targetOfficeIds.length === 0) {
+    const { data: groupRows } = await supabase.rpc("auth_user_admin_tenants");
+    if (((groupRows ?? []) as Array<unknown>).length === 0) {
+      return NextResponse.json({ error: "permission_denied" }, { status: 403 });
+    }
+  }
 
   // 1) auth.users ban 解除
   const { error: banError } = await admin.auth.admin.updateUserById(user_id, {

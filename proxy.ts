@@ -13,16 +13,26 @@ import { NextResponse, type NextRequest } from "next/server";
 //   副作用も維持。
 //
 // Soft-launch (ソフトローンチ) 用フラグ:
-//   SOFT_LAUNCH_PUBLIC_TENANTS = true の間は /[tenant]/** をログインなしでアクセス
-//   できるようにする。admin / api/admin / api/backup は引き続き保護。
-//   実運用に切替えるときは false に戻すだけで完全な auth gate に復帰。
-const SOFT_LAUNCH_PUBLIC_TENANTS = true;
+//   true の間は /[tenant]/** をログインなしでアクセスできる。
+//
+//   2026-08-31 監査で false に戻した。true のままだと tenant 配下の全ページ・
+//   全 API が未認証到達可能で、実際に /api/send-order-email が
+//   オープンリレーになっていた。
+//   既定は false。緊急でソフトローンチに戻すときだけ環境変数で開ける
+//   (ハードコードの true に戻さない — 戻し忘れが事故になる)。
+const SOFT_LAUNCH_PUBLIC_TENANTS =
+  process.env.SOFT_LAUNCH_PUBLIC_TENANTS === "true";
 
-const PUBLIC_PATHS = new Set<string>(["/", "/login"]);
+// ⚠ 未ログインで到達できる必要があるものは必ずここに入れる。
+//    /api/login と /api/passkey/auth/* が抜けているとログイン自体が
+//    401 ループになる (app/login/page.tsx:71,137,151 が叩く)。
+//    passkey/register/* は /settings/passkey (認証済ページ) からのみなので不要。
+const PUBLIC_PATHS = new Set<string>(["/", "/login", "/api/login"]);
 const PUBLIC_PREFIXES = [
-  "/invite/",        // /invite/[token]（招待 consume 画面、未ログインでアクセス）
-  "/api/invite/",    // /api/invite/[token]（GET メタ + POST consume、anon）
-  "/auth/",          // /auth/callback（magic link 等）
+  "/invite/",           // /invite/[token]（招待 consume 画面、未ログインでアクセス）
+  "/api/invite/",       // /api/invite/[token]（GET メタ + POST consume、anon）
+  "/auth/",             // /auth/callback（magic link 等）
+  "/api/passkey/auth/", // passkey ログイン (begin / complete)。register 側は認証必須
 ];
 
 const ADMIN_PREFIXES = ["/admin", "/api/admin", "/api/backup"];
