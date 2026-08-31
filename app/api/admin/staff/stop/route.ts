@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { todayYmd } from "@/lib/date-jst";
 
 // POST /api/admin/staff/stop
 //
@@ -119,7 +120,7 @@ export async function POST(request: Request) {
       .maybeSingle();
     const displayName = (invRows as { display_name?: string } | null)?.display_name;
     if (displayName) {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = todayYmd();
       const { data: pRes, error: pError } = await admin
         .from("payroll_employees")
         .update({ employment_status: "退職者", resignation_date: today })

@@ -1,4 +1,5 @@
 import { supabase, type Event, type EventInsert, type EventUpdate } from "./supabase";
+import { todayYmd } from "./date-jst";
 
 // 画像圧縮（1280px・85%・WebP）
 async function compressImage(file: File): Promise<File> {
@@ -98,7 +99,7 @@ export async function importEventsFromCSV(
 ): Promise<{ updated: number; inserted: number; errors: number; deleted: number }> {
   const BATCH = 500;
   let updated = 0, inserted = 0, errors = 0, deleted = 0;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayYmd();
   const total = rows.length;
 
   // IDあり（既存更新）とIDなし（新規）に分ける

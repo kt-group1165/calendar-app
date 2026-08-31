@@ -32,6 +32,7 @@ import { getEventTypes, type EventType } from "@/lib/event_types";
 import { getClientSelectionEnabled } from "@/lib/settings";
 import { useCurrentUser, signOut } from "@/lib/auth";
 import { getUserScope, type UserScope } from "@/lib/user_scope";
+import { todayYmd } from "@/lib/date-jst";
 
 const LAST_SEEN_KEY = (tid: string) => `calendar_activity_last_seen_${tid}`;
 const LAST_BACKUP_KEY = (tid: string) => `calendar_last_backup_date_${tid}`;
@@ -193,7 +194,7 @@ export default function TenantCalendarPage() {
 
     // 1日1回、アプリを開いたときに自動バックアップCSVをダウンロード
     // バックアップは tenant 全件 (officeId 渡さない) で従来どおり
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = todayYmd();
     const lastBackup = localStorage.getItem(LAST_BACKUP_KEY(tenantId));
     if (lastBackup !== todayStr) {
       getAllEvents().then((evts) => {
