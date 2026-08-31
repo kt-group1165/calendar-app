@@ -92,6 +92,9 @@ export async function getMembers(
   } else {
     memQuery = supabase.from("members").select("*").eq("tenant_id", tenantId);
   }
+  // ソフト削除 (deleted_at) は常に除外。includeInactive は「退職者(status)」の話であり
+  // 「登録抹消(deleted_at)」とは別概念なので、includeInactive でも抹消済みは出さない。
+  memQuery = memQuery.is("deleted_at", null);
   if (!includeInactive) memQuery = memQuery.eq("status", "active");
   const [memRes, allJunction] = await Promise.all([
     memQuery.order("sort_order", { nullsFirst: false }).order("name"),
@@ -103,6 +106,10 @@ export async function getMembers(
         const { data, error } = await supabase
           .from("member_offices")
           .select("member_id, office_id, is_primary, color")
+          // ⚠ order 無しで range を回すとページごとに並びが変わって行が抜ける。
+          //   member_offices に単独の id は無いので複合キーの 2 列で並べる
+          .order("member_id")
+          .order("office_id")
           .range(from, from + PAGE - 1);
         if (error) throw error;
         if (!data || data.length === 0) break;
@@ -183,8 +190,34 @@ export async function updateMemberOrder(id: string, sort_order: number): Promise
   if (error) throw error;
 }
 
+// ソフト削除: 物理削除せず deleted_at を立てるだけ (member_offices・過去の予定/実績は残す)。
+// 復元可能。過去の予定・帳票の担当者名解決 (BY_ID) はフィルタしないので壊れない。
 export async function deleteMember(id: string): Promise<void> {
-  // member_offices は ON DELETE CASCADE で自動削除
-  const { error } = await supabase.from("members").delete().eq("id", id);
+  const { error } = await supabase
+    .from("members")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id);
   if (error) throw error;
+}
+
+// ソフト削除の取り消し (ゴミ箱からの復元)
+export async function restoreMember(id: string): Promise<void> {
+  const { error } = await supabase.from("members").update({ deleted_at: null }).eq("id", id);
+  if (error) throw error;
+}
+
+// 削除済み (ゴミ箱) の member を取得。復元 UI 用。
+export async function getDeletedMembers(tenantId: string): Promise<Member[]> {
+  const { data, error } = await supabase
+    .from("members")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .not("deleted_at", "is", null)
+    .order("deleted_at", { ascending: false });
+  if (error) throw error;
+  return ((data ?? []) as RawMember[]).map((m) => ({
+    ...m,
+    office_ids: [],
+    primary_office_id: null,
+  }));
 }
