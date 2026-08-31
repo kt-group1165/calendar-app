@@ -79,17 +79,28 @@ export async function mergeEventTypes(
   officeId?: string,
 ): Promise<{ updatedEvents: number; deletedTypes: number }> {
   // 該当する予定を全件取得（event_type配列に対象名のいずれかを含むもの）
-  let evQ = supabase
-    .from("events")
-    .select("id, event_type")
-    .eq("tenant_id", tenantId)
-    .overlaps("event_type", mergeNames);
-  if (officeId) evQ = evQ.eq("office_id", officeId);
-  const { data: events, error: evErr } = await evQ;
-  if (evErr) throw evErr;
+  //
+  // ⚠ **必ずページングすること。** PostgREST は 1 回 1000 行しか返さない。
+  //   ここで打ち切ると 1000 件だけ書き換えたあとに下で種別マスタを DELETE するので、
+  //   残った予定が「存在しない種別名」を持ったまま取り残される。しかも戻り値の
+  //   updatedEvents も過少になるため、画面上は成功に見える (2026-08-31 是正)。
+  const PAGE = 1000;
+  const events: Array<{ id: string; event_type: string[] }> = [];
+  for (let from = 0; ; from += PAGE) {
+    let evQ = supabase
+      .from("events")
+      .select("id, event_type")
+      .eq("tenant_id", tenantId)
+      .overlaps("event_type", mergeNames);
+    if (officeId) evQ = evQ.eq("office_id", officeId);
+    const { data, error: evErr } = await evQ.order("id").range(from, from + PAGE - 1);
+    if (evErr) throw evErr;
+    events.push(...((data ?? []) as Array<{ id: string; event_type: string[] }>));
+    if (!data || data.length < PAGE) break;
+  }
 
   let updatedEvents = 0;
-  for (const ev of (events ?? []) as Array<{ id: string; event_type: string[] }>) {
+  for (const ev of events) {
     const newTypes = Array.from(
       new Set(
         ev.event_type.map((t) => (mergeNames.includes(t) ? targetName : t)),

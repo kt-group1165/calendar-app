@@ -139,19 +139,27 @@ export async function executeMerge(
       const variantName = variant.member.name;
 
       // 該当する予定を取得
-      const { data: events, error: eventsErr } = await supabase
-        .from("events")
-        .select("id, assignees, area_id, office_id")
-        .eq("tenant_id", tenantId)
-        .contains("assignees", [variantName]);
-      if (eventsErr) throw eventsErr;
+      //
+      // ⚠ **必ずページングすること。** PostgREST は 1 回 1000 行しか返さない。
+      //   ここで打ち切ると 1000 件だけ担当者名を書き換えたあとに下で変種 member を
+      //   DELETE するので、残った予定が「存在しない担当者」を指したまま取り残される
+      //   (2026-08-31 是正。event_types.ts のマージも同じ穴だった)。
+      const PAGE = 1000;
+      const events: Array<{ id: string; assignees: string[]; area_id: string | null; office_id: string | null }> = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data, error: eventsErr } = await supabase
+          .from("events")
+          .select("id, assignees, area_id, office_id")
+          .eq("tenant_id", tenantId)
+          .contains("assignees", [variantName])
+          .order("id")
+          .range(from, from + PAGE - 1);
+        if (eventsErr) throw eventsErr;
+        events.push(...((data ?? []) as typeof events));
+        if (!data || data.length < PAGE) break;
+      }
 
-      for (const ev of (events ?? []) as Array<{
-        id: string;
-        assignees: string[];
-        area_id: string | null;
-        office_id: string | null;
-      }>) {
+      for (const ev of events) {
         // assignees を書き換え: variantName → baseName
         const newAssignees = Array.from(
           new Set(
