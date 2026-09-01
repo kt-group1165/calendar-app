@@ -271,7 +271,10 @@ async function bulkInsertTenantMemos(
 
 export async function replaceAllClients(clients: ClientInsert[], tenantId: string): Promise<void> {
   // テナントの全件削除（client_memos は CASCADE で連動削除される）
-  await supabase.from("clients").delete().eq("tenant_id", tenantId);
+  {
+    const { error } = await supabase.from("clients").delete().eq("tenant_id", tenantId);
+    if (error) throw error;
+  }
   // バッチ挿入（500件ずつ）。memo は clients ではなく client_memos へ書き戻す
   const BATCH = 500;
   const insertedAll: { id: string; user_number: string }[] = [];
@@ -326,7 +329,8 @@ export async function replaceClientsForOffice(
       .map((c) => c.id)
       .filter((id) => !assignedIds.has(id));
     if (idsToDelete.length > 0) {
-      await supabase.from("clients").delete().in("id", idsToDelete);
+      const { error } = await supabase.from("clients").delete().in("id", idsToDelete);
+      if (error) throw error;
     }
   } else {
     // 特定事業所スコープ: その事業所に紐付いた利用者だけ削除
@@ -338,7 +342,8 @@ export async function replaceClientsForOffice(
     const idsToDelete = (assignments ?? []).map((a: { client_id: string }) => a.client_id);
     if (idsToDelete.length > 0) {
       // client_office_assignments は clients 削除で CASCADE されるので clients のみ削除
-      await supabase.from("clients").delete().in("id", idsToDelete);
+      const { error } = await supabase.from("clients").delete().in("id", idsToDelete);
+      if (error) throw error;
     }
   }
 
