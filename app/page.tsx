@@ -25,6 +25,7 @@ export default function HomePage() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [offices, setOffices] = useState<Office[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [authUser, setAuthUser] = useState<User | null>(null);
   // 全社ビュー (group tenant) を見せるべきか。group_admin / company_admin
   // のように特定 office を持たないユーザには「全 office まとめて表示」が有用だが、
@@ -95,8 +96,13 @@ export default function HomePage() {
             return;
           }
         }
-      } catch {
-        // ignore
+      } catch (e) {
+        // 取得失敗を握りつぶすと tenants/offices が空のまま「所属するチームが
+        // ありません」という誤った表示になる (実際は権限を持っているのに
+        // RPC の一時的失敗等で false negative になる)。専用の error state で
+        // 区別する。
+        console.warn("[page] tenants/offices load failed:", e);
+        setLoadError(true);
       } finally {
         setLoading(false);
       }
@@ -163,6 +169,12 @@ export default function HomePage() {
         {loading ? (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 flex justify-center py-10">
             <Loader2 size={24} className="animate-spin text-indigo-400" />
+          </div>
+        ) : loadError ? (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 py-10">
+            <p className="text-sm text-red-400 text-center">
+              読み込みに失敗しました。時間をおいて再読み込みしてください。
+            </p>
           </div>
         ) : tenants.length === 0 && offices.length === 0 ? (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 py-10">

@@ -144,7 +144,14 @@ export default function TenantCalendarPage() {
   useEffect(() => {
     if (authUser.loading || !authUser.authUser) return;
     let cancelled = false;
-    getUserScope().then((s) => { if (!cancelled) setUserScope(s); }).catch(() => {});
+    getUserScope().then((s) => { if (!cancelled) setUserScope(s); }).catch((e: unknown) => {
+      // userScope が確定しないと loadEvents が早期 return し続け、loading スピナーが
+      // 無限に回り続ける (setLoading(false) に到達しない) ため、ここで明示的に解除する。
+      if (cancelled) return;
+      console.warn("[page] getUserScope failed:", e);
+      setLoading(false);
+      setSupabaseError(true);
+    });
     return () => { cancelled = true; };
   }, [authUser.loading, authUser.authUser]);
 
@@ -484,10 +491,10 @@ export default function TenantCalendarPage() {
     };
     if (editingEvent) {
       await updateEvent(editingEvent.id, enriched);
-      logActivity(editingEvent.id, enriched.title, "updated", currentUser ?? "", editingEvent.assignees, enriched.assignees, tenantId).catch(() => {});
+      logActivity(editingEvent.id, enriched.title, "updated", currentUser ?? "", editingEvent.assignees, enriched.assignees, tenantId).catch((e) => console.warn("[page] logActivity(updated) failed:", e));
     } else {
       const created = await createEvent(enriched);
-      logActivity(created.id, enriched.title, "created", currentUser ?? "", [], enriched.assignees, tenantId).catch(() => {});
+      logActivity(created.id, enriched.title, "created", currentUser ?? "", [], enriched.assignees, tenantId).catch((e) => console.warn("[page] logActivity(created) failed:", e));
     }
     setShowAddModal(false);
     setEditingEvent(null);
@@ -498,7 +505,7 @@ export default function TenantCalendarPage() {
 
   async function handleDeleteEvent(event: Event) {
     await softDeleteEvent(event.id);
-    logActivity(event.id, event.title, "deleted", currentUser ?? "", event.assignees, event.assignees, tenantId).catch(() => {});
+    logActivity(event.id, event.title, "deleted", currentUser ?? "", event.assignees, event.assignees, tenantId).catch((e) => console.warn("[page] logActivity(deleted) failed:", e));
     setEvents((prev) => prev.filter((e) => e.id !== event.id));
     setShowDetailModal(false);
     setSelectedEvent(null);

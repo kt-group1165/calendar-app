@@ -121,9 +121,12 @@ export async function executeMerge(
         .single();
       if (error) throw error;
       if (inheritedOfficeId && inserted?.id) {
-        await supabase
+        const { error: moError } = await supabase
           .from("member_offices")
           .insert({ member_id: inserted.id, office_id: inheritedOfficeId, is_primary: true });
+        // member_offices が無いとその office のカレンダーから見えなくなる (CLAUDE.md
+        // 「自事業所」フィルタは junction 経由) ため、握りつぶさずに投げる。
+        if (moError) throw new Error(`統合先メンバーの事業所割当に失敗しました (member id: ${inserted.id}): ${moError.message}`);
       }
       baseMember = {
         ...(inserted as Omit<Member, "office_ids" | "primary_office_id">),

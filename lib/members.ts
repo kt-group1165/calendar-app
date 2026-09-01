@@ -149,9 +149,13 @@ export async function addMember(
   if (error) throw error;
 
   if (officeId && data?.id) {
-    await supabase
+    const { error: moError } = await supabase
       .from("member_offices")
       .insert({ member_id: data.id, office_id: officeId, is_primary: true });
+    // member_offices が無いとその office のカレンダーから見えなくなる (CLAUDE.md
+    // 「自事業所」フィルタは junction 経由) ため、握りつぶさずに投げる。
+    // members 行自体は既に作成済みなので、呼び出し元で再試行できるよう member id を伝える。
+    if (moError) throw new Error(`スタッフは作成されましたが事業所への割当に失敗しました (member id: ${data.id}): ${moError.message}`);
   }
 
   const raw = data as RawMember;

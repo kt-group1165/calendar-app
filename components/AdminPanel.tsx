@@ -1650,7 +1650,13 @@ function SettingsTab({ tenantId }: { tenantId: string }) {
 
   async function handleToggleClientSelection(val: boolean) {
     setClientSelectionEnabled(val);
-    await updateClientSelectionEnabled(tenantId, val).catch(() => {});
+    try {
+      await updateClientSelectionEnabled(tenantId, val);
+    } catch (e) {
+      console.warn("[AdminPanel] updateClientSelectionEnabled failed:", e);
+      setClientSelectionEnabled(!val);
+      alert("設定の保存に失敗しました。時間をおいて再度お試しください。");
+    }
   }
 
   // 用件種別フィルタ機能のON/OFF（個人設定・端末ごと localStorage）
@@ -1682,7 +1688,13 @@ function SettingsTab({ tenantId }: { tenantId: string }) {
 
   async function handleToggleVisitTypeRequired(val: boolean) {
     setVisitTypeRequired(val);
-    await updateVisitTypeRequired(tenantId, val).catch(() => {});
+    try {
+      await updateVisitTypeRequired(tenantId, val);
+    } catch (e) {
+      console.warn("[AdminPanel] updateVisitTypeRequired failed:", e);
+      setVisitTypeRequired(!val);
+      alert("設定の保存に失敗しました。時間をおいて再度お試しください。");
+    }
   }
 
   useEffect(() => {
