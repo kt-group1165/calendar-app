@@ -143,7 +143,7 @@ function MembersTab({ tenantId }: { tenantId: string }) {
     try {
       await updateMemberColor(id, color);
       setMembers((prev) => prev.map((m) => m.id === id ? { ...m, color } : m));
-    } catch {}
+    } catch { alert("色の変更に失敗しました"); }
   }
 
   async function handleMoveUp(index: number) {
@@ -166,7 +166,7 @@ function MembersTab({ tenantId }: { tenantId: string }) {
         next[idxB] = { ...a, sort_order: orderB };
         return next;
       });
-    } catch {}
+    } catch { alert("並び替えに失敗しました"); }
   }
 
   async function handleMoveDown(index: number) {
