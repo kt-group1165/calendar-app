@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
 import type { Member } from "./members";
 import type { EventArea } from "./event_areas";
+import { mapWithConcurrency } from "./concurrency";
 
 // 全角・半角カッコに対応して「基本名」と「エリア名」を抽出
 //   例: "山田（市原）" → { base: "山田", area: "市原" }
@@ -162,29 +163,44 @@ export async function executeMerge(
         if (!data || data.length < PAGE) break;
       }
 
-      for (const ev of events) {
-        // assignees を書き換え: variantName → baseName
-        const newAssignees = Array.from(
-          new Set(
-            ev.assignees.map((a) => (a === variantName ? baseName : a)),
-          ),
-        );
+      // event は互いに独立な UPDATE なので上限付き並列 (concurrency=6)。
+      // ⚠ worker 内で throw すると Promise.all が即 reject し、まだ実行中の他の
+      //   runner は「投げっぱなし」でバックグラウンドに残ってしまう (呼出元が
+      //   catch した後もいつ完了するか分からない状態になる。実測で確認した罠)。
+      //   それを避けるため、エラーは worker 内で捕まえて配列に集約し、
+      //   **全 item の実行が終わってから**まとめて throw する (直列版の
+      //   「1件失敗したら以降は未着手のまま」より一歩前進: 到達可能な範囲は
+      //   全部試みたうえでエラーを報告する。書き換えは冪等なので再実行で
+      //   残りを拾い直せる点は直列版と同じ)。
+      const mergeErrors: unknown[] = [];
+      await mapWithConcurrency(
+        events,
+        async (ev) => {
+          // assignees を書き換え: variantName → baseName
+          const newAssignees = Array.from(
+            new Set(
+              ev.assignees.map((a) => (a === variantName ? baseName : a)),
+            ),
+          );
 
-        // area_id を設定（未設定の場合のみ上書き）
-        let newAreaId = ev.area_id;
-        if (!newAreaId && ev.office_id) {
-          const key = `${ev.office_id}|${variant.areaName}`;
-          const matchedId = areaByNameOffice.get(key);
-          if (matchedId) newAreaId = matchedId;
-        }
+          // area_id を設定（未設定の場合のみ上書き）
+          let newAreaId = ev.area_id;
+          if (!newAreaId && ev.office_id) {
+            const key = `${ev.office_id}|${variant.areaName}`;
+            const matchedId = areaByNameOffice.get(key);
+            if (matchedId) newAreaId = matchedId;
+          }
 
-        const { error: updErr } = await supabase
-          .from("events")
-          .update({ assignees: newAssignees, area_id: newAreaId })
-          .eq("id", ev.id);
-        if (updErr) throw updErr;
-        updatedEvents++;
-      }
+          const { error: updErr } = await supabase
+            .from("events")
+            .update({ assignees: newAssignees, area_id: newAreaId })
+            .eq("id", ev.id);
+          if (updErr) { mergeErrors.push(updErr); return; }
+          updatedEvents++;
+        },
+        6,
+      );
+      if (mergeErrors.length > 0) throw mergeErrors[0];
 
       // 変種メンバーを削除
       const { error: delErr } = await supabase

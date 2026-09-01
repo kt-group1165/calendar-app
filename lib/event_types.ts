@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { mapWithConcurrency } from "./concurrency";
 
 export type EventType = {
   id: string;
@@ -99,20 +100,31 @@ export async function mergeEventTypes(
     if (!data || data.length < PAGE) break;
   }
 
+  // event は互いに独立な UPDATE なので上限付き並列 (concurrency=6)。
+  // ⚠ worker 内で throw すると Promise.all が即 reject し、まだ実行中の他の runner が
+  //   「投げっぱなし」でバックグラウンドに残ってしまう (staff_merge.ts と同じ罠、実測で
+  //   確認済み)。エラーは worker 内で集約し、全 item 実行後にまとめて throw する
+  //   (書き換えは冪等なので再実行で残りを拾い直せる点は直列版と同じ)。
   let updatedEvents = 0;
-  for (const ev of events) {
-    const newTypes = Array.from(
-      new Set(
-        ev.event_type.map((t) => (mergeNames.includes(t) ? targetName : t)),
-      ),
-    );
-    const { error: upErr } = await supabase
-      .from("events")
-      .update({ event_type: newTypes })
-      .eq("id", ev.id);
-    if (upErr) throw upErr;
-    updatedEvents++;
-  }
+  const mergeErrors: unknown[] = [];
+  await mapWithConcurrency(
+    events,
+    async (ev) => {
+      const newTypes = Array.from(
+        new Set(
+          ev.event_type.map((t) => (mergeNames.includes(t) ? targetName : t)),
+        ),
+      );
+      const { error: upErr } = await supabase
+        .from("events")
+        .update({ event_type: newTypes })
+        .eq("id", ev.id);
+      if (upErr) { mergeErrors.push(upErr); return; }
+      updatedEvents++;
+    },
+    6,
+  );
+  if (mergeErrors.length > 0) throw mergeErrors[0];
 
   // マージ対象の種別マスタを削除
   const { error: delErr } = await supabase
