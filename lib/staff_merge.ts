@@ -148,13 +148,20 @@ export async function executeMerge(
       //   ここで打ち切ると 1000 件だけ担当者名を書き換えたあとに下で変種 member を
       //   DELETE するので、残った予定が「存在しない担当者」を指したまま取り残される
       //   (2026-08-31 是正。event_types.ts のマージも同じ穴だった)。
+      //
+      // ⚠ 2026-09-02 是正: events.tenant_id 列は Phase 3c-5 で DROP 済み
+      //   (scope_office_ids[] ベースの設計に移行)。tenant scoping は
+      //   lib/events.ts の getAllEvents() と同じく RLS (scope_office_ids) に
+      //   委譲されている ("Phase 5b" コメント参照) ため、.eq("tenant_id", ...)
+      //   は付けない (付けると存在しない列を参照して 42703 で確実に落ちる、
+      //   実際にそうなっていた)。AdminPanel はスタッフ統合を特定 office に
+      //   絞らず全社横断で行う機能のため、office_id によるフィルタも付けない。
       const PAGE = 1000;
       const events: Array<{ id: string; assignees: string[]; area_id: string | null; office_id: string | null }> = [];
       for (let from = 0; ; from += PAGE) {
         const { data, error: eventsErr } = await supabase
           .from("events")
           .select("id, assignees, area_id, office_id")
-          .eq("tenant_id", tenantId)
           .contains("assignees", [variantName])
           .order("id")
           .range(from, from + PAGE - 1);

@@ -85,13 +85,18 @@ export async function mergeEventTypes(
   //   ここで打ち切ると 1000 件だけ書き換えたあとに下で種別マスタを DELETE するので、
   //   残った予定が「存在しない種別名」を持ったまま取り残される。しかも戻り値の
   //   updatedEvents も過少になるため、画面上は成功に見える (2026-08-31 是正)。
+  //
+  // ⚠ 2026-09-02 是正: events.tenant_id 列は Phase 3c-5 で DROP 済み (scope_office_ids[]
+  //   ベースの設計に移行)。tenant scoping は lib/events.ts の getAllEvents() と同じく
+  //   RLS (scope_office_ids) に委譲されている ("Phase 5b" コメント参照) ため
+  //   .eq("tenant_id", ...) は付けない (付けると存在しない列を参照して 42703 で
+  //   確実に落ちる、実際にそうなっていた)。officeId 指定時の絞り込みはそのまま維持。
   const PAGE = 1000;
   const events: Array<{ id: string; event_type: string[] }> = [];
   for (let from = 0; ; from += PAGE) {
     let evQ = supabase
       .from("events")
       .select("id, event_type")
-      .eq("tenant_id", tenantId)
       .overlaps("event_type", mergeNames);
     if (officeId) evQ = evQ.eq("office_id", officeId);
     const { data, error: evErr } = await evQ.order("id").range(from, from + PAGE - 1);
