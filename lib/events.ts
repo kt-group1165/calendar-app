@@ -518,15 +518,18 @@ export async function getEventOfficeMap(
   const map = new Map<string, string | null>();
   const unique = Array.from(new Set(eventIds.filter((id): id is string => !!id)));
   if (unique.length === 0) return map;
-  const PAGE = 1000;
-  for (let i = 0; i < unique.length; i += PAGE) {
-    const batch = unique.slice(i, i + PAGE);
-    const { data, error } = await supabase
-      .from("events")
-      .select("id, office_id")
-      .in("id", batch);
+  // ⚠ 2026-09-03 実測: .in() のリストが~350件を超えるとPostgresの実行計画が
+  //   非線形に悪化し1回7秒超かかる (eventsテーブルは431行しか無いのに同じ崖を踏む
+  //   = テーブルサイズでなくINリストのサイズそのものが原因)。150件chunk+並列fetchに変更。
+  const PAGE = 150;
+  const batches: string[][] = [];
+  for (let i = 0; i < unique.length; i += PAGE) batches.push(unique.slice(i, i + PAGE));
+  const results = await Promise.all(
+    batches.map((batch) => supabase.from("events").select("id, office_id").in("id", batch)),
+  );
+  type Row = { id: string; office_id: string | null };
+  for (const { data, error } of results) {
     if (error) continue;
-    type Row = { id: string; office_id: string | null };
     for (const row of (data ?? []) as Row[]) {
       map.set(row.id, row.office_id);
     }
