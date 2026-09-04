@@ -6,7 +6,8 @@
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "check:events-scope": "tsx scripts/events-scope-verify.mts"
   },
   "dependencies": {
     "@kt/shared": "git+https://github.com/kt-group1165/shared.git#v0.1.0",
