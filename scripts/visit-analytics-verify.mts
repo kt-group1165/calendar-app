@@ -152,6 +152,26 @@ async function main() {
   eq("★ area_targetsに無いarea_idのeventは0件のはず (未知エリアは黙って除外される設計)", unknownArea.length, 0);
 
   const members = await pageAll<{ id: string; name: string }>("members", "id, name");
+  // ★ getAssigneePrimaryOfficeMap() は members.name をキーに member_id を引く
+  //   (memory: feedback_name_based_lookup_collision_risk — 同姓同名だと後勝ちで
+  //   別人のprimary officeを誤って掴む)。visit_analytics.ts は未修正のままなので、
+  //   まず「母数」= 実際に同姓同名が何組あるかを固定する (2026-09-05実測)。
+  const byNameAll = new Map<string, string[]>();
+  for (const m of members) { if (!byNameAll.has(m.name)) byNameAll.set(m.name, []); byNameAll.get(m.name)!.push(m.id); }
+  const nameCollisions = [...byNameAll.entries()].filter(([, ids]) => ids.length > 1);
+  console.log(`\n★ 【分母】members 全${members.length}件中、同姓同名(name完全一致で2件以上): ${nameCollisions.length} 組`);
+  if (nameCollisions.length === 0) {
+    console.log("  → 0組。name-based lookupの誤爆リスクは現状未発火 (id引きへの是正は不要な状態)。");
+  } else {
+    for (const [nm, ids] of nameCollisions) console.log(`  ★ ${nm}  x${ids.length}  ids=${ids.join(",")}`);
+    console.log("  ⚠ 1組以上あるので、visit_analytics.ts の getAssigneePrimaryOfficeMap() は");
+    console.log("    name一致で後勝ちする設計のため、この名前がfukuyogu-kanriのeventのassigneeに");
+    console.log("    使われていると誤ったprimary officeに集計される可能性がある。id引きへの是正を検討すること。");
+  }
+  // ⚠ ここは pass/fail の assertion にしない (0を目指す検査にしない・規律)。
+  //   同姓同名の出現はコードのバグではなくデータの事実であり、増えても
+  //   「壊れた」わけではない。出現したら人が見て是正を判断する。
+
   const nameToId = new Map(members.map((m) => [m.name, m.id]));
   const mo = await pageAll<{ member_id: string; office_id: string; is_primary: boolean }>(
     "member_offices",
