@@ -96,15 +96,27 @@ async function main() {
   //   実データでは 0 以下の行は現状 0 件 (2026-09-05実測・全26行) だが、
   //   編集画面から 0 を入れて保存できてしまう状態。到達したときの実際の挙動を
   //   固定しておく。
-  console.log("\n  ⚠ /admin/visit-targets の編集(handleSave)には newDays<=0 のガードが無い");
-  console.log("     (追加(handleAdd)にはある。2026-09-05実測: 実データに該当行は0件)");
-  eq("★ target=0 で今日訪問 (daysAgo=0) → danger (0<0はfalseなので即危険表示になる)",
+  console.log("\n  ⚠ /admin/visit-targets の編集(handleSave)には newDays<=0 のガードが無かった");
+  console.log("     (追加(handleAdd)にはある)。2026-09-05に是正済み (Number.isFinite/isInteger/>0)。");
+  console.log("     ⚠ 編集フォームはFREQUENCY_PRESETSのselectなので通常操作では未達成。");
+  console.log("     既存行に想定外の値が入っている場合に編集で直せず保存し続けることへの安全網。");
+  console.log("     以下は target_frequency_days が想定外の値のときの判定関数の挙動を固定する:");
+  eq("target=0 で今日訪問 (daysAgo=0) → danger (0<0はfalseなので即危険表示になる)",
     judgeStatus(0, 0), "danger");
+  eq("target=負値(-7) で経過0日 → danger (0<-7も0<-10.5もfalseなので最終分岐に落ちる)",
+    judgeStatus(0, -7), "danger");
+  eq("target=非整数(7.5)・経過7日 → good (7<7.5)", judgeStatus(7, 7.5), "good");
+  eq("target=非整数(7.5)・経過8日 → warn (8<7.5はfalse、8<11.25はtrue)", judgeStatus(8, 7.5), "warn");
   const monthlyTargetAtZero = 30 / 0;
-  eq("★ trend画面の月間目標 30/target_frequency_days は target=0 で Infinity になる",
+  eq("trend画面の月間目標 30/target_frequency_days は target=0 で Infinity になる",
     monthlyTargetAtZero, Infinity);
-  eq("★ Infinityで割るので、visitsが1件以上あっても ratio=0 (未達表示になる)",
+  eq("Infinityで割るので、visitsが1件以上あっても ratio=0 (未達表示になる)",
     3 / monthlyTargetAtZero, 0);
+  const monthlyTargetAtNegative = 30 / -7;
+  eq("target=負値(-7) の月間目標は負数になる (-4.29)", Math.round(monthlyTargetAtNegative * 100) / 100, -4.29);
+  console.log("  ⚠ target=負値のとき ratio(=visits/月間目標)は負になるが、trend画面の色分岐は");
+  console.log("    「ratio>=1→緑」「total>0→黄」の順でtotalを直接見るため、visits>0なら黄で");
+  console.log("    表示される (ratioが負になること自体は表示に影響しない。情報記録のみ)。");
 
   // ★ 負のコントロール: 比較演算子を壊して境界が動くことを確認する
   {

@@ -68,6 +68,13 @@ export default function VisitTargetsAdminPage() {
 
   async function handleSave(id: string) {
     setErrorMsg(null);
+    // handleAdd と同じガード。編集フォームは FREQUENCY_PRESETS の select なので
+    // 通常操作では起こらないが、既存行に想定外の値 (0以下・非整数) が入っている
+    // 場合に「編集で直せずそのまま保存し続ける」ことを防ぐ (2026-09-05 追加)。
+    if (!Number.isFinite(editingDays) || !Number.isInteger(editingDays) || editingDays <= 0) {
+      setErrorMsg("頻度は1以上の整数で選択してください");
+      return;
+    }
     const sb = getSupabase();
     const { error } = await sb
       .from("fukuyogu_area_targets")
