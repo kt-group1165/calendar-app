@@ -90,6 +90,22 @@ async function main() {
   eq("経過0日 / 目標1日 (毎日目標・当日訪問) → good", judgeStatus(0, 1), "good");
   eq("経過1日 / 目標1日 (毎日目標・1日空いた) → warn", judgeStatus(1, 1), "warn");
 
+  // ★ /admin/visit-targets (目標頻度の編集画面) の追加検証。
+  //   handleAdd() は newDays<=0 を弾くが、★ handleSave() (既存行の編集) には
+  //   同じ検証が無い (2026-09-05 実測: app/admin/visit-targets/page.tsx:69-80)。
+  //   実データでは 0 以下の行は現状 0 件 (2026-09-05実測・全26行) だが、
+  //   編集画面から 0 を入れて保存できてしまう状態。到達したときの実際の挙動を
+  //   固定しておく。
+  console.log("\n  ⚠ /admin/visit-targets の編集(handleSave)には newDays<=0 のガードが無い");
+  console.log("     (追加(handleAdd)にはある。2026-09-05実測: 実データに該当行は0件)");
+  eq("★ target=0 で今日訪問 (daysAgo=0) → danger (0<0はfalseなので即危険表示になる)",
+    judgeStatus(0, 0), "danger");
+  const monthlyTargetAtZero = 30 / 0;
+  eq("★ trend画面の月間目標 30/target_frequency_days は target=0 で Infinity になる",
+    monthlyTargetAtZero, Infinity);
+  eq("★ Infinityで割るので、visitsが1件以上あっても ratio=0 (未達表示になる)",
+    3 / monthlyTargetAtZero, 0);
+
   // ★ 負のコントロール: 比較演算子を壊して境界が動くことを確認する
   {
     const brokenJudge = (daysAgo: number | null, targetDays: number): string => {
