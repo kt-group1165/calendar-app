@@ -23,6 +23,7 @@ import {
   getEventsByDateRange, getEventById, createEvent, updateEvent,
   softDeleteEvent, cleanupOldDeletedEvents,
   logActivity, getUnreadActivityCount, getAllEvents,
+  isEventVisibleInOffice,
 } from "@/lib/events";
 import { getMembers, type Member } from "@/lib/members";
 import { getOffices, type Office } from "@/lib/offices";
@@ -401,16 +402,10 @@ export default function TenantCalendarPage() {
 
   const officeFilteredEvents = useMemo(() => {
     if (!currentOfficeId) return events;
-    return events.filter(
-      (e) =>
-        // Phase 9-5: scope_office_ids に currentOfficeId を含めば表示
-        // (兼務 staff の event が全所属 office で見える)
-        (e.scope_office_ids ?? []).includes(currentOfficeId) ||
-        // 後方互換：scope 未設定 / office_id 一致
-        e.office_id === currentOfficeId ||
-        // 旧データ用: office_id未設定でも、担当者がこの事業所ならこの事業所扱い
-        (e.office_id == null && e.assignees.some((a) => officeMemberNames.has(a)))
-    );
+    // 判定本体は lib/events.ts の isEventVisibleInOffice() に切り出し済み
+    // (2026-09-05。挙動は変更していない。境界値は
+    //  scripts/office-filtered-events-verify.mts で検証)
+    return events.filter((e) => isEventVisibleInOffice(e, currentOfficeId, officeMemberNames));
   }, [events, currentOfficeId, officeMemberNames]);
 
   const hasFilter = filterMembers.length > 0 || filterGroups.length > 0 || filterAreas.length > 0 || filterEventTypes.length > 0;

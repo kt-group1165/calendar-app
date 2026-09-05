@@ -1,6 +1,42 @@
 import { supabase, type Event, type EventInsert, type EventUpdate } from "./supabase";
 import { todayYmd } from "./date-jst";
 
+/**
+ * event が指定 office の画面に表示されるべきか (client 側フィルタ)。
+ *
+ * app/[tenant]/page.tsx の officeFilteredEvents に埋まっていた式を、挙動を
+ * 1ミリも変えずに純関数として切り出した (2026-09-05)。DB 側の RLS
+ * (scope_office_ids への .contains/.overlaps。lib/events.ts 内の他関数が
+ * 使っている) とは別に、**client 側でも同じ判定を再度行っている**箇所。
+ *
+ * 3つの判定を OR で見る:
+ *   ① Phase 9-5: scope_office_ids に officeId を含む
+ *      (= events_compute_auto_scope が計算した「兼務展開後」の集合。
+ *       auto_scope_no_expand の双方向遮断もこの集合に反映済み)
+ *   ② 後方互換: scope 未設定 (空配列) でも office_id が一致すれば表示
+ *      (= 自分の origin office では、scope 計算が何であれ必ず見える)
+ *   ③ 旧データ用: office_id が未設定 (Phase 9-5 以前の event) でも、
+ *      現在の assignee がこの office のメンバーなら表示
+ *      (= assignee の member_offices を直接見る。scope_office_ids は
+ *      一切参照しない。auto_scope_no_expand も考慮されない)
+ *
+ * ⚠ ③は auto_scope_no_expand を考慮しないので、office_id が null の
+ *   旧イベントに限っては no_expand office にも通常どおり展開されうる。
+ *   office_id が入っている現行データ (2026-09-05実測で対象範囲を確認) には
+ *   影響しない。
+ */
+export function isEventVisibleInOffice(
+  e: Pick<Event, "scope_office_ids" | "office_id" | "assignees">,
+  officeId: string,
+  officeMemberNames: Set<string>,
+): boolean {
+  return (
+    (e.scope_office_ids ?? []).includes(officeId) ||
+    e.office_id === officeId ||
+    (e.office_id == null && e.assignees.some((a) => officeMemberNames.has(a)))
+  );
+}
+
 // 画像圧縮（1280px・85%・WebP）
 async function compressImage(file: File): Promise<File> {
   return new Promise((resolve) => {
