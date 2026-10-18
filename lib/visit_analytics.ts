@@ -135,9 +135,13 @@ async function getAssigneePrimaryOfficeMap(): Promise<Map<string, string>> {
     if (data.length < PAGE) break;
     mFrom += PAGE;
   }
-  const memByName = new Map<string, string>();
+  // events.assignees は氏名しか持たないので氏名で引く。同姓同名がいると
+  // 後勝ちで片方に寄ってしまうので、同じ氏名の member は全員控えておく (下で判定)
+  const memIdsByName = new Map<string, string[]>();
   for (const m of members) {
-    memByName.set(m.name, m.id);
+    const list = memIdsByName.get(m.name) ?? [];
+    list.push(m.id);
+    memIdsByName.set(m.name, list);
   }
 
   // 5 福祉用具事業所のいずれかが primary な member_offices 行を取得
@@ -167,9 +171,15 @@ async function getAssigneePrimaryOfficeMap(): Promise<Map<string, string>> {
   }
 
   const nameToPrimary = new Map<string, string>();
-  for (const [name, memId] of memByName) {
-    const office = memberIdToPrimary.get(memId);
-    if (office) nameToPrimary.set(name, office);
+  for (const [name, memIds] of memIdsByName) {
+    const offices = new Set(memIds.map((id) => memberIdToPrimary.get(id)).filter((o): o is string => !!o));
+    if (offices.size === 1) {
+      nameToPrimary.set(name, [...offices][0]);
+    } else if (offices.size > 1) {
+      // 同姓同名で福祉用具の所属が別々 → どちらの訪問か決められないので、
+      // 担当者未指定と同じエリア按分に回す (黙って片方に寄せない)
+      console.warn(`visit-analytics: 同姓同名「${name}」の所属事業所が ${offices.size} つに分かれるため、エリア按分で数えます`);
+    }
   }
   return nameToPrimary;
 }
