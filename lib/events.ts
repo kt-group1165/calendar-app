@@ -412,20 +412,29 @@ export async function cleanupOldDeletedEvents(officeId?: string): Promise<void> 
     .not("deleted_at", "is", null)
     .lt("deleted_at", cutoff.toISOString());
   if (officeId) q = q.eq("office_id", officeId);
-  const { data } = await q;
+  const { data, error: selErr } = await q;
+  if (selErr) {
+    console.error("ゴミ箱の古い予定の読み込みに失敗:", selErr.message);
+    return;
+  }
   type DeletableRow = { id: string; image_url: string | null; image_urls: string[] | null };
   const rows = (data ?? []) as DeletableRow[];
-  if (rows.length > 0) {
-    const ids = rows.map((e) => e.id);
-    const { error } = await supabase.from("events").delete().in("id", ids);
-    if (!error) {
-      for (const event of rows) {
-        const urls: string[] = event.image_urls?.length
-          ? event.image_urls
-          : event.image_url ? [event.image_url] : [];
-        for (const url of urls) {
-          try { await deleteImage(url); } catch (e) { console.warn("deleteImage に失敗 (画像が残る):", e); }
-        }
+  // 350 件前後を超える id を 1 回の .in() に渡すと URL が長すぎて 400 になる → 150 件ずつ。
+  // 消せた分だけ画像も消す (消せなかった予定の画像を先に消すと、復元したときに画像が無くなる)
+  const CHUNK = 150;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const { error } = await supabase.from("events").delete().in("id", chunk.map((e) => e.id));
+    if (error) {
+      console.error("ゴミ箱の古い予定の削除に失敗:", error.message);
+      continue;
+    }
+    for (const event of chunk) {
+      const urls: string[] = event.image_urls?.length
+        ? event.image_urls
+        : event.image_url ? [event.image_url] : [];
+      for (const url of urls) {
+        try { await deleteImage(url); } catch (e) { console.warn("deleteImage に失敗 (画像が残る):", e); }
       }
     }
   }
