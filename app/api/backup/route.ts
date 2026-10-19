@@ -30,6 +30,15 @@ function formatJST(isoStr: string): string {
   return jst.toISOString().slice(0, 16).replace("T", " ");
 }
 
+/** 失敗を Vercel のログに必ず残す (以前は 500 を返すだけで、5 か月失敗し続けても誰も気づかなかった) */
+function fail(step: string, message: string) {
+  console.error(`[backup] ${step} に失敗: ${message}`);
+  return NextResponse.json({ error: message, step }, { status: 500 });
+}
+
+/** バックアップを残す日数。これより古い backup_all_YYYY-MM-DD.csv は消す */
+const KEEP_DAYS = 60;
+
 function todayJST(): string {
   const now = new Date();
   const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
@@ -78,6 +87,8 @@ async function authorize(request: Request): Promise<
 export async function GET(request: Request) {
   const auth = await authorize(request);
   if (!auth.ok) {
+    // Cron からの 401 は CRON_SECRET 未設定・不一致のとき。気づけるようにログに出す
+    console.error(`[backup] 認可に失敗: ${auth.status} ${auth.message}`);
     return NextResponse.json({ error: auth.message }, { status: auth.status });
   }
 
@@ -94,7 +105,7 @@ export async function GET(request: Request) {
         .is("deleted_at", null)
         .order("start_date")
         .range(from, from + PAGE - 1);
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      if (error) return fail("予定の読み込み", error.message);
       if (!data || data.length === 0) break;
       allEvents.push(...data);
       if (data.length < PAGE) break;
@@ -137,15 +148,33 @@ export async function GET(request: Request) {
         upsert: true, // 同じ日付なら上書き
       });
 
-    if (uploadError) return NextResponse.json({ error: uploadError.message }, { status: 500 });
+    if (uploadError) return fail(`保存 (backups/${fileName})`, uploadError.message);
+
+    // 古いバックアップを消す (保存に成功した後だけ。消し損ねても今日の分は残っているので失敗にはしない)
+    const cutoff = new Date(Date.now() + 9 * 60 * 60 * 1000 - KEEP_DAYS * 86400000).toISOString().slice(0, 10);
+    let removed = 0;
+    const { data: files, error: listError } = await supabase.storage.from("backups").list("", { limit: 1000 });
+    if (listError) {
+      console.error(`[backup] 古いバックアップの一覧に失敗: ${listError.message}`);
+    } else {
+      const old = (files ?? [])
+        .map((f) => f.name)
+        .filter((n) => { const m = n.match(/^backup_all_(\d{4}-\d{2}-\d{2})\.csv$/); return !!m && m[1] < cutoff; });
+      if (old.length > 0) {
+        const { error: rmError } = await supabase.storage.from("backups").remove(old);
+        if (rmError) console.error(`[backup] 古いバックアップの削除に失敗: ${rmError.message}`);
+        else removed = old.length;
+      }
+    }
 
     return NextResponse.json({
       success: true,
       file: fileName,
       count: (events ?? []).length,
+      removed,
       via: auth.via,
     });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return fail("バックアップ", err instanceof Error ? err.message : String(err));
   }
 }
