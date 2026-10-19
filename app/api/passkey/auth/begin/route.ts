@@ -55,12 +55,17 @@ export async function POST(req: NextRequest) {
   });
 
   // challenge を保存 (login_id を一緒に持っておく = identifier 経由の verify で参照可)
-  await admin.from("passkey_challenges").insert({
+  // 保存できないと complete 側で必ず照合に失敗するので、ここで止めて理由を返す
+  const { error: chErr } = await admin.from("passkey_challenges").insert({
     user_id: userId,
     login_id: identifier ?? null,
     challenge: options.challenge,
     challenge_type: "authentication",
   });
+  if (chErr) {
+    console.error("[passkey/auth/begin] challenge の保存に失敗:", chErr.message);
+    return NextResponse.json({ error: "challenge_store_failed", detail: chErr.message }, { status: 500 });
+  }
 
   return NextResponse.json({ options });
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { generateRegistrationOptions } from "@simplewebauthn/server";
 import { createClient, createAdminClient } from "@/lib/supabase-server";
 import { getRpInfo } from "@/lib/passkey";
+import { logWriteError } from "@/lib/log-write-error";
 
 // POST /api/passkey/register/begin
 // 認証済み user が新しい passkey を登録するための options を返す。
@@ -66,11 +67,11 @@ export async function POST() {
 
   // challenge を保存 (5 min expiry はカラム default)
   // 既存の registration challenge は破棄
-  await admin
+  logWriteError("passkey/register 古い challenge の掃除", await admin
     .from("passkey_challenges")
     .delete()
     .eq("user_id", user.id)
-    .eq("challenge_type", "registration");
+    .eq("challenge_type", "registration"));
 
   const { error: insertErr } = await admin.from("passkey_challenges").insert({
     user_id: user.id,

@@ -3,6 +3,7 @@ import { verifyRegistrationResponse } from "@simplewebauthn/server";
 import type { RegistrationResponseJSON } from "@simplewebauthn/types";
 import { createClient, createAdminClient } from "@/lib/supabase-server";
 import { getRpInfo, uint8ArrayToBase64 } from "@/lib/passkey";
+import { logWriteError } from "@/lib/log-write-error";
 
 // POST /api/passkey/register/complete
 // body: { response: RegistrationResponseJSON, deviceName?: string }
@@ -80,20 +81,20 @@ export async function POST(req: NextRequest) {
   }
 
   // challenge cleanup
-  await admin
+  logWriteError("passkey/register challenge の掃除", await admin
     .from("passkey_challenges")
     .delete()
     .eq("user_id", user.id)
-    .eq("challenge_type", "registration");
+    .eq("challenge_type", "registration"));
 
   // Phase 11: 2 台目登録だった場合は grant を consume (= 一回限りで失効)
   //   begin で existing > 0 だった場合のみ grant が消費される。1 台目登録時は no-op。
-  await admin
+  logWriteError("passkey/register grant の消費", await admin
     .from("passkey_registration_grants")
     .update({ consumed_at: new Date().toISOString() })
     .eq("user_id", user.id)
     .is("consumed_at", null)
-    .gt("expires_at", new Date().toISOString());
+    .gt("expires_at", new Date().toISOString()));
 
   // Phase 11c: 登録時の端末を auto-trust (= この端末からは即ログイン可)
   //   body.device_id (client cookie kt_device_id) を読み、trusted_devices に upsert。
@@ -121,7 +122,7 @@ export async function POST(req: NextRequest) {
       .neq("device_id", bodyDeviceId);
     const overLimit = (othersApprovedCount ?? 0) >= APPROVED_DEVICE_LIMIT;
     const targetStatus = overLimit ? "pending" : "approved";
-    await admin.from("trusted_devices").upsert(
+    logWriteError("passkey/register 端末の承認", await admin.from("trusted_devices").upsert(
       {
         user_id: user.id,
         device_id: bodyDeviceId,
@@ -135,7 +136,7 @@ export async function POST(req: NextRequest) {
         revoked_at: null,
       },
       { onConflict: "user_id,device_id" }
-    );
+    ));
   }
 
   return NextResponse.json({ verified: true });

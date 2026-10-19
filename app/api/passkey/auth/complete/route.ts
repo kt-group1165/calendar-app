@@ -4,6 +4,7 @@ import type { AuthenticationResponseJSON } from "@simplewebauthn/types";
 import { createAdminClient } from "@/lib/supabase-server";
 import { getRpInfo, base64ToUint8Array } from "@/lib/passkey";
 import { isMasterUser } from "@/lib/master_user";
+import { logWriteError } from "@/lib/log-write-error";
 
 // POST /api/passkey/auth/complete
 // body: { response: AuthenticationResponseJSON }
@@ -70,20 +71,20 @@ export async function POST(req: NextRequest) {
   }
 
   // counter 更新 + last_used_at
-  await admin
+  logWriteError("passkey/auth counter・last_used_at", await admin
     .from("passkey_credentials")
     .update({
       counter: verification.authenticationInfo.newCounter,
       last_used_at: new Date().toISOString(),
     })
-    .eq("id", cred.id);
+    .eq("id", cred.id));
 
   // 認証 challenge cleanup (該当行のみ)
-  await admin
+  logWriteError("passkey/auth challenge の掃除", await admin
     .from("passkey_challenges")
     .delete()
     .or(`user_id.eq.${cred.user_id},user_id.is.null`)
-    .eq("challenge_type", "authentication");
+    .eq("challenge_type", "authentication"));
 
   // Phase 11c: trusted_devices check
   //   device_id (client cookie kt_device_id) を読み、approved 状態なら session 発行可。
@@ -120,7 +121,8 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
     if (!trustRow) {
       // 初見端末 → pending row を作成して承認待ち
-      await admin.from("trusted_devices").insert({
+      // 承認待ちの行が作れないと、管理者の承認画面に出ないまま「承認待ち」で止まり続けるので止める
+      const { error: pendErr } = await admin.from("trusted_devices").insert({
         user_id: cred.user_id,
         device_id: bodyDeviceId,
         device_label: bodyDeviceLabel,
@@ -128,6 +130,10 @@ export async function POST(req: NextRequest) {
         first_seen_ua: ua,
         first_seen_ip: ip,
       });
+      if (pendErr) {
+        console.error("[passkey/auth/complete] 承認待ち端末の登録に失敗:", pendErr.message);
+        return NextResponse.json({ error: "device_register_failed", detail: pendErr.message }, { status: 500 });
+      }
       return NextResponse.json(
         {
           verified: true,
@@ -150,11 +156,11 @@ export async function POST(req: NextRequest) {
     }
     if (trustRow.status === "pending") {
       // 既に pending: last_seen_at を更新するだけ
-      await admin
+      logWriteError("passkey/auth trusted_devices.last_seen_at", await admin
         .from("trusted_devices")
         .update({ last_seen_at: new Date().toISOString() })
         .eq("user_id", cred.user_id)
-        .eq("device_id", bodyDeviceId);
+        .eq("device_id", bodyDeviceId));
       return NextResponse.json(
         {
           verified: true,
@@ -165,11 +171,11 @@ export async function POST(req: NextRequest) {
       );
     }
     // status === 'approved' → last_seen_at 更新 + session 発行へ
-    await admin
+    logWriteError("passkey/auth trusted_devices.last_seen_at", await admin
       .from("trusted_devices")
       .update({ last_seen_at: new Date().toISOString() })
       .eq("user_id", cred.user_id)
-      .eq("device_id", bodyDeviceId);
+      .eq("device_id", bodyDeviceId));
   }
 
   // session 化: admin.generateLink で magiclink を発行 → client で verifyOtp

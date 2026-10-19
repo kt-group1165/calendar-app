@@ -127,11 +127,18 @@ function MembersTab({ tenantId }: { tenantId: string }) {
     setAdding(true);
     try {
       const m = await addMember(name, newColor, tenantId);
-      // 自事業所選択中なら自動で office を紐付け
+      // 自事業所選択中なら自動で office を紐付け。
+      // メンバーは追加済みなので、紐付けの失敗は「追加に失敗 (同名かも)」と混ぜずに別に知らせる
       if (currentOfficeId) {
-        await updateMemberOffice(m.id, currentOfficeId);
-        m.office_ids = Array.from(new Set([...m.office_ids, currentOfficeId]));
-        m.primary_office_id = currentOfficeId;
+        try {
+          await updateMemberOffice(m.id, currentOfficeId);
+          m.office_ids = Array.from(new Set([...m.office_ids, currentOfficeId]));
+          m.primary_office_id = currentOfficeId;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error("メンバーの事業所紐付けに失敗:", msg);
+          alert(`「${name}」は追加しましたが、事業所への紐付けに失敗しました: ${msg}`);
+        }
       }
       setMembers((prev) => [...prev, m].sort((a, b) => a.name.localeCompare(b.name, "ja")));
       setNewName("");

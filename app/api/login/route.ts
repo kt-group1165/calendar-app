@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient, createAdminClient } from "@/lib/supabase-server";
 import { isValidLoginId, loginIdToSyntheticEmail } from "@/lib/login_id";
 import { isMasterUser } from "@/lib/master_user";
+import { logWriteError } from "@/lib/log-write-error";
 
 // POST /api/login
 //
@@ -176,11 +177,11 @@ export async function POST(request: Request) {
     }
     if (trustRow.status === "pending") {
       // 既に pending: last_seen_at だけ更新
-      await admin
+      logWriteError("login trusted_devices.last_seen_at", await admin
         .from("trusted_devices")
         .update({ last_seen_at: new Date().toISOString() })
         .eq("user_id", targetUser.id)
-        .eq("device_id", device_id);
+        .eq("device_id", device_id));
       return gateUntrusted(
         "approval_required",
         202,
@@ -188,11 +189,11 @@ export async function POST(request: Request) {
       );
     }
     // status === 'approved' → last_seen_at 更新 + session 維持
-    await admin
+    logWriteError("login trusted_devices.last_seen_at", await admin
       .from("trusted_devices")
       .update({ last_seen_at: new Date().toISOString() })
       .eq("user_id", targetUser.id)
-      .eq("device_id", device_id);
+      .eq("device_id", device_id));
   }
 
   // 緊急フラグを consume (one-shot)

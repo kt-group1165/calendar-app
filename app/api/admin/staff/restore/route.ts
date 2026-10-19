@@ -83,11 +83,15 @@ export async function POST(request: Request) {
   // 2) members.status = 'active'
   let membersUpdated = 0;
   if (targetMemberIds.length > 0) {
-    const { data: mRes } = await admin
+    const { data: mRes, error: mErr } = await admin
       .from("members")
       .update({ status: "active" })
       .in("id", targetMemberIds)
       .select("id");
+    if (mErr) {
+      console.error("[staff/restore] members の復帰に失敗:", mErr.message);
+      return NextResponse.json({ error: "members_restore_failed", detail: mErr.message }, { status: 500 });
+    }
     membersUpdated = mRes?.length ?? 0;
   }
 
@@ -102,12 +106,16 @@ export async function POST(request: Request) {
       .maybeSingle();
     const displayName = (invRows as { display_name?: string } | null)?.display_name;
     if (displayName) {
-      const { data: pRes } = await admin
+      const { data: pRes, error: pErr } = await admin
         .from("payroll_employees")
         .update({ employment_status: "在職者", resignation_date: null })
         .eq("name", displayName)
         .in("office_id", targetOfficeIds)
         .select("id");
+      if (pErr) {
+        console.error("[staff/restore] payroll_employees の在職復帰に失敗:", pErr.message);
+        return NextResponse.json({ error: "payroll_restore_failed", detail: pErr.message }, { status: 500 });
+      }
       payrollUpdated = pRes?.length ?? 0;
     }
   }

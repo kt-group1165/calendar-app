@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase-server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { logWriteError } from "@/lib/log-write-error";
 
 // POST /api/admin/staff/add-office
 //
@@ -101,11 +102,11 @@ export async function POST(request: Request) {
     });
   if (uoError) {
     // rollback member_offices
-    await admin
+    logWriteError("staff/add-office member_offices の巻き戻し", await admin
       .from("member_offices")
       .delete()
       .eq("member_id", member_id)
-      .eq("office_id", office_id);
+      .eq("office_id", office_id));
     return NextResponse.json({ error: "user_offices_insert_failed", detail: uoError.message }, { status: 500 });
   }
 

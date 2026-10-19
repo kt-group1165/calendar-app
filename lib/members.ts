@@ -169,18 +169,20 @@ export async function addMember(
 // Phase 9: member_offices junction の primary を切替
 export async function updateMemberOffice(id: string, officeId: string | null): Promise<void> {
   // 旧 primary を非 primary に降格
-  await supabase
+  const { error: demoteErr } = await supabase
     .from("member_offices")
     .update({ is_primary: false })
     .eq("member_id", id)
     .eq("is_primary", true);
+  if (demoteErr) throw new Error(`主事業所の解除に失敗: ${demoteErr.message}`);
   if (officeId) {
-    await supabase
+    const { error: upErr } = await supabase
       .from("member_offices")
       .upsert(
         { member_id: id, office_id: officeId, is_primary: true },
         { onConflict: "member_id,office_id" },
       );
+    if (upErr) throw new Error(`主事業所の設定に失敗: ${upErr.message}`);
   }
 }
 

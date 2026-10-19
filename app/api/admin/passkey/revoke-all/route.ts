@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient, createAdminClient } from "@/lib/supabase-server";
+import { logWriteError } from "@/lib/log-write-error";
 
 // POST /api/admin/passkey/revoke-all
 //
@@ -67,11 +68,11 @@ export async function POST(request: Request) {
   }
 
   // 待機中の grant も掃除 (リセット後の追加登録は admin が改めて発行する想定)
-  await admin
+  logWriteError("passkey/revoke-all 待機中 grant の掃除", await admin
     .from("passkey_registration_grants")
     .delete()
     .eq("user_id", target_user_id)
-    .is("consumed_at", null);
+    .is("consumed_at", null));
 
   return NextResponse.json({
     deleted_count: (deleted ?? []).length,

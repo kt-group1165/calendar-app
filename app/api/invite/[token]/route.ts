@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase-server";
 import { isValidLoginId, loginIdToSyntheticEmail } from "@/lib/login_id";
 import { verifyPassword } from "@/lib/invitations";
+import { logWriteError } from "@/lib/log-write-error";
 
 // /api/invite/[token]
 //
@@ -253,19 +254,20 @@ export async function POST(request: Request, context: RouteContext) {
   // 7b) Phase 9: member_offices junction にも primary 行 INSERT ------
   //     (members.office_id は当面残るが、新コードは junction を read source に)
   if (memberId) {
-    await admin
+    const { error: moErr } = await admin
       .from("member_offices")
       .insert({ member_id: memberId, office_id: inv.office_id, is_primary: true });
-    // 既存重複は ON CONFLICT 相当、エラーは無視 (junction が無い旧 schema の保険)
+    // 既に同じ行がある (一意制約違反 23505) のは想定内。それ以外はログに残す (所属が無いと一覧に出ない)
+    if (moErr && moErr.code !== "23505") console.error("[invite] member_offices の登録に失敗 (処理は続行):", moErr.message);
   }
 
   // 7c) Phase 9: members.auth_user_id を埋める ----------------------
   if (memberId) {
-    await admin
+    logWriteError("invite members.auth_user_id の紐付け", await admin
       .from("members")
       .update({ auth_user_id: newUserId })
       .eq("id", memberId)
-      .is("auth_user_id", null);
+      .is("auth_user_id", null));
     // 既に紐付いてれば skip。column 不在時は schema cache miss で error → 無視
   }
 
@@ -293,7 +295,7 @@ export async function POST(request: Request, context: RouteContext) {
       request.headers.get("x-real-ip") ??
       null;
     const nowIso = new Date().toISOString();
-    await admin.from("trusted_devices").upsert(
+    logWriteError("invite 端末の自動承認", await admin.from("trusted_devices").upsert(
       {
         user_id: newUserId,
         device_id: consumeDeviceId,
@@ -307,14 +309,14 @@ export async function POST(request: Request, context: RouteContext) {
         revoked_at: null,
       },
       { onConflict: "user_id,device_id" }
-    );
+    ));
   }
 
   // 8) staff_invitations に consumed_user_id を後追いで埋める --------
-  await admin
+  logWriteError("invite staff_invitations.consumed_user_id", await admin
     .from("staff_invitations")
     .update({ consumed_user_id: newUserId })
-    .eq("token", token);
+    .eq("token", token));
 
   // 9) v19: 本人が consume 時に決めた password を平文で auth_admin_passwords に保存。
   //    domen のみ閲覧可 (RLS)。本人が後から自分で変更すると DB の値は stale になるが

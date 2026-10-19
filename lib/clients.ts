@@ -110,27 +110,6 @@ export async function getClientOfficeAssignments(tenantId: string): Promise<Clie
   return all;
 }
 
-// 指定利用者の紐付け事業所を設定（既存は置換）
-export async function setClientOfficeAssignment(
-  tenantId: string,
-  clientId: string,
-  officeId: string | null,
-): Promise<void> {
-  // まず既存紐付けを削除
-  await supabase
-    .from("client_office_assignments")
-    .delete()
-    .eq("tenant_id", tenantId)
-    .eq("client_id", clientId);
-  // officeId が指定されていれば追加（null = 共有扱い）
-  if (officeId) {
-    const { error } = await supabase
-      .from("client_office_assignments")
-      .insert({ tenant_id: tenantId, client_id: clientId, office_id: officeId });
-    if (error) throw error;
-  }
-}
-
 export type ClientInsert = Omit<Client, "id" | "created_at" | "updated_at">;
 
 // テナント単位のメモを client_memos から取得して Map<client_id, body> で返す

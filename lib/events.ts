@@ -1,5 +1,6 @@
 import { supabase, type Event, type EventInsert, type EventUpdate } from "./supabase";
 import { todayYmd } from "./date-jst";
+import { logWriteError } from "@/lib/log-write-error";
 
 /**
  * event が指定 office の画面に表示されるべきか (client 側フィルタ)。
@@ -506,7 +507,7 @@ export async function logActivity(
   tenantId: string = "default"
 ): Promise<void> {
   try {
-    await supabase.from("activity_logs").insert({
+    logWriteError("activity_logs 操作履歴", await supabase.from("activity_logs").insert({
       event_id: eventId,
       event_title: eventTitle,
       action,
@@ -514,7 +515,7 @@ export async function logActivity(
       assignees_before: assigneesBefore,
       assignees_after: assigneesAfter,
       tenant_id: tenantId,
-    });
+    }));
   } catch {
     // ログ失敗はサイレントに無視
   }
