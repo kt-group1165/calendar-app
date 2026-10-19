@@ -369,7 +369,7 @@ export async function restoreEvent(id: string): Promise<void> {
 // 完全削除
 export async function permanentDeleteEvent(id: string, imageUrl: string | null): Promise<void> {
   if (imageUrl) {
-    try { await deleteImage(imageUrl); } catch {}
+    try { await deleteImage(imageUrl); } catch (e) { console.warn("deleteImage に失敗 (画像が残る):", e); }
   }
   const { error } = await supabase.from("events").delete().eq("id", id);
   if (error) throw error;
@@ -424,7 +424,7 @@ export async function cleanupOldDeletedEvents(officeId?: string): Promise<void> 
           ? event.image_urls
           : event.image_url ? [event.image_url] : [];
         for (const url of urls) {
-          try { await deleteImage(url); } catch {}
+          try { await deleteImage(url); } catch (e) { console.warn("deleteImage に失敗 (画像が残る):", e); }
         }
       }
     }

@@ -51,7 +51,7 @@ export default function HomePage() {
           // RLS は緩めで tenant 内全 office 見えるため、ここで userScope で絞る:
           //   member → 自 office のみ / office_admin → 自 office + admin calendar /
           //   group_admin → 全 office (現状維持)
-          getOffices("kt-group").catch(() => [] as Office[]),
+          getOffices("kt-group").catch((e) => { console.error("getOffices に失敗 (空で続行):", e); return [] as Office[]; }),
           // group_admin である group の集合 (空なら group_admin ではない)
           supabase.rpc("auth_admin_group_ids"),
           // company_admin である company の集合

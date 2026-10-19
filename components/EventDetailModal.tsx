@@ -80,7 +80,7 @@ export default function EventDetailModal({ tenantId, officeId, event, currentUse
       const newComment = await addComment(event.id, currentUser, trimmed);
       setComments((prev) => [...prev, newComment]);
       setCommentText("");
-      logActivity(event.id, event.title, "comment_added", currentUser, event.assignees, event.assignees, tenantId).catch(() => {});
+      logActivity(event.id, event.title, "comment_added", currentUser, event.assignees, event.assignees, tenantId).catch((e) => console.error("logActivity に失敗:", e));
     } catch {
       alert("コメントの送信に失敗しました");
     } finally {

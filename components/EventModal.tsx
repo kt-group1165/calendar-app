@@ -804,7 +804,7 @@ export default function EventModal({ tenantId, officeId, event, initialData, def
   }
 
   async function handleRemoveImage(url: string) {
-    try { await deleteImage(url); } catch {}
+    try { await deleteImage(url); } catch (e) { console.warn("deleteImage に失敗 (画像が残る):", e); }
     if (url === imageUrl) {
       const next = imageUrls[0] ?? "";
       setImageUrl(next);

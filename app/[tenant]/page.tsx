@@ -1049,9 +1049,9 @@ export default function TenantCalendarPage() {
           onClose={() => {
             setShowAdmin(false);
             const office = currentOfficeId ?? undefined;
-            getGroups(tenantId).then(setGroups).catch(() => {});
-            getEventAreas(tenantId, office).then(setEventAreas).catch(() => {});
-            getEventTypes(tenantId, { officeId: office }).then(setEventTypes).catch(() => {});
+            getGroups(tenantId).then(setGroups).catch((e) => console.error("getGroups に失敗:", e));
+            getEventAreas(tenantId, office).then(setEventAreas).catch((e) => console.error("getEventAreas に失敗:", e));
+            getEventTypes(tenantId, { officeId: office }).then(setEventTypes).catch((e) => console.error("getEventTypes に失敗:", e));
             // 用件種別フィルタON/OFFの個人設定を再読込
             const stored = typeof window !== "undefined"
               ? localStorage.getItem(EVENT_TYPE_FILTER_ENABLED_KEY(tenantId))

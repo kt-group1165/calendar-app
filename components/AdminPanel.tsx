@@ -1255,7 +1255,7 @@ function CsvTab({ tenantId }: { tenantId: string }) {
 
   useEffect(() => { loadBackups(); }, []);
   useEffect(() => {
-    getEventAreas(tenantId).then(setEventAreas).catch(() => setEventAreas([]));
+    getEventAreas(tenantId).then(setEventAreas).catch((e) => { console.error("getEventAreas に失敗 (空で続行):", e); setEventAreas([]); });
   }, [tenantId]);
   // backups バケットは非公開 (利用者名・住所を含む) なので、group_admin だけ通る API 経由で読む。
   // 以前は画面から直接読んでいて、バケットが無い間もエラーを握りつぶして「まだありません」と出ていた。
@@ -1690,7 +1690,7 @@ function SettingsTab({ tenantId }: { tenantId: string }) {
   const [offices, setOffices] = useState<Office[]>([]);
 
   useEffect(() => {
-    getOffices(tenantId).then(setOffices).catch(() => {});
+    getOffices(tenantId).then(setOffices).catch((e) => console.error("getOffices に失敗:", e));
   }, [tenantId]);
 
   function switchOffice(officeId: string | null) {
@@ -1707,7 +1707,7 @@ function SettingsTab({ tenantId }: { tenantId: string }) {
   const [clientSelectionEnabled, setClientSelectionEnabled] = useState(true);
 
   useEffect(() => {
-    getClientSelectionEnabled(tenantId).then(setClientSelectionEnabled).catch(() => {});
+    getClientSelectionEnabled(tenantId).then(setClientSelectionEnabled).catch((e) => console.error("getClientSelectionEnabled に失敗:", e));
   }, [tenantId]);
 
   async function handleToggleClientSelection(val: boolean) {
@@ -1745,7 +1745,7 @@ function SettingsTab({ tenantId }: { tenantId: string }) {
   const [visitTypeRequired, setVisitTypeRequired] = useState(false);
 
   useEffect(() => {
-    getVisitTypeRequired(tenantId).then(setVisitTypeRequired).catch(() => {});
+    getVisitTypeRequired(tenantId).then(setVisitTypeRequired).catch((e) => console.error("getVisitTypeRequired に失敗:", e));
   }, [tenantId]);
 
   async function handleToggleVisitTypeRequired(val: boolean) {
@@ -1763,7 +1763,7 @@ function SettingsTab({ tenantId }: { tenantId: string }) {
     getMemoPreset(tenantId).then((p) => {
       setMemoPresetEnabled(p.enabled);
       setMemoPresetText(p.text);
-    }).catch(() => {});
+    }).catch((e) => console.error("getMemoPreset に失敗:", e));
   }, [tenantId]);
 
   async function handleSaveMemoPreset() {
@@ -1787,7 +1787,7 @@ function SettingsTab({ tenantId }: { tenantId: string }) {
       setOrderEnabled(s.enabled);
       setOrderTo(s.to);
       setOrderFrom(s.from || "onboarding@resend.dev");
-    }).catch(() => {});
+    }).catch((e) => console.error("getOrderEmailSettings に失敗:", e));
   }, [tenantId]);
 
   async function handleSaveOrderEmail() {
@@ -1808,7 +1808,7 @@ function SettingsTab({ tenantId }: { tenantId: string }) {
       supabase.from("members").select("*", { count: "exact", head: true }).eq("tenant_id", tenantId),
     ]).then(([{count: e}, {count: c}, {count: m}]) => {
       setStats({ events: e ?? 0, comments: c ?? 0, members: m ?? 0 });
-    }).catch(() => {});
+    }).catch((e) => console.error("件数の集計 (AdminPanel) に失敗:", e));
   // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional dep stability
   }, []);
 
