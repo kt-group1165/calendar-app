@@ -1239,6 +1239,8 @@ function CsvTab({ tenantId }: { tenantId: string }) {
   const [importProgress, setImportProgress] = useState<{ done: number; total: number } | null>(null);
   const [backups, setBackups] = useState<{ name: string; created_at: string }[]>([]);
   const [loadingBackups, setLoadingBackups] = useState(false);
+  const [backupError, setBackupError] = useState("");
+  const [runningBackup, setRunningBackup] = useState(false);
   const [eventAreas, setEventAreas] = useState<EventArea[]>([]);
   const [syncMode, setSyncMode] = useState(false);
   const [importScope, setImportScope] = useState<"range" | "all">("all");
@@ -1248,24 +1250,62 @@ function CsvTab({ tenantId }: { tenantId: string }) {
   useEffect(() => {
     getEventAreas(tenantId).then(setEventAreas).catch(() => setEventAreas([]));
   }, [tenantId]);
+  // backups バケットは非公開 (利用者名・住所を含む) なので、group_admin だけ通る API 経由で読む。
+  // 以前は画面から直接読んでいて、バケットが無い間もエラーを握りつぶして「まだありません」と出ていた。
   async function loadBackups() {
     setLoadingBackups(true);
+    setBackupError("");
     try {
-      const { data } = await supabase.storage.from("backups").list("", { sortBy: { column: "name", order: "desc" }, limit: 30 });
-      const files = (data ?? []) as { name: string; created_at?: string | null }[];
-      setBackups(files.filter((f) => f.name.endsWith(".csv")).map((f) => ({ name: f.name, created_at: f.created_at ?? "" })));
-    } catch { /* バケット未作成などは無視 */ }
-    finally { setLoadingBackups(false); }
+      const res = await fetch("/api/backup/files");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      setBackups((json.files ?? []) as { name: string; created_at: string }[]);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("バックアップ一覧の取得に失敗:", msg);
+      setBackupError(msg);
+    } finally {
+      setLoadingBackups(false);
+    }
   }
 
   async function downloadBackup(fileName: string) {
-    const { data } = await supabase.storage.from("backups").download(fileName);
-    if (!data) return;
-    const url = URL.createObjectURL(data);
-    const a = document.createElement("a");
-    a.href = url; a.download = fileName; a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const res = await fetch(`/api/backup/files?file=${encodeURIComponent(fileName)}`);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json.url) throw new Error(json.error ?? `HTTP ${res.status}`);
+      const a = document.createElement("a");
+      a.href = json.url; a.download = fileName; a.click();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("バックアップのダウンロードに失敗:", msg);
+      alert(`ダウンロードに失敗しました: ${msg}`);
+    }
   }
+
+  async function runBackupNow() {
+    if (!confirm("いまの予定で今日の分のバックアップを作ります (同じ日の分は上書き)。")) return;
+    setRunningBackup(true);
+    try {
+      const res = await fetch("/api/backup");
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(`${json.step ? json.step + ": " : ""}${json.error ?? `HTTP ${res.status}`}`);
+      await loadBackups();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("バックアップの実行に失敗:", msg);
+      alert(`バックアップに失敗しました: ${msg}`);
+    } finally {
+      setRunningBackup(false);
+    }
+  }
+
+  // 最新のバックアップが何日前か (ファイル名の日付 = 日本時間の日付)
+  const latestBackupDate = backups[0]?.name.match(/(\d{4}-\d{2}-\d{2})/)?.[1] ?? null;
+  const backupAgeDays = latestBackupDate
+    ? Math.round((new Date(format(now, "yyyy-MM-dd") + "T00:00:00").getTime() - new Date(latestBackupDate + "T00:00:00").getTime()) / 86400000)
+    : null;
+  const backupStale = !loadingBackups && !backupError && (backupAgeDays === null || backupAgeDays >= 2);
 
   async function handleExport() {
     setExporting(true);
@@ -1505,9 +1545,24 @@ function CsvTab({ tenantId }: { tenantId: string }) {
             更新
           </button>
         </div>
-        <p className="text-xs text-gray-400">毎日0時（日本時間）に自動生成されます</p>
+        <p className="text-xs text-gray-400">毎日0時（日本時間）に自動生成され、60日分残ります</p>
+        {backupStale && (
+          <div className="bg-red-50 border border-red-200 rounded-xl px-3 py-2 text-xs text-red-700 space-y-1">
+            <p className="font-semibold">
+              {backupAgeDays === null ? "自動バックアップが 1 件もありません" : `最後のバックアップが ${backupAgeDays} 日前 (${latestBackupDate}) です`}
+            </p>
+            <p>毎晩の自動実行が失敗している可能性があります。Vercel のログで「[backup]」を確認してください。</p>
+          </div>
+        )}
+        <button onClick={runBackupNow} disabled={runningBackup}
+          className="w-full flex items-center justify-center gap-1.5 border border-indigo-200 text-indigo-600 hover:bg-indigo-50 disabled:opacity-50 rounded-xl py-2 text-sm">
+          {runningBackup ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+          今すぐバックアップを作る
+        </button>
         {loadingBackups ? (
           <div className="flex justify-center py-4"><Loader2 size={20} className="animate-spin text-gray-300" /></div>
+        ) : backupError ? (
+          <p className="text-xs text-red-600 text-center py-4">一覧の取得に失敗しました: {backupError}</p>
         ) : backups.length === 0 ? (
           <p className="text-xs text-gray-400 text-center py-4">バックアップはまだありません</p>
         ) : (

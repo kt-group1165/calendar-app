@@ -78,6 +78,14 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  // Vercel Cron の日次バックアップはログインしないので、ここで /login へ飛ばすと
+  // route の CRON_SECRET 照合まで届かない (2026-05 の実装以来、毎晩ここで止まっていた)。
+  // CRON_SECRET が一致する /api/backup だけ通す (route 側でも同じ照合をする)。
+  const cronSecret = process.env.CRON_SECRET;
+  if (pathname === "/api/backup" && cronSecret && request.headers.get("authorization") === `Bearer ${cronSecret}`) {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
