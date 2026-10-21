@@ -110,7 +110,7 @@ export async function getMembers(
           //   member_offices に単独の id は無いので複合キーの 2 列で並べる
           .order("member_id")
           .order("office_id")
-          .range(from, from + PAGE - 1);
+          .range(from, from + PAGE - 1); // paging-order: unique (member_id, office_id が複合主キー)
         if (error) throw error;
         if (!data || data.length === 0) break;
         acc.push(...(data as RawMemberOffice[]));

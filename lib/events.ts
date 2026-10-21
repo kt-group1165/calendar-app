@@ -92,7 +92,7 @@ export async function getAllEvents(officeId?: string, includeDemo: boolean = fal
     if (officeId) q = q.eq("office_id", officeId);
     const { data, error } = await q
       .order("start_date", { ascending: true })
-      .range(from, from + PAGE - 1);
+      .order("id").range(from, from + PAGE - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
     all.push(...data);
@@ -113,7 +113,7 @@ export async function getAllEventsAllTenants(): Promise<Event[]> {
       .select("*")
       .is("deleted_at", null)
       .order("start_date", { ascending: true })
-      .range(from, from + PAGE - 1);
+      .order("id").range(from, from + PAGE - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
     all.push(...data);
@@ -303,7 +303,7 @@ export async function getMemoEvents(officeId?: string, includeDemo: boolean = fa
     if (officeId) q = q.eq("office_id", officeId);
     const { data, error } = await q
       .order("created_at", { ascending: false })
-      .range(from, from + PAGE - 1);
+      .order("id").range(from, from + PAGE - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
     all.push(...data);
@@ -391,7 +391,7 @@ export async function getDeletedEvents(officeId?: string, includeDemo: boolean =
     if (officeId) q = q.eq("office_id", officeId);
     const { data, error } = await q
       .order("deleted_at", { ascending: false })
-      .range(from, from + PAGE - 1);
+      .order("id").range(from, from + PAGE - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
     all.push(...data);
@@ -541,7 +541,7 @@ export async function getActivityLogs(
     .select("*")
     .eq("tenant_id", tenantId)
     .order("created_at", { ascending: false })
-    .range(offset, offset + limit - 1);
+    .order("id").range(offset, offset + limit - 1);
 
   if (userFilter) {
     query = query.or(

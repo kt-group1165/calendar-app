@@ -62,7 +62,7 @@ export async function GET(request: Request) {
         .select("*")
         .is("deleted_at", null)
         .order("start_date")
-        .range(from, from + PAGE - 1);
+        .order("id").range(from, from + PAGE - 1);
       if (error) return fail("予定の読み込み", error.message);
       if (!data || data.length === 0) break;
       allEvents.push(...data);

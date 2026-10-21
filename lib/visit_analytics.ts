@@ -152,7 +152,7 @@ async function getAssigneePrimaryOfficeMap(): Promise<Map<string, string>> {
       .from("member_offices")
       .select("member_id, office_id, is_primary")
       .in("office_id", FUKUYOGU_OFFICE_IDS as unknown as string[])
-      .order("member_id").order("office_id").range(moFrom, moFrom + PAGE - 1);
+      .order("member_id").order("office_id").range(moFrom, moFrom + PAGE - 1); // paging-order: unique (member_id, office_id が複合主キー)
     if (moErr) throw moErr;
     if (!data || data.length === 0) break;
     moRows.push(...(data as { member_id: string; office_id: string; is_primary: boolean }[]));

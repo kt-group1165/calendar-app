@@ -119,7 +119,7 @@ async function fetchTenantMemos(tenantId: string): Promise<Map<string, string>> 
       .eq("tenant_id", tenantId)
       .eq("scope", "tenant")
       .order("updated_at", { ascending: false })
-      .range(from, from + PAGE - 1);
+      .order("id").range(from, from + PAGE - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
     for (const row of data as { client_id: string; body: string; updated_at: string }[]) {
@@ -151,7 +151,7 @@ export async function getClients(tenantId: string, officeId?: string): Promise<C
     if (officeId) q = q.eq("office_id", officeId);
     const { data, error } = await q
       .order("furigana", { ascending: true })
-      .range(from, from + PAGE - 1);
+      .order("id").range(from, from + PAGE - 1);
     if (error) throw error;
     if (!data || data.length === 0) break;
     all.push(...data);
